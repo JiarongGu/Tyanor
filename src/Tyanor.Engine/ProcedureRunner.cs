@@ -29,6 +29,29 @@ public sealed class ProcedureRunner(IDeploymentTarget target, IRunHistory histor
     private readonly RetryPolicy _retry = retry ?? new RetryPolicy();
 
     /// <summary>
+    /// Work out what <see cref="ApplyAsync"/> would do, WITHOUT doing any of it — a read-only pass that
+    /// asks the provider for each unit's phase and runs the same decision the apply will run.
+    ///
+    /// <para>Because the plan is derived from the provider rather than from a stored model, it cannot be
+    /// stale in the way a state-file plan can. It is still a forecast: see <see cref="Plan"/> for the two
+    /// things it honestly cannot know.</para>
+    /// </summary>
+    /// <param name="procedure">The units, in apply order.</param>
+    /// <param name="request">What would be deployed, and where.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<Plan> PlanAsync(Procedure procedure, DeploymentRequest request, CancellationToken ct = default)
+    {
+        var steps = new List<PlannedStep>();
+        foreach (var unit in procedure.Forward())
+        {
+            ct.ThrowIfCancellationRequested();
+            var phase = await WithRetryAsync(() => target.Driver.PhaseAsync(unit, request, ct), ct);
+            steps.Add(new PlannedStep(unit, phase, Reconcile.Decide(phase)));
+        }
+        return new Plan(procedure.Name, request.Prefix, steps);
+    }
+
+    /// <summary>
     /// Converge <paramref name="request"/> on the target, in unit order. Re-entrant: calling this again
     /// after a pause continues the same run.
     /// </summary>

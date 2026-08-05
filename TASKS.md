@@ -40,14 +40,29 @@ than after either consumer ships.
 - Acceptance: both procedures run on the same engine with no `if (provider == …)` anywhere in Core or
   Engine.
 
-## 3. Run history that survives the process
+## 3. State backends beyond a local file — SQLite, Postgres, S3
 
-`IRunHistory` has no implementation. A run record must be readable after a crash or it cannot make a run
-resumable — that is the whole contract.
+`FileRunHistory` ships and is the default; the seam is `IRunHistory` and the choice is the consumer's
+(`AddTyanor(cfg => cfg.UseFileState(...))`). What is missing is everywhere else state needs to live.
 
-- SQLite is the obvious first one. Keep it in a separate package so Core stays dependency-free.
-- Must refuse to delete a live record (`RunRecord.IsLive`) — see `reconcile-dont-mirror.md`.
+One package per backend so `Tyanor.Core` stays dependency-free — the sibling libraries' shape:
+
+- **`Tyanor.Storage.Sqlite`** — a single-machine operator with more than a file's worth of history.
+- **`Tyanor.Storage.Postgres`** — a team, or a service that already has a database.
+- **`Tyanor.Storage.S3`** — CI and multiple machines sharing one history.
+
+**The one thing SHARED state adds, which the local file does not have to solve: concurrency.** With S3 or
+Postgres, `LiveAsync` becomes a cross-machine question — "is another operator or pipeline already applying
+this?" — and the answer needs to be trustworthy at the moment it is read. Decide deliberately whether that
+is advisory (report it, let the operator choose) or enforced (a lease with an expiry). Advisory is the
+honest default and matches how the engine already behaves: reconcile ATTACHES to work in flight rather
+than fighting it, so a second applier is safe, merely surprising. A lease is worth it only when someone
+demonstrates a case where attaching is not enough.
+
+- Every backend must refuse to delete a live record (`RunRecord.IsLive`) — the guard is per-implementation
+  today, and a shared test suite over `IRunHistory` would be a better home for it.
 - Acceptance: kill the process mid-run; a new process finds the live record via `LiveAsync` and resumes.
+  For a shared backend, do it from a DIFFERENT machine.
 
 ## 4. Decide what a "procedure" is authored as
 
@@ -62,6 +77,8 @@ procedures, not pushed by a diagram — and the temptation here is to invent a D
 
 ## Deferred, deliberately
 
-- **A plan/diff step.** Wants a resource model, which wants a graph, which is the thing being avoided (D3).
+- **A resource-level diff** ("this property will change from X to Y"). Wants a resource model, which wants
+  a graph (D3). The UNIT-level plan that shipped gives most of the value — what will be created, replaced,
+  or waited on — for none of that cost.
 - **Plugin discovery.** Providers register in the composition root (D6).
 - **Any provider beyond AWS**, until item 2 says what is actually shared.

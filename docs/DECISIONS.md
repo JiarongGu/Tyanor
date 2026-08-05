@@ -97,3 +97,30 @@ Providers are registered in the consuming application's composition root, not lo
 **Why.** A deployment tool holds credentials and mutates infrastructure. Loading code it *found* is a
 security question nobody asked for, and the convenience it buys — not writing one registration line — is
 not worth it.
+
+---
+
+## D7 — Run state IS persisted, at a location the consumer configures (2026-08-06) — amends D1
+
+D1 said "keep no state file". That was **too broad, and as written it was wrong for a library.** It
+conflated two different things under one slogan:
+
+- **A mirror of the provider's resources** — Terraform's `tfstate`, a local model of what exists in the
+  cloud. Still rejected, for every reason D1 gives. Nothing here changes that.
+- **A record of INTENT** — that a run was attempted, with which configuration, and how it ended. Tyanor
+  has always needed this: `IRunHistory` existed from the first commit, and without something durable
+  behind it a run cannot be resumed after the process dies, which is the engine's whole guarantee.
+
+Shipping an interface with no implementation left the library unusable for its stated purpose. **Where
+that state lives is the consuming application's decision, not Tyanor's** — the same shape as configuring a
+storage backend in a sibling library, rather than a tool that decides where an operator's records go.
+
+**What ships:** `TyanorOptions.StatePath`, `FileRunHistory` (JSON, atomic write-then-replace),
+`InMemoryRunHistory`, and `AddTyanor(cfg => cfg.UseFileState(...))`. A consumer wanting SQLite or a table
+in its own database implements `IRunHistory`.
+
+**The default is durable, not in-memory.** An in-memory default would appear to work right up until the
+moment resume mattered — which is the moment it is least recoverable and least expected.
+
+**The line that still holds:** run history records what was ATTEMPTED. It must never grow a list of created
+resources. That is the mirror returning in disguise, and it is the thing D1 is actually about.

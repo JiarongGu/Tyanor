@@ -1,8 +1,16 @@
 # Reconcile Against the Provider — Never Mirror Its State
 
 **Tyanor does not keep a model of what exists in the provider. Every run asks the provider what is true and
-decides again. We record INTENT (a run happened, with this configuration); we read FACT from the target.
-There is no state file, and adding one would be a change of architecture, not an optimisation.**
+decides again. We record INTENT (a run happened, with this configuration); we read FACT from the target.**
+
+> **Two things are easy to confuse, and the distinction is the whole rule.** Tyanor **does** persist run
+> state — `IRunHistory`, at a location the consuming application configures — because a run that cannot be
+> found after the process dies cannot be resumed. What Tyanor never keeps is a **mirror of the provider's
+> resources**. An earlier version of this rule said "there is no state file", which read as a ban on both
+> and was wrong for a library; see `docs/DECISIONS.md` **D7**.
+>
+> The test: does the record describe **what we did**, or **what exists in the cloud**? The first is history
+> and belongs here. The second is a cache of someone else's database and belongs nowhere.
 
 ## Why
 

@@ -13,4 +13,12 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
 - **The doctrine, extracted rather than invented**: ported from a deployer that ran real infrastructure,
   survived a crash and rebuild mid-deploy, and resumed to completion. Reasoning in `docs/DECISIONS.md`.
 
+- **Run state, at a location the consumer chooses.** `AddTyanor(cfg => cfg.UseFileState(path))`,
+  `TyanorOptions.StatePath`, `FileRunHistory` (JSON, atomic write-then-replace, refuses to delete a live
+  run) and `InMemoryRunHistory`. The default is durable — an in-memory default would look like it worked
+  until the moment resume mattered. SQLite / Postgres / S3 backends are `TASKS.md` item 3.
+- **A planning phase.** `ProcedureRunner.PlanAsync` returns what an apply WOULD do — created, replaced, or
+  already in flight — derived from the provider rather than from a stored model, so it cannot go stale the
+  way a state-file plan can. It is a forecast and says which two things it cannot know.
+
 _No provider ships yet — see `TASKS.md` item 1._

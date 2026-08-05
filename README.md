@@ -32,12 +32,33 @@ one that broke is remade.
 
 ## What makes it different
 
-**There is no state file.** Tyanor records what was *attempted*; it reads what *exists* from the provider.
+**No mirror of your infrastructure.** Tyanor records what was *attempted* — run history, at a location
+you configure — and reads what *exists* from the provider. It never keeps a local model of your resources.
 That is the deliberate fork from Terraform, and everything else follows from it:
 
 - **Resume is a re-run.** No separate resume path, so there is nothing for the two to disagree about.
 - **No drift, no locking, no `state rm`.** There is no local belief about the world to go stale.
 - **A crash is uninteresting.** Nothing local was authoritative. The provider kept converging anyway.
+
+**Plans come from the provider, not from a file.** `PlanAsync` asks the target what each unit's phase is
+and runs the same decision the apply will run — so it cannot be stale the way a state-file plan can. It
+tells you what will be created, what will be **replaced**, and when another run is already in flight.
+
+```csharp
+var plan = await runner.PlanAsync(procedure, request);
+if (plan.Replacements.Count > 0) /* ask before destroying something */;
+if (plan.HasWorkInFlight)        /* someone else is mid-deploy */;
+```
+
+**State lives where you put it.**
+
+```csharp
+services.AddTyanor(cfg =>
+{
+    cfg.UseFileState("/var/lib/myapp/runs.json");   // or SQLite, Postgres, S3, your own IRunHistory
+    cfg.AddTarget(new AwsTarget(credentials));
+});
+```
 
 **Every stop is classified.** An expired credential and a malformed template both end a run, but only one
 means the work so far was wasted. Credentials and transient errors *pause* — resumable, progress kept.

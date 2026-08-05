@@ -4,6 +4,10 @@
     <Description>Tyanor Engine — runs a procedure against a target: ordered units, per-unit reconcile, bounded retry, classified pause/fail. Resume is a re-run.</Description>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The only dependency: the DI abstractions, so AddTyanor exists. Tyanor.Core stays dependency-free. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Tyanor.Core\Tyanor.Core.csproj" />
   </ItemGroup>
 </Project>
