@@ -51,13 +51,12 @@ One package per backend so `Tyanor.Core` stays dependency-free — the sibling l
 - **`Tyanor.Storage.Postgres`** — a team, or a service that already has a database.
 - **`Tyanor.Storage.S3`** — CI and multiple machines sharing one history.
 
-**The one thing SHARED state adds, which the local file does not have to solve: concurrency.** With S3 or
-Postgres, `LiveAsync` becomes a cross-machine question — "is another operator or pipeline already applying
-this?" — and the answer needs to be trustworthy at the moment it is read. Decide deliberately whether that
-is advisory (report it, let the operator choose) or enforced (a lease with an expiry). Advisory is the
-honest default and matches how the engine already behaves: reconcile ATTACHES to work in flight rather
-than fighting it, so a second applier is safe, merely surprising. A lease is worth it only when someone
-demonstrates a case where attaching is not enough.
+**Cross-machine is a CAPABILITY of these backends, and the engine already supports it — decided in D9.**
+`PlanAsync` reads the shared history, so a second machine sees `ActiveRun`, `HasStalledRun` ("a run is
+recorded live but nothing is converging — it stopped, possibly on a machine that is not coming back") and
+`InSync`. `ApplyAsync` adopts a live run rather than opening a competing one. **No lease, no lock** — the
+provider arbitrates by attachment, and the plan makes the situation visible. Do not add locking here
+without a case that attachment demonstrably cannot cover.
 
 - Every backend must refuse to delete a live record (`RunRecord.IsLive`) — the guard is per-implementation
   today, and a shared test suite over `IRunHistory` would be a better home for it.

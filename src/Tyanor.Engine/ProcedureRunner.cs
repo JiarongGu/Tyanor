@@ -48,7 +48,11 @@ public sealed class ProcedureRunner(IDeploymentTarget target, IRunHistory histor
             var phase = await WithRetryAsync(() => target.Driver.PhaseAsync(unit, request, ct), ct);
             steps.Add(new PlannedStep(unit, phase, Reconcile.Decide(phase)));
         }
-        return new Plan(procedure.Name, request.Prefix, steps);
+        // Both halves of "is anything already happening here?" — the provider, and the record of intent.
+        // With a shared history the second one spans machines, which is what makes running Tyanor from a
+        // laptop and a pipeline against the same deployment a visible situation rather than a silent race.
+        var active = await history.LiveAsync(procedure.Name, request.Prefix, ct);
+        return new Plan(procedure.Name, request.Prefix, steps, active);
     }
 
     /// <summary>
@@ -85,7 +89,15 @@ public sealed class ProcedureRunner(IDeploymentTarget target, IRunHistory histor
     {
         // One id for the whole attempt INCLUDING its resumes — a resume continues a run rather than
         // starting one, or the history would show five failures where one interrupted job happened.
-        var id = runId ?? Guid.NewGuid().ToString("N");
+        //
+        // With no id given, ADOPT a live run for this procedure + prefix if one exists. That is "resume is
+        // a re-run" taken to its conclusion: the caller should not have to know whether they are starting
+        // or continuing. With a shared history the live run may belong to another machine, and adopting it
+        // is still right — the alternative is two competing records of one deployment, which is precisely
+        // the out-of-sync state the plan exists to reveal.
+        var id = runId
+            ?? (await history.LiveAsync(procedure.Name, request.Prefix, ct))?.Id
+            ?? Guid.NewGuid().ToString("N");
         var started = DateTimeOffset.UtcNow;
         var record = new RunRecord(id, procedure.Name, request.Prefix, kind, RunStatus.Running, started);
         await history.UpsertAsync(record, ct);

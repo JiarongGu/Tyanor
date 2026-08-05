@@ -163,3 +163,38 @@ decision to make deliberately — not a drift, and not something to slide into o
 **Use this as a test.** When a feature is proposed, ask which column it belongs to. A "how" feature
 (retry, classification, resume, progress) belongs here. A "what" feature (a bucket type, a template
 language) probably belongs in the tool that produces the artifact.
+
+---
+
+## D9 — Cross-machine is a capability, made safe by visibility rather than by locking (2026-08-06)
+
+Running one deployment from more than one place — a laptop and a pipeline, two operators, a retry job — is
+**supported**, not prevented.
+
+**Decided against:** a lock or lease that makes a second applier wait or fail.
+
+**Why it is safe without one.** Two mechanisms already in the design, now joined up:
+
+1. **The provider is the arbiter.** Reconcile ATTACHES to a converging unit rather than re-issuing (D1), so
+   a second applier watches the first one's work instead of competing with it. This has always been true
+   and needs no coordination.
+2. **The plan makes it visible.** `PlanAsync` reports both halves — what the provider is doing, and what
+   the shared history says anyone *claims* to be doing. Because storage is pluggable (a file today; S3 or
+   Postgres later), the second half spans machines for free.
+
+**The signal only shared state can give** is `Plan.HasStalledRun`: a run recorded live with nothing
+converging. That means it paused or its process died — possibly on a machine that is not coming back.
+Without shared history a second operator sees an idle provider and concludes nobody is here; with it, they
+see that applying will RESUME someone else's run, and can decide.
+
+`Plan.InSync` names the agreement directly: the record of intent and the provider either both say work is
+happening, or both say it is not.
+
+**Consequence.** `ApplyAsync` with no explicit run id ADOPTS a live run for the same procedure and prefix
+rather than opening a second one. Two live records for one deployment is exactly the out-of-sync state the
+plan exists to reveal, and the engine should not be the thing that creates it. It also completes "resume
+is a re-run": a caller should not have to know whether they are starting or continuing.
+
+**Revisit if** someone demonstrates a case where attaching is genuinely not enough. A lease has real costs
+— expiry tuning, clock skew, a stuck lock needing manual clearing — and buys nothing that visibility plus
+attachment does not already provide.

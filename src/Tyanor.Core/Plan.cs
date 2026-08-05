@@ -43,7 +43,14 @@ public sealed record PlannedStep(ProcedureUnit Unit, UnitPhase Phase, ReconcileA
 /// <param name="Procedure">Which procedure.</param>
 /// <param name="Prefix">Which deployment of it.</param>
 /// <param name="Steps">One per unit, in apply order.</param>
-public sealed record Plan(string Procedure, string Prefix, IReadOnlyList<PlannedStep> Steps)
+/// <param name="ActiveRun">
+/// A run already recorded as live for this procedure and prefix — possibly started on ANOTHER MACHINE,
+/// when the history is shared. This is the second half of "is anything already happening here?": the steps
+/// answer it from the provider, this answers it from the record of intent, and the two can disagree in
+/// ways that are worth seeing (see <see cref="HasStalledRun"/>).
+/// </param>
+public sealed record Plan(
+    string Procedure, string Prefix, IReadOnlyList<PlannedStep> Steps, RunRecord? ActiveRun = null)
 {
     /// <summary>Steps that will issue a mutating call.</summary>
     public IReadOnlyList<PlannedStep> Changes => Steps.Where(s => s.Mutates).ToList();
@@ -62,6 +69,24 @@ public sealed record Plan(string Procedure, string Prefix, IReadOnlyList<Planned
     /// </summary>
     public bool HasWorkInFlight => Steps.Any(s => s.Action is ReconcileAction.Attach);
 
-    /// <summary>Nothing to do — every unit is already as asked.</summary>
-    public bool IsNoOp => Changes.Count == 0 && !HasWorkInFlight;
+    /// <summary>
+    /// A run is recorded as live but NOTHING is converging in the provider. It paused, or the process
+    /// running it died. Applying now RESUMES that run rather than starting a fresh one — which is usually
+    /// what the operator wants, and always something they should know before it happens.
+    ///
+    /// <para>This is the signal that only shared state can give, and the reason cross-machine is a
+    /// capability rather than a hazard: without it, a second operator sees an idle provider and assumes
+    /// nobody is here.</para>
+    /// </summary>
+    public bool HasStalledRun => ActiveRun is not null && !HasWorkInFlight;
+
+    /// <summary>
+    /// Whether the provider and the record of intent agree about whether work is happening. They disagree
+    /// when a run is recorded live with nothing converging (it stopped), or — rarer, and worth
+    /// investigating — when something is converging that no run here claims.
+    /// </summary>
+    public bool InSync => (ActiveRun is not null) == HasWorkInFlight;
+
+    /// <summary>Nothing to do — every unit is already as asked, and no run is outstanding.</summary>
+    public bool IsNoOp => Changes.Count == 0 && !HasWorkInFlight && ActiveRun is null;
 }
