@@ -10,8 +10,13 @@ namespace Tyanor.Tests;
 /// VISIBLE: the plan reports both what the provider is doing and what the shared history says anyone
 /// claims to be doing, and the engine attaches to work in flight rather than competing with it.
 ///
-/// <para>These tests use a file history in a temp directory as the stand-in for shared state — the
-/// mechanism a real S3 or Postgres backend would provide, exercised through the same interface.</para>
+/// <para><b>Scope: these cover CHECKING, not SYNCING</b> (see docs/DECISIONS.md D11). They assert that a
+/// second machine can SEE what another recorded and behaves sensibly about it. They do not assert anything
+/// about simultaneous writers — `FileRunHistory` is last-writer-wins with no cross-process lock, and making
+/// concurrent writes safe is a property a real S3 or Postgres backend must add.</para>
+///
+/// <para>A file history in a temp directory stands in for shared state, exercised through the same
+/// interface a remote backend would implement.</para>
 /// </summary>
 public sealed class CrossMachineTests : IDisposable
 {

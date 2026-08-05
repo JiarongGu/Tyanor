@@ -12,5 +12,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Tyanor.Core\Tyanor.Core.csproj" />
     <ProjectReference Include="..\..\src\Tyanor.Engine\Tyanor.Engine.csproj" />
+    <ProjectReference Include="..\..\src\Tyanor.Extensions.DependencyInjection\Tyanor.Extensions.DependencyInjection.csproj" />
   </ItemGroup>
 </Project>

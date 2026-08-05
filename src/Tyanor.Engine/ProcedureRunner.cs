@@ -65,9 +65,9 @@ public sealed class ProcedureRunner(IDeploymentTarget target, IRunHistory histor
     /// <param name="runId">Pass the id of a paused run to continue it; omit to start a new one.</param>
     /// <param name="ct">Cancelling leaves the run LIVE — the provider may still be converging.</param>
     public async Task<OperationOutcome> ApplyAsync(
-        Procedure procedure, DeploymentRequest request, Action<ProgressReport> report,
+        Procedure procedure, DeploymentRequest request, Action<ProgressReport>? report = null,
         string? runId = null, CancellationToken ct = default)
-        => await RunAsync(procedure, procedure.Forward().ToList(), RunKind.Apply, request, report, runId, ct);
+        => await RunAsync(procedure, procedure.Forward().ToList(), RunKind.Apply, request, report ?? Ignore, runId, ct);
 
     /// <summary>
     /// Remove everything the procedure created, in REVERSE unit order so that whatever imports from a unit
@@ -79,9 +79,12 @@ public sealed class ProcedureRunner(IDeploymentTarget target, IRunHistory histor
     /// <param name="runId">Pass the id of a paused teardown to continue it.</param>
     /// <param name="ct">Cancelling leaves the run LIVE.</param>
     public async Task<OperationOutcome> RemoveAsync(
-        Procedure procedure, DeploymentRequest request, Action<ProgressReport> report,
+        Procedure procedure, DeploymentRequest request, Action<ProgressReport>? report = null,
         string? runId = null, CancellationToken ct = default)
-        => await RunAsync(procedure, procedure.Reverse().ToList(), RunKind.Remove, request, report, runId, ct);
+        => await RunAsync(procedure, procedure.Reverse().ToList(), RunKind.Remove, request, report ?? Ignore, runId, ct);
+
+    /// <summary>Progress is optional — a script or a test may not want it. Nothing else changes.</summary>
+    private static void Ignore(ProgressReport _) { }
 
     private async Task<OperationOutcome> RunAsync(
         Procedure procedure, IReadOnlyList<ProcedureUnit> units, RunKind kind,

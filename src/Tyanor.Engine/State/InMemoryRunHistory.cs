@@ -8,9 +8,8 @@ namespace Tyanor.Engine.State;
 /// tests, for a dry run, and for a one-shot procedure in CI where the process outliving the run would be a
 /// surprise. It is wrong for anything an operator would expect to re-enter.</para>
 ///
-/// <para><see cref="Tyanor.Engine.TyanorOptions"/> makes the choice explicit rather than defaulting to it,
-/// because "my deployment vanished when the machine slept" is a bad way to discover which history you
-/// configured.</para>
+/// <para>Choosing it is explicit — `UseInMemoryState()`, never a default — because "my deployment vanished
+/// when the machine slept" is a bad way to discover which history you configured.</para>
 /// </summary>
 public sealed class InMemoryRunHistory : IRunHistory
 {

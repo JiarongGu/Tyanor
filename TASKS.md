@@ -51,12 +51,18 @@ One package per backend so `Tyanor.Core` stays dependency-free — the sibling l
 - **`Tyanor.Storage.Postgres`** — a team, or a service that already has a database.
 - **`Tyanor.Storage.S3`** — CI and multiple machines sharing one history.
 
-**Cross-machine is a CAPABILITY of these backends, and the engine already supports it — decided in D9.**
+**Cross-machine CHECKING is supported; cross-machine SYNCING is not — D9 as scoped by D11.**
 `PlanAsync` reads the shared history, so a second machine sees `ActiveRun`, `HasStalledRun` ("a run is
 recorded live but nothing is converging — it stopped, possibly on a machine that is not coming back") and
 `InSync`. `ApplyAsync` adopts a live run rather than opening a competing one. **No lease, no lock** — the
 provider arbitrates by attachment, and the plan makes the situation visible. Do not add locking here
 without a case that attachment demonstrably cannot cover.
+
+**What each backend must decide deliberately: concurrent writes.** `FileRunHistory` is last-writer-wins
+with no cross-process lock, so two machines writing at the same instant can lose a record. That is bounded
+to visibility — the provider is still the arbiter, so infrastructure stays correct — but it stops being
+acceptable the moment anything automated gates on the history. S3 preconditions and a Postgres transaction
+are the cheap correct answers, and they belong in the backend, not as a new concept in the engine.
 
 - Every backend must refuse to delete a live record (`RunRecord.IsLive`) — the guard is per-implementation
   today, and a shared test suite over `IRunHistory` would be a better home for it.

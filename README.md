@@ -61,15 +61,29 @@ if (plan.Replacements.Count > 0) /* ask before destroying something */;
 if (plan.HasWorkInFlight)        /* someone else is mid-deploy */;
 ```
 
+**A library, not a service.** `Tyanor.Core` and `Tyanor.Engine` take **no package dependencies**. There is
+no daemon, no CLI, no ambient state and no background thread. DI is a separate, optional package — the
+minimal path is three lines with no container:
+
+```csharp
+var runner = new ProcedureRunner(target, new FileRunHistory("runs.json"));
+var plan   = await runner.PlanAsync(procedure, request);
+await runner.ApplyAsync(procedure, request);          // progress callback optional
+```
+
 **State lives where you put it.**
 
 ```csharp
-services.AddTyanor(cfg =>
+services.AddTyanor(cfg =>                            // optional package, if you use a container
 {
-    cfg.UseFileState("/var/lib/myapp/runs.json");   // or SQLite, Postgres, S3, your own IRunHistory
+    cfg.UseFileState("/var/lib/myapp/runs.json");    // or SQLite, Postgres, S3, your own IRunHistory
     cfg.AddTarget(new AwsTarget(credentials));
 });
 ```
+
+Share that store and a plan can **see** runs from other machines — including one that stalled because the
+machine running it went away. Note the limit, stated rather than implied: that is state *checking*, not
+cross-machine *syncing*. Concurrent writers are not yet coordinated ([D11](docs/DECISIONS.md)).
 
 **Every stop is classified.** An expired credential and a malformed template both end a run, but only one
 means the work so far was wasted. Credentials and transient errors *pause* — resumable, progress kept.

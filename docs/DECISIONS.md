@@ -198,3 +198,62 @@ is a re-run": a caller should not have to know whether they are starting or cont
 **Revisit if** someone demonstrates a case where attaching is genuinely not enough. A lease has real costs
 — expiry tuning, clock skew, a stuck lock needing manual clearing — and buys nothing that visibility plus
 attachment does not already provide.
+
+---
+
+## D10 — Tyanor is a library, not a service (2026-08-06)
+
+It ships types a developer calls. It is not a daemon, a controller, a CLI, or a hosted pipeline, and it
+does not own an application's lifecycle.
+
+**What that requires, concretely:**
+
+- **Every seam is optional and every dependency is opt-in.** `Tyanor.Core` and `Tyanor.Engine` take **no
+  package dependencies at all**. `AddTyanor` lives in a separate package (`Tyanor.Extensions.DependencyInjection`),
+  so a console tool or a desktop app that has no container is not made to acquire one.
+- **The minimal path is three lines**, with no container, no configuration file and no host:
+
+  ```csharp
+  var runner = new ProcedureRunner(target, new FileRunHistory("runs.json"));
+  var plan = await runner.PlanAsync(procedure, request);
+  await runner.ApplyAsync(procedure, request);          // progress callback optional
+  ```
+- **Nothing is ambient.** No static state, no background threads, no timers, no file watching. A library
+  that starts doing things on its own is a service wearing a library's name.
+- **The consumer decides the operator experience.** Progress is an `Action<ProgressReport>` and goes
+  wherever they send it: a console, a desktop view, a log, nowhere.
+
+**Why.** The first two consumers are a desktop app a non-technical owner runs and a self-hosted service —
+neither wants a second process, and each has its own opinion about UI, logging and configuration. A tool
+that insists on those is one they would have to fight or fork.
+
+**Consequence for TASKS item 4.** Whatever "authoring a procedure" becomes, it stays a thing the developer
+calls. A CLI may be worth shipping as an OPTIONAL package for CI; it must never become the way Tyanor is
+used.
+
+---
+
+## D11 — We support state CHECKING, not cross-machine SYNCING (2026-08-06) — scopes D9
+
+D9 called cross-machine a capability. That is true of what it claims — **visibility** — and it is worth
+being exact about what it does not claim, because the two are easy to conflate and the gap is silent.
+
+**Supported today: checking.** With a shared history, a plan reads what any machine recorded — `ActiveRun`,
+`HasStalledRun`, `InSync` — and `ApplyAsync` adopts a live run rather than opening a second. Every one of
+those is a READ, plus a write of this run's own record. That is enough for an operator to see that someone
+else is here and decide what to do.
+
+**NOT supported: syncing.** There is no coordination between concurrent writers. `FileRunHistory` does
+read-modify-write with last-writer-wins and no cross-process lock, so two machines writing at the same
+instant can lose one of the two records. Nothing detects it, and nothing repairs it.
+
+**Why that is acceptable for now, and where it stops being acceptable.** The damage is bounded to the
+HISTORY, never to the infrastructure: the provider remains the arbiter, reconcile still attaches to
+converging work, and a lost record costs visibility rather than correctness — the next plan reads the
+provider and is right regardless. That trade holds for a handful of operators. It stops holding when
+history becomes the thing something automated depends on (a pipeline gating on `HasStalledRun`), because
+then a lost write is a wrong decision rather than a missing line.
+
+**So a real S3 or Postgres backend must decide this deliberately**, not inherit the file's behaviour:
+conditional writes (S3 preconditions, a Postgres transaction) are the cheap correct answer, and are a
+property of that backend rather than a new concept in the engine. Until then, say "checking", not "syncing".
