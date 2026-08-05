@@ -124,3 +124,42 @@ moment resume mattered — which is the moment it is least recoverable and least
 
 **The line that still holds:** run history records what was ATTEMPTED. It must never grow a list of created
 resources. That is the mirror returning in disguise, and it is the thing D1 is actually about.
+
+---
+
+## D8 — Terraform's "how", CDK's "what" (2026-08-06)
+
+The positioning, stated so later decisions can be checked against it:
+
+|  | *What* to deploy | *How* to deploy it |
+|---|---|---|
+| **Terraform** | HCL — a DSL to learn | a real engine: plan, converge, providers |
+| **AWS CDK** | real code — typed, refactorable | delegated to CloudFormation; CDK has no engine of its own |
+| **Tyanor** | **real C#** | **its own engine** — reconcile, classify, resume |
+
+**Take from Terraform: the mechanics.** Plan before apply, converge rather than script, pluggable
+providers, and treat a failure as a state to resume from. Those are genuinely hard and Terraform got them
+substantially right.
+
+**Take from CDK: the authoring.** A deployment is code — types, refactoring, tests, one language for the
+app and the way it ships. Not a DSL, and not YAML with templating grown into a programming language badly.
+
+**Leave behind:** Terraform's state file (D1/D7) and its resource graph (D3), which are where the size is.
+
+### The boundary this raises, named rather than assumed
+
+"Code-driven *what*" has two possible depths, and Tyanor currently occupies the shallower one:
+
+- **Procedure-level (today).** `Procedure`, `ProcedureUnit`, options and artifacts are C# objects. Typed,
+  refactorable, testable, no DSL. This is what D8 claims.
+- **Resource-level (NOT today).** Declaring an S3 bucket or a Lambda as a C# object — CDK's actual job.
+  That needs a resource model, which needs the graph D3 exists to avoid, and it would duplicate CDK, Bicep
+  and Helm rather than execute what they produce (D5).
+
+So the honest line is: **Tyanor's "what" is the procedure; the resource-level "what" belongs to whatever
+synthesized the artifact.** If a consumer ever needs resource-level authoring in C#, that is a new
+decision to make deliberately — not a drift, and not something to slide into one construct at a time.
+
+**Use this as a test.** When a feature is proposed, ask which column it belongs to. A "how" feature
+(retry, classification, resume, progress) belongs here. A "what" feature (a bucket type, a template
+language) probably belongs in the tool that produces the artifact.

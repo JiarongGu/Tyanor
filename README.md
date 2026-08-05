@@ -30,6 +30,17 @@ Units are applied in order and removed in reverse. Each one is reconciled agains
 reports *right now*, so a unit that already finished is skipped, one still converging is attached to, and
 one that broke is remade.
 
+## The idea in one table
+
+|  | *What* to deploy | *How* to deploy it |
+|---|---|---|
+| Terraform | HCL — a DSL to learn | a real engine: plan, converge, providers |
+| AWS CDK | real code — typed, refactorable | delegated to CloudFormation |
+| **Tyanor** | **real C#** | **its own engine** — reconcile, classify, resume |
+
+Terraform's mechanics, CDK's authoring, and neither the state file nor the resource graph. See
+[`docs/DECISIONS.md`](docs/DECISIONS.md) D8 for where that line is drawn and why.
+
 ## What makes it different
 
 **No mirror of your infrastructure.** Tyanor records what was *attempted* — run history, at a location
