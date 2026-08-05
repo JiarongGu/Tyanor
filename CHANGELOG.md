@@ -21,4 +21,8 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   already in flight — derived from the provider rather than from a stored model, so it cannot go stale the
   way a state-file plan can. It is a forecast and says which two things it cannot know.
 
+- **devtools.** `npm run doctor` — build, test, and the checks that keep this repo honest: supersession in
+  `DECISIONS.md` must point both ways (it found five missing forward pointers on its first run), every rule
+  indexed and linked, a credential scan, and the two architectural claims the README makes out loud.
+
 _No provider ships yet — see `TASKS.md` item 1._

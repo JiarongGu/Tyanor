@@ -1,0 +1,13 @@
+{
+  "name": "tyanor-devtools",
+  "private": true,
+  "type": "module",
+  "description": "Dev tooling for the Tyanor repo. The library itself is .NET — this exists so `npm run doctor` works.",
+  "scripts": {
+    "dev": "node devtools/dev.mjs",
+    "doctor": "node devtools/dev.mjs doctor",
+    "test": "node devtools/dev.mjs test",
+    "build": "node devtools/dev.mjs build",
+    "pack": "node devtools/dev.mjs pack"
+  }
+}

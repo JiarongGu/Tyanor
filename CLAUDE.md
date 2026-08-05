@@ -47,7 +47,26 @@ tests/
 
 `Tyanor.Core` takes **no package dependencies**. If something needs one, it is not Core.
 
-## 4. Conventions
+## 4. Before you commit: `npm run doctor`
+
+One command — build, test, and every check the repo can make cheaply. It exists so the checklist is not
+something anyone has to remember, because the step people forget is the step that breaks.
+
+```
+npm run doctor                    build + test + decisions + rules + sensitive + the two claims
+node devtools/dev.mjs decisions   supersession points both ways; every cited D<n> exists
+node devtools/dev.mjs rules       every rule indexed, every link resolves
+node devtools/dev.mjs sensitive   credential scan
+```
+
+Two of doctor's checks verify **claims the README makes out loud** — that `Tyanor.Core` and
+`Tyanor.Engine` take no package dependencies, and that the version ships from one place. If one fails
+because the claim changed deliberately, change the claim. Do not silence the check.
+
+`devtools/README.md` says what goes wrong without each check. Everything is driven by
+`devtools/project.config.mjs`; no tool names Tyanor.
+
+## 5. Conventions
 
 - **Never commit without explicit approval.** Branch off `main`; Conventional Commits.
 - **`TreatWarningsAsErrors` is on, with XML docs required.** A public type without a `<summary>` fails the
@@ -61,7 +80,7 @@ tests/
 - **Live provider calls stay behind an env-gated integration test**, skipped as a vacuous pass, so an
   ordinary run never touches a cloud or spends money.
 
-## 5. Ecosystem
+## 6. Ecosystem
 
 Four independent libraries; none depends on another.
 
@@ -72,7 +91,7 @@ Four independent libraries; none depends on another.
 | [Daoris](https://github.com/JiarongGu/Daoris) (道衍) | Engineering doctrine — how the work is done |
 | **Tyanor** (天仪) | **Operations & delivery — how the work ships and runs** |
 
-## 6. Where knowledge lives
+## 7. Where knowledge lives
 
 | Information | Location |
 |---|---|

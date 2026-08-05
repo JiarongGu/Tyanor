@@ -11,6 +11,10 @@ cleaner" is not evidence.
 
 ## D1 — Reconcile against the provider; keep no state file (2026-08-06)
 
+> ⚠ **Overtaken.** Amended by **D7** (run state IS persisted) and superseded by **D12** (there IS one
+> set of deployment state). What survives is the reconcile loop and why a stale mirror is affordable —
+> read D12 first.
+
 Tyanor records INTENT (a run happened, with this configuration) and reads FACT from the target. It does not
 maintain a model of what exists.
 
@@ -102,6 +106,9 @@ not worth it.
 
 ## D7 — Run state IS persisted, at a location the consumer configures (2026-08-06) — amends D1
 
+> ⚠ **Overtaken by D12**, which adds deployment state proper. D7's distinction between a resource
+> mirror and a record of intent still holds; its conclusion that we keep only the latter does not.
+
 D1 said "keep no state file". That was **too broad, and as written it was wrong for a library.** It
 conflated two different things under one slogan:
 
@@ -167,6 +174,8 @@ language) probably belongs in the tool that produces the artifact.
 ---
 
 ## D9 — Cross-machine is a capability, made safe by visibility rather than by locking (2026-08-06)
+
+> ⚠ **Scoped by D11**: checking is supported, syncing is not.
 
 Running one deployment from more than one place — a laptop and a pipeline, two operators, a retry job — is
 **supported**, not prevented.
@@ -234,6 +243,9 @@ used.
 ---
 
 ## D11 — We support state CHECKING, not cross-machine SYNCING (2026-08-06) — scopes D9
+
+> ⚠ **Overtaken by D12.** Divergence between machines is now explicitly the developer's to resolve,
+> and Tyanor's job is to show it.
 
 D9 called cross-machine a capability. That is true of what it claims — **visibility** — and it is worth
 being exact about what it does not claim, because the two are easy to conflate and the gap is silent.
