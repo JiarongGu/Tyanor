@@ -1,0 +1,40 @@
+# Nothing Provider-Shaped Crosses Into Core
+
+**`Tyanor.Core` must never name a vendor, a tool, or a product. If a type in Core mentions CDK,
+CloudFormation, kubectl, an S3 bucket or a Lambda, the abstraction has already failed — whether or not a
+second provider exists yet.**
+
+## Why
+
+This is not a hypothetical risk. It is the concrete defect that made the original code unportable: its
+"generic" `DeploymentRequest` carried `CdkOutDir` and `WebDir`, so the neutral interface named an AWS tool
+and assumed the deployment contained a single-page app. No second provider could have implemented it — and
+nobody noticed, because there was only ever one.
+
+That kind of leak is invisible while there is a single provider and expensive the moment there are two: by
+then consumers depend on the leaked shape.
+
+## How to Apply
+
+- **Artifacts are opaque named parts.** `DeploymentArtifact` is `name → path`. Core does not know that
+  `"infrastructure"` happens to be a synthesized CloudFormation assembly; only the AWS provider does.
+- **Provider- and procedure-specific settings live in `DeploymentRequest.Options`** (a string map), not as
+  new fields. The moment Options becomes typed fields it grows one per provider and stops being neutral.
+- **Status vocabulary is mapped, never passed through.** A provider translates its own strings into
+  `UnitPhase` inside `PhaseAsync`. No provider status string reaches the engine.
+- **Errors are classified, not surfaced raw** — see [`error-classification.md`](error-classification.md).
+- **The test:** would a Kubernetes provider and a bare-SSH provider both implement this without pretending?
+  If either has to invent a meaning for a field, it belongs in `Options` or in the provider.
+
+## The authoring / executing split
+
+Tyanor EXECUTES a pre-built artifact; it does not compile infrastructure at apply time. Synthesis
+(`cdk synth`, `helm template`, a compile) happens earlier, on a machine that has that toolchain.
+
+This is why an operator can deploy with no cloud SDK installed — a property the original deployer needed
+because its user is a non-technical owner running a desktop app, and one worth keeping deliberately rather
+than by accident.
+
+## Related
+
+- [`units-not-graphs.md`](units-not-graphs.md) · `../skills/add-provider/SKILL.md` · `docs/DECISIONS.md` D4

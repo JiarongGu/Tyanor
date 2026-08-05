@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Tyanor.Core/Tyanor.Core.csproj" />
+    <Project Path="src/Tyanor.Engine/Tyanor.Engine.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Tyanor.Core.Tests/Tyanor.Core.Tests.csproj" />
+  </Folder>
+</Solution>
