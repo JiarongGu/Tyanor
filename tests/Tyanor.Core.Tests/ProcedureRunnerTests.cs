@@ -102,7 +102,7 @@ public class ProcedureRunnerTests
     {
         var driver = new FakeDriver { ThrowOnceThenSucceed = { ["api"] = new FakeTransientError() } };
         var runner = new ProcedureRunner(new FakeTarget(driver), new FakeHistory(),
-            new RetryPolicy(Attempts: 3, BaseDelay: TimeSpan.FromMilliseconds(1)));
+            retry: new RetryPolicy(Attempts: 3, BaseDelay: TimeSpan.FromMilliseconds(1)));
 
         var outcome = await runner.ApplyAsync(Site, Request(), _ => { });
 
@@ -190,6 +190,12 @@ public class ProcedureRunnerTests
 
         public Task RemoveAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct)
         { Calls.Add($"{u.Name}:remove"); return Task.CompletedTask; }
+
+        /// <summary>What the unit "holds" — scripted per unit; empty unless a test says otherwise.</summary>
+        public Dictionary<string, List<ResourceState>> Resources { get; } = [];
+
+        public Task<IReadOnlyList<ResourceState>> RefreshAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<ResourceState>>(Resources.GetValueOrDefault(u.Name) ?? []);
 
         public Task AwaitSettledAsync(ProcedureUnit u, DeploymentRequest r, Action<ProgressReport> report, CancellationToken ct)
         {

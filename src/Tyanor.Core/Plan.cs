@@ -87,6 +87,38 @@ public sealed record Plan(
     /// </summary>
     public bool InSync => (ActiveRun is not null) == HasWorkInFlight;
 
-    /// <summary>Nothing to do — every unit is already as asked, and no run is outstanding.</summary>
-    public bool IsNoOp => Changes.Count == 0 && !HasWorkInFlight && ActiveRun is null;
+    /// <summary>
+    /// Differences between recorded state and what the provider actually has — found by refreshing during
+    /// the plan. Empty means state and reality agree.
+    /// </summary>
+    public IReadOnlyList<Drift> Drift { get; init; } = [];
+
+    /// <summary>Resources that exist in the provider but not in state — created outside Tyanor, or a state
+    /// that was lost. They will be adopted on the next apply.</summary>
+    public int ToAdd => Drift.Count(d => d.Change == ResourceChange.Add);
+
+    /// <summary>Resources whose fingerprint no longer matches what was recorded.</summary>
+    public int ToChange => Drift.Count(d => d.Change == ResourceChange.Change);
+
+    /// <summary>Resources in state that are gone from the provider — deleted outside Tyanor.</summary>
+    public int ToDestroy => Drift.Count(d => d.Change == ResourceChange.Destroy);
+
+    /// <summary>
+    /// The line an operator reads before deciding: <c>3 to add, 1 to change, 0 to destroy</c>.
+    /// </summary>
+    /// <remarks>
+    /// Counts are RESOURCES, from the refresh; the steps above are UNITS, from the reconcile. They answer
+    /// different questions — "what will change in my infrastructure" versus "what will this run do" — and
+    /// conflating them would make one of the two wrong.
+    /// </remarks>
+    public string Summary => $"{ToAdd} to add, {ToChange} to change, {ToDestroy} to destroy";
+
+    /// <summary>
+    /// True when state and the provider disagree about anything. Repairable by applying, which rewrites
+    /// state from what was refreshed — the answer to a stale mirror is to re-read it, not to hand-edit it.
+    /// </summary>
+    public bool HasDrift => Drift.Count > 0;
+
+    /// <summary>Nothing to do — every unit is already as asked, no drift, and no run is outstanding.</summary>
+    public bool IsNoOp => Changes.Count == 0 && !HasWorkInFlight && ActiveRun is null && !HasDrift;
 }

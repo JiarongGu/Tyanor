@@ -125,5 +125,7 @@ public sealed class CrossMachineTests : IDisposable
         public Task<bool> UpdateAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.FromResult(true);
         public Task RemoveAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.CompletedTask;
         public Task AwaitSettledAsync(ProcedureUnit u, DeploymentRequest r, Action<ProgressReport> report, CancellationToken ct) => Task.CompletedTask;
+        public Task<IReadOnlyList<ResourceState>> RefreshAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<ResourceState>>([]);
     }
 }

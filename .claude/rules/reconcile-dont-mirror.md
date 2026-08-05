@@ -3,6 +3,17 @@
 **Tyanor does not keep a model of what exists in the provider. Every run asks the provider what is true and
 decides again. We record INTENT (a run happened, with this configuration); we read FACT from the target.**
 
+> ## ⚠ Superseded in part by `docs/DECISIONS.md` **D12**
+>
+> Tyanor now DOES keep one set of deployment state — what it owns, per unit, local or remote — because a
+> provider working with raw resources cannot tell you what Tyanor created, and without that a teardown
+> cannot safely distinguish it from what was already there. `Refresh` re-syncs state from reality.
+>
+> **What survives, and is why the mirror is affordable:** the provider is still the arbiter of what is
+> happening NOW. Reconcile reads phases live and attaches to converging work, so a stale mirror costs a
+> wrong COUNT, never a wrong ACTION — and refreshing repairs it rather than requiring surgery. Read the
+> rest of this rule as being about the RECONCILE loop, which is unchanged.
+>
 > **Two things are easy to confuse, and the distinction is the whole rule.** Tyanor **does** persist run
 > state — `IRunHistory`, at a location the consuming application configures — because a run that cannot be
 > found after the process dies cannot be resumed. What Tyanor never keeps is a **mirror of the provider's

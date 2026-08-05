@@ -20,6 +20,14 @@ public sealed class TyanorOptions
     /// <see cref="TyanorBuilder.UseInMemoryState"/>.
     /// </remarks>
     public string StatePath { get; set; } =
+        Path.Combine(AppContext.BaseDirectory, "tyanor", "state.json");
+
+    /// <summary>
+    /// Where the run LOG is kept — separate from state on purpose. State is what Tyanor owns and must stay
+    /// true; history is an append-only account of attempts. They have different lifetimes, and a team that
+    /// shares state does not necessarily want to share every operator's run log.
+    /// </summary>
+    public string RunHistoryPath { get; set; } =
         Path.Combine(AppContext.BaseDirectory, "tyanor", "runs.json");
 
     /// <summary>Retry policy for TRANSIENT provider errors. Credential and hard failures never retry.</summary>
@@ -48,10 +56,28 @@ public sealed class TyanorBuilder
     /// <summary>The options being built.</summary>
     public TyanorOptions Options { get; }
 
-    /// <summary>Keep run state in a JSON file at <paramref name="path"/>.</summary>
+    /// <summary>
+    /// Keep deployment state — the one set, recording what Tyanor owns — in a JSON file at
+    /// <paramref name="path"/>. Run history goes beside it unless <see cref="UseFileHistory"/> says otherwise.
+    /// </summary>
     public TyanorBuilder UseFileState(string path)
     {
         Options.StatePath = path;
+        _services.AddSingleton<IStateStore>(_ => new FileStateStore(path));
+        return this;
+    }
+
+    /// <summary>Supply your own state store — S3, Postgres, wherever the one set of state should live.</summary>
+    public TyanorBuilder UseState(IStateStore store)
+    {
+        _services.AddSingleton(store);
+        return this;
+    }
+
+    /// <summary>Keep the run LOG in a JSON file at <paramref name="path"/>.</summary>
+    public TyanorBuilder UseFileHistory(string path)
+    {
+        Options.RunHistoryPath = path;
         _services.AddSingleton<IRunHistory>(_ => new FileRunHistory(path));
         return this;
     }
@@ -124,10 +150,14 @@ public static class TyanorServiceCollectionExtensions
         services.TryAddSingleton(options);
         // Only if the caller registered none — TryAdd means an explicit UseFileState/UseInMemoryState/
         // UseHistory above always wins over this fallback.
-        services.TryAddSingleton<IRunHistory>(_ => new FileRunHistory(options.StatePath));
+        services.TryAddSingleton<IRunHistory>(_ => new FileRunHistory(options.RunHistoryPath));
+        // Deployment state — what Tyanor owns. Without it the engine still reconciles and resumes, but it
+        // cannot say what it created or produce add/change/destroy counts, so the default supplies one.
+        services.TryAddSingleton<IStateStore>(_ => new FileStateStore(options.StatePath));
         services.TryAddSingleton(sp => new ProcedureRunner(
             sp.GetRequiredService<IDeploymentTarget>(),
             sp.GetRequiredService<IRunHistory>(),
+            sp.GetService<IStateStore>(),
             sp.GetRequiredService<TyanorOptions>().Retry));
         return services;
     }

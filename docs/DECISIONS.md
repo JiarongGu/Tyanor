@@ -257,3 +257,52 @@ then a lost write is a wrong decision rather than a missing line.
 **So a real S3 or Postgres backend must decide this deliberately**, not inherit the file's behaviour:
 conditional writes (S3 preconditions, a Postgres transaction) are the cheap correct answer, and are a
 property of that backend rather than a new concept in the engine. Until then, say "checking", not "syncing".
+
+---
+
+## D12 — There IS one set of state, local or remote, kept current and re-syncable (2026-08-06) — supersedes D1, D7, D11
+
+Tyanor maintains a **centralized deployment state**: what it created, per unit, at a location the
+developer chooses. `Refresh` re-reads reality and rewrites state to match. A plan reports
+**add / change / destroy** from that comparison.
+
+**D1 was wrong, and the way it was wrong is worth keeping.** It reasoned from one provider. CloudFormation
+tracks stack membership itself, so for that provider the target genuinely IS the state — and I generalized
+a property of the first consumer into a principle. It does not hold: a provider working with raw resources
+(an S3 bucket, a DNS record, an IAM role, a Kubernetes manifest) cannot tell you **what Tyanor owns**, and
+without that a teardown cannot distinguish what it created from what was already there. That is not a
+missing nicety; it is the difference between a safe destroy and a destructive one.
+
+It is the same mistake D4 records in the code this was extracted from — a single consumer's shape mistaken
+for a general truth — arrived at from the opposite direction.
+
+**What state is for**, precisely:
+
+1. **Ownership.** What did we create? Answers safe teardown and adoption.
+2. **Honest counts.** add / change / destroy, from recorded-versus-refreshed rather than from configuration.
+3. **Drift.** Something changed outside Tyanor — reported, and repaired by refreshing.
+
+**The plan protects the DEPLOYMENT, not the state.** This is the framing that keeps the design small. A
+plan is a safety gate on real infrastructure: it shows what will be added, changed and destroyed so a
+person can decide. It is not a consistency protocol, and Tyanor does not try to make state correct in the
+face of concurrent writers.
+
+**Divergence between machines is the developer's problem, deliberately.** Two machines can hold different
+state — different application versions, different branches, a deployment out of sync. Tyanor's job is to
+SHOW it (`Drift`, `Plan.Summary`, `ActiveRun`); resolving it is the developer's call, because the right
+answer depends on facts Tyanor does not have. For the first consumer this does not arise: a customer runs
+one version of one application. Building distributed consensus for a case nobody has is how a tool becomes
+large, which is the same instinct D3 refuses for the resource graph.
+
+**Still true from D1**, and now the reason the mirror is affordable: the provider remains the arbiter of
+what is happening NOW. Reconcile still reads phases live, still attaches to converging work, and a stale
+mirror therefore costs a wrong *count*, never a wrong *action*. That is why `Refresh` can repair state
+instead of state needing surgery — the failure mode a state-file tool is judged on.
+
+**What ships:** `ResourceState`, `UnitState`, `DeploymentState` (with `Serial`), `IStateStore`,
+`FileStateStore`, `IUnitDriver.RefreshAsync`, `StateDiff`, `ProcedureRunner.RefreshAsync`, and drift counts
+on `Plan`. State is written per unit AS THE RUN GOES, not at the end: a run that pauses halfway has still
+created things, and state that only landed on success would omit exactly what a resumed run needs.
+
+**Resources stay opaque** — id, type, fingerprint, all provider-defined. Tyanor stores identity, never a
+resource model, so D3's refusal of the graph survives this change intact.

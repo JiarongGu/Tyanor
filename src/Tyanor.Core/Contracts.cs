@@ -90,6 +90,18 @@ public interface IUnitDriver
     /// that into a classified outcome. Report progress through <paramref name="report"/> as it goes.
     /// </summary>
     Task AwaitSettledAsync(ProcedureUnit unit, DeploymentRequest request, Action<ProgressReport> report, CancellationToken ct);
+
+    /// <summary>
+    /// What actually exists for this unit right now, as the provider sees it. This is how state gets
+    /// re-synced from a real deployment rather than trusted: a refresh re-reads reality and state is
+    /// rewritten to match, so drift is repaired instead of accumulating.
+    /// </summary>
+    /// <remarks>
+    /// Return an empty list when the unit is absent — that is a fact, not a failure. A provider that
+    /// genuinely cannot enumerate its resources should return empty and leave `Fingerprint` null
+    /// elsewhere; a plan then reports what it cannot know rather than inventing certainty.
+    /// </remarks>
+    Task<IReadOnlyList<ResourceState>> RefreshAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct);
 }
 
 /// <summary>A deployment target: credentials, identity, and a driver for its units.</summary>

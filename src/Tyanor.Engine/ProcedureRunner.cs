@@ -24,7 +24,8 @@ public sealed record RetryPolicy(int Attempts = 5, TimeSpan? BaseDelay = null)
 /// both end a run, but only one of them means the work so far was wasted; conflating them is how a tool
 /// teaches people to distrust it. See <see cref="FailureClass"/>.</para>
 /// </summary>
-public sealed class ProcedureRunner(IDeploymentTarget target, IRunHistory history, RetryPolicy? retry = null)
+public sealed class ProcedureRunner(
+    IDeploymentTarget target, IRunHistory history, IStateStore? state = null, RetryPolicy? retry = null)
 {
     private readonly RetryPolicy _retry = retry ?? new RetryPolicy();
 
@@ -41,18 +42,61 @@ public sealed class ProcedureRunner(IDeploymentTarget target, IRunHistory histor
     /// <param name="ct">Cancellation.</param>
     public async Task<Plan> PlanAsync(Procedure procedure, DeploymentRequest request, CancellationToken ct = default)
     {
+        var recorded = state is null ? null : await state.GetAsync(procedure.Name, request.Prefix, ct);
         var steps = new List<PlannedStep>();
+        var drift = new List<Drift>();
+
         foreach (var unit in procedure.Forward())
         {
             ct.ThrowIfCancellationRequested();
             var phase = await WithRetryAsync(() => target.Driver.PhaseAsync(unit, request, ct), ct);
             steps.Add(new PlannedStep(unit, phase, Reconcile.Decide(phase)));
+
+            // REFRESH: re-read what actually exists and compare it to what state records. This is what
+            // makes the add/change/destroy counts real rather than a guess from configuration — and it is
+            // why a state that has gone stale repairs itself instead of needing to be edited by hand.
+            if (recorded is not null)
+            {
+                var actual = await WithRetryAsync(() => target.Driver.RefreshAsync(unit, request, ct), ct);
+                drift.AddRange(StateDiff.ForUnit(unit.Name, recorded.For(unit.Name), actual));
+            }
         }
+
         // Both halves of "is anything already happening here?" — the provider, and the record of intent.
         // With a shared history the second one spans machines, which is what makes running Tyanor from a
         // laptop and a pipeline against the same deployment a visible situation rather than a silent race.
         var active = await history.LiveAsync(procedure.Name, request.Prefix, ct);
-        return new Plan(procedure.Name, request.Prefix, steps, active);
+        return new Plan(procedure.Name, request.Prefix, steps, active) { Drift = drift };
+    }
+
+    /// <summary>
+    /// Re-sync state from the real deployment: ask the provider what exists for every unit and rewrite
+    /// state to match, WITHOUT changing any infrastructure.
+    ///
+    /// <para>This is the repair for a mirror that has gone stale — state adopted from a deployment created
+    /// before Tyanor, or one someone changed by hand. It is deliberately separate from
+    /// <see cref="ApplyAsync"/> so that "make my records true" is never bundled with "change my
+    /// infrastructure".</para>
+    /// </summary>
+    /// <param name="procedure">The units to refresh.</param>
+    /// <param name="request">Which deployment.</param>
+    /// <param name="ct">Cancellation.</param>
+    /// <returns>The state as rewritten.</returns>
+    /// <exception cref="InvalidOperationException">No state store was configured.</exception>
+    public async Task<DeploymentState> RefreshAsync(Procedure procedure, DeploymentRequest request, CancellationToken ct = default)
+    {
+        if (state is null)
+            throw new InvalidOperationException("Refresh needs a state store; this runner was built without one.");
+
+        var current = await state.GetAsync(procedure.Name, request.Prefix, ct);
+        foreach (var unit in procedure.Forward())
+        {
+            ct.ThrowIfCancellationRequested();
+            var actual = await WithRetryAsync(() => target.Driver.RefreshAsync(unit, request, ct), ct);
+            current = current.With(unit.Name, actual);
+        }
+        await state.SaveAsync(current, ct);
+        return current;
     }
 
     /// <summary>
@@ -113,6 +157,11 @@ public sealed class ProcedureRunner(IDeploymentTarget target, IRunHistory histor
                 ct.ThrowIfCancellationRequested();
                 if (kind == RunKind.Apply) await ConvergeAsync(unit, request, report, ct);
                 else await RetireAsync(unit, request, report, ct);
+
+                // Keep state current as we go, not once at the end: a run that pauses halfway has still
+                // created things, and state that only lands on success would omit exactly the resources a
+                // resumed or abandoned run most needs to know about.
+                await RecordStateAsync(procedure, request, unit, removed: kind == RunKind.Remove, ct);
 
                 done += unit.Weight;
                 report(new ProgressReport(unit.Name, $"{unit.Label}: done.",
@@ -192,6 +241,21 @@ public sealed class ProcedureRunner(IDeploymentTarget target, IRunHistory histor
                 await CreateAndWaitAsync(unit, request, report, ct);
                 return;
         }
+    }
+
+    /// <summary>
+    /// Record what this unit now holds, straight from the provider. Nothing is inferred from what we
+    /// intended — state records what IS, which is the only version of it that stays true.
+    /// </summary>
+    private async Task RecordStateAsync(
+        Procedure procedure, DeploymentRequest request, ProcedureUnit unit, bool removed, CancellationToken ct)
+    {
+        if (state is null) return;
+        var current = await state.GetAsync(procedure.Name, request.Prefix, ct);
+        var resources = removed
+            ? []                                            // torn down: the unit owns nothing now
+            : await WithRetryAsync(() => target.Driver.RefreshAsync(unit, request, ct), ct);
+        await state.SaveAsync(current.With(unit.Name, resources), ct);
     }
 
     private async Task CreateAndWaitAsync(ProcedureUnit unit, DeploymentRequest request, Action<ProgressReport> report, CancellationToken ct)
