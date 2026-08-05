@@ -15,8 +15,9 @@ Operating rules for every Claude Code session in this repo. Read top-to-bottom o
 [`.claude/rules/RULES_INDEX.md`](.claude/rules/RULES_INDEX.md) lists every rule and when it applies. Read
 the matching ones **first**. The four today are short and all load-bearing:
 
-- **[`reconcile-dont-mirror.md`](.claude/rules/reconcile-dont-mirror.md)** — there is no state file, and
-  adding one is a change of architecture, not an optimisation.
+- **[`reconcile-dont-mirror.md`](.claude/rules/reconcile-dont-mirror.md)** — the RECONCILE loop reads the
+  provider live and attaches to work in flight. (Its "no state file" opening is superseded by **D12**:
+  Tyanor does keep one set of deployment state. Read D12 first.)
 - **[`error-classification.md`](.claude/rules/error-classification.md)** — credentials / transient / hard.
 - **[`units-not-graphs.md`](.claude/rules/units-not-graphs.md)** — ordered list, reverse teardown, no DAG.
 - **[`provider-boundary.md`](.claude/rules/provider-boundary.md)** — Core names no vendor.
@@ -29,7 +30,9 @@ re-litigated per feature — but it *can* be overturned by appending a new entry
 An operator declares a `Procedure` (an ordered list of `ProcedureUnit`). `ProcedureRunner` walks it: for
 each unit it asks the provider what phase that unit is in, calls `Reconcile.Decide`, and carries out the
 one resulting action. Failures are classified by the provider into three classes, which the engine turns
-into a pause (resumable) or a failure (terminal). Runs are recorded as intent in `IRunHistory`.
+into a pause (resumable) or a failure (terminal). Runs are recorded in `IRunHistory`; what Tyanor OWNS is
+recorded in `IStateStore` and re-synced from reality by `RefreshAsync`, which is what makes a safe teardown
+and honest add/change/destroy counts possible.
 
 **Resume is not a feature; it is the absence of one.** Applying and resuming are the same call, because
 each unit is decided from what is true now rather than from what a previous run remembered.
@@ -39,13 +42,15 @@ each unit is decided from what is true now rather than from what a previous run 
 ```
 src/
   Tyanor.Core/      contracts + the reconcile decision. No I/O, no provider, no dependencies.
-  Tyanor.Engine/    ProcedureRunner: ordering, reconcile, bounded retry, classified outcomes, history.
+  Tyanor.Engine/    ProcedureRunner: ordering, reconcile, retry, classified outcomes, history + state.
+  Tyanor.Extensions.DependencyInjection/   AddTyanor. Optional — the engine works without a container.
   Tyanor.Providers.*/   one per target. The ONLY place vendor vocabulary exists.
 tests/
   Tyanor.Core.Tests/    pure tests for the decision logic. Always-on, no cloud, no mocks of an SDK.
 ```
 
-`Tyanor.Core` takes **no package dependencies**. If something needs one, it is not Core.
+**`Tyanor.Core` AND `Tyanor.Engine` take no package dependencies** — `doctor` checks it. If something needs
+one, it belongs in a package beside them, not in them.
 
 ## 4. Before you commit: `npm run doctor`
 
