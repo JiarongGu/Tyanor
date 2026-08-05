@@ -1,5 +1,30 @@
 # TASKS — Backlog
 
+> ## Where day one landed
+>
+> **The expensive part was the learning, and it is banked.** Tyanor is ~1,200 lines over 4 projects with
+> 50 tests, extracted from a deployer that had already run real infrastructure. What came across is the
+> part that is hard to *discover* — which reconcile branches exist, that only a terminal event may fail a
+> call, that a credential error must pause rather than fail, that a plan can be read from the provider
+> instead of a file. None of that was designed here; it was learned the expensive way, elsewhere.
+>
+> **What is NOT here is the part that is merely hard to type.** Measured against the source
+> (`Aurelia.Deployment`, 2,597 lines):
+>
+> | | Lines | State |
+> |---|---|---|
+> | Operational doctrine | ~700 of `AwsDeployer` + the contracts | ✅ ported, generalized, tested |
+> | AWS mechanics (CFN/S3/ACM/Route 53 calls) | ~1,000 | ❌ not started — item 1 |
+> | Host IPC (`DeployModule`) | 585 | stays in Aurelia; it is UI wiring, not operations |
+>
+> So: roughly **half the code, most of the knowledge, and none of the running**. Nothing has deployed
+> anything yet, and no claim here should be read as if it had.
+>
+> **The one scoping call that matters most:** *do not port AWS before item 2.* The contracts will move when
+> a second, differently-shaped consumer arrives, and hardening them around one provider is exactly the
+> mistake that produced `CdkOutDir` in the source. Item 2 is cheap now and expensive after either consumer
+> ships.
+
 Open work, worked one item at a time, top first. Implement fully (rules → code → tests), update the docs
 it touches, **remove the item**, then commit. Discovered work is added here, never dropped.
 
