@@ -72,6 +72,35 @@ public sealed record DeploymentRequest(
     /// written once, unscoped, and only the exceptions are named.</para>
     /// </remarks>
     public string? Option(string unit, string key) => Option($"{unit}.{key}") ?? Option(key);
+
+    /// <summary>
+    /// A whole GROUP of options for one unit, gathered by prefix and returned with the prefix stripped:
+    /// <c>"{unit}.{prefix}.Name"</c> and <c>"{prefix}.Name"</c> both yield <c>Name</c>, and the unit-scoped
+    /// one wins.
+    /// </summary>
+    /// <param name="unit">The unit's <see cref="ProcedureUnit.Name"/>.</param>
+    /// <param name="prefix">The group, without a trailing dot — <c>"parameter"</c>, <c>"label"</c>, <c>"env"</c>.</param>
+    /// <remarks>
+    /// Some settings are a SET whose keys the provider cannot know in advance — CloudFormation stack
+    /// parameters, Kubernetes labels, environment variables for a process. Reading them one at a time is
+    /// impossible and encoding them into one value re-invents a serialization format inside a string, which
+    /// is how an untyped map becomes worse than typed fields rather than better. This keeps the untyped map
+    /// and lets a group be authored one line per entry.
+    /// </remarks>
+    public IReadOnlyDictionary<string, string> OptionSet(string unit, string prefix)
+    {
+        var gathered = new Dictionary<string, string>();
+        if (Options is null) return gathered;
+
+        // Unscoped first, then unit-scoped over the top — the same "shared default, named exception" shape
+        // as Option(unit, key), so one procedure-wide parameter does not have to be repeated per unit.
+        foreach (var scope in (string[])[$"{prefix}.", $"{unit}.{prefix}."])
+            foreach (var (key, value) in Options)
+                if (key.StartsWith(scope, StringComparison.Ordinal) && key.Length > scope.Length)
+                    gathered[key[scope.Length..]] = value;
+
+        return gathered;
+    }
 }
 
 /// <summary>
