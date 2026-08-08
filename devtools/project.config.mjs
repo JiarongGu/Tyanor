@@ -14,17 +14,23 @@ export default {
     'src/Tyanor.Core/Tyanor.Core.csproj',
     'src/Tyanor.Engine/Tyanor.Engine.csproj',
     'src/Tyanor.Extensions.DependencyInjection/Tyanor.Extensions.DependencyInjection.csproj',
+    'src/Tyanor.Testing/Tyanor.Testing.csproj',
     'src/Tyanor.Providers.Local/Tyanor.Providers.Local.csproj',
     'src/Tyanor.Providers.Aws/Tyanor.Providers.Aws.csproj',
   ],
 
   /**
-   * Projects that must take NO PackageReference at all. This is a real architectural claim the README
+   * Projects that must take NO PackageReference at all. These are real architectural claims the README
    * makes, and a claim nobody checks is one that quietly stops being true — so it is a test, not a hope.
+   *
+   * Tyanor.Testing is here for a second reason: the contract suites are meant to be run by whoever wrote an
+   * implementation, under whatever test framework they already use. One convenient `xunit` reference would
+   * quietly make that untrue for everyone who uses NUnit.
    */
   dependencyFree: [
     'src/Tyanor.Core/Tyanor.Core.csproj',
     'src/Tyanor.Engine/Tyanor.Engine.csproj',
+    'src/Tyanor.Testing/Tyanor.Testing.csproj',
   ],
 
   /** Single source of the version, mirrored into the changelog headline. */
