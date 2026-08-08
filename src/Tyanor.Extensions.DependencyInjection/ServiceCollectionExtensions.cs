@@ -100,14 +100,19 @@ public sealed class TyanorBuilder
         return this;
     }
 
-    /// <summary>Register a deployment target this application can run procedures against.</summary>
+    /// <summary>
+    /// Register a deployment target this application can run procedures against. Call it once per provider —
+    /// they coexist and are selected by <see cref="IDeploymentTarget.Id"/>.
+    /// </summary>
+    /// <param name="target">The target. Yours or a built-in one; there is no difference here.</param>
     public TyanorBuilder AddTarget(IDeploymentTarget target)
     {
         _services.AddSingleton(target);
         return this;
     }
 
-    /// <summary>Register a target resolved from the container.</summary>
+    /// <summary>Register a target the container constructs, so it can take its own dependencies.</summary>
+    /// <typeparam name="T">The target type.</typeparam>
     public TyanorBuilder AddTarget<T>() where T : class, IDeploymentTarget
     {
         _services.AddSingleton<IDeploymentTarget, T>();
@@ -154,11 +159,20 @@ public static class TyanorServiceCollectionExtensions
         // Deployment state — what Tyanor owns. Without it the engine still reconciles and resumes, but it
         // cannot say what it created or produce add/change/destroy counts, so the default supplies one.
         services.TryAddSingleton<IStateStore>(_ => new FileStateStore(options.StatePath));
-        services.TryAddSingleton(sp => new ProcedureRunner(
-            sp.GetRequiredService<IDeploymentTarget>(),
+
+        // EVERY registered target, keyed by id. Resolving IDeploymentTarget directly returns whichever was
+        // registered last, which is fine at one provider and a wrong deployment at two.
+        services.TryAddSingleton(sp => new DeploymentTargets(sp.GetServices<IDeploymentTarget>()));
+        services.TryAddSingleton(sp => new ProcedureRunners(
+            sp.GetRequiredService<DeploymentTargets>(),
             sp.GetRequiredService<IRunHistory>(),
             sp.GetService<IStateStore>(),
             sp.GetRequiredService<TyanorOptions>().Retry));
+
+        // A bare ProcedureRunner stays resolvable, because one target is the ordinary case and asking for a
+        // runner should not require knowing about a factory. With several registered this throws and NAMES
+        // them, rather than silently picking one — see DeploymentTargets.Single.
+        services.TryAddSingleton(sp => sp.GetRequiredService<ProcedureRunners>().ForSingle());
         return services;
     }
 }
