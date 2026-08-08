@@ -147,7 +147,7 @@ public class ProcedureRunnerTests
         public string Id => "fake";
         public IUnitDriver Driver => driver;
         public IFailureClassifier Classifier => this;
-        public Task<TargetIdentity> ValidateAsync(TargetCredentials c, CancellationToken ct) => Task.FromResult(new TargetIdentity(true));
+        public Task<TargetIdentity> ValidateAsync(TargetCredentials? c, CancellationToken ct) => Task.FromResult(new TargetIdentity(true));
 
         public FailureClass? Classify(Exception error)
         {

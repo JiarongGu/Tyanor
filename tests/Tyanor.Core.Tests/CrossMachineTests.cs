@@ -117,7 +117,7 @@ public sealed class CrossMachineTests : IDisposable
         public IUnitDriver Driver => this;
         public IFailureClassifier Classifier => this;
         public FailureClass? Classify(Exception error) => null;
-        public Task<TargetIdentity> ValidateAsync(TargetCredentials c, CancellationToken ct) => Task.FromResult(new TargetIdentity(true));
+        public Task<TargetIdentity> ValidateAsync(TargetCredentials? c, CancellationToken ct) => Task.FromResult(new TargetIdentity(true));
 
         public Task<UnitPhase> PhaseAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) =>
             Task.FromResult(phases.GetValueOrDefault(u.Name, UnitPhase.Missing));

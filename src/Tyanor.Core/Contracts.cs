@@ -55,6 +55,23 @@ public sealed record DeploymentRequest(
 {
     /// <summary>An option value, or null.</summary>
     public string? Option(string key) => Options is not null && Options.TryGetValue(key, out var v) ? v : null;
+
+    /// <summary>
+    /// An option scoped to ONE unit, falling back to the procedure-wide value: <c>"{unit}.{key}"</c>, then
+    /// <c>"{key}"</c>.
+    /// </summary>
+    /// <param name="unit">The unit's <see cref="ProcedureUnit.Name"/>.</param>
+    /// <param name="key">The setting.</param>
+    /// <remarks>
+    /// <para>A provider whose units are all the SAME kind of thing never needs this — every CloudFormation
+    /// unit is a stack, so the unit name is the whole of its configuration. A provider with
+    /// <b>heterogeneous</b> units (a directory here, a long-running process there) has to configure each
+    /// one differently, and without a convention in the contract every provider invents its own. See
+    /// <c>docs/DECISIONS.md</c> D13, which is where this came from.</para>
+    /// <para>The fallback is what stops it becoming verbose: a setting that is the same for every unit is
+    /// written once, unscoped, and only the exceptions are named.</para>
+    /// </remarks>
+    public string? Option(string unit, string key) => Option($"{unit}.{key}") ?? Option(key);
 }
 
 /// <summary>
@@ -113,7 +130,18 @@ public interface IDeploymentTarget
     /// <summary>Exercise the credentials against the provider and report who we are. A real call — "the
     /// fields are filled in" is not validation, and the operator deserves to see the account before a
     /// deployment starts.</summary>
-    Task<TargetIdentity> ValidateAsync(TargetCredentials credentials, CancellationToken ct);
+    /// <param name="credentials">
+    /// <c>null</c> when the target authenticates AMBIENTLY and there is nothing to supply: the local
+    /// machine's own user, an instance role, a kubeconfig context already selected, a session someone else
+    /// established.
+    /// <para>This was originally non-nullable, which quietly asserted that every target has a key and a
+    /// secret — the same species of assumption as the <c>CdkOutDir</c> in <c>docs/DECISIONS.md</c> D4, and
+    /// invisible while every target was a cloud. A target that DOES need credentials and is handed none
+    /// returns <see cref="TargetIdentity"/> with <c>Ok: false</c> and says so; it does not throw, because
+    /// "who am I" is a question with an answer, not an error.</para>
+    /// </param>
+    /// <param name="ct">Cancellation.</param>
+    Task<TargetIdentity> ValidateAsync(TargetCredentials? credentials, CancellationToken ct);
 
     /// <summary>The per-unit driver.</summary>
     IUnitDriver Driver { get; }
