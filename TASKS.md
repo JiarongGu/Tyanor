@@ -128,8 +128,9 @@ procedures, not pushed by a diagram — and the temptation here is to invent a D
 - **A resource-level diff** ("this property will change from X to Y"). Wants a resource model, which wants
   a graph (D3). The UNIT-level plan that shipped gives most of the value — what will be created, replaced,
   or waited on — for none of that cost.
-- **Plugin discovery.** Providers register in the composition root (D6).
-- **A fourth provider** (Kubernetes, SSH, a container host). A target with a control plane and one without
+- **Plugin DISCOVERY.** Providers register in the composition root (D6). Writing your own and registering it
+  is fully supported and first-class (D15) — loading code found on disk is the part that is refused.
+- **A third provider** (Kubernetes, SSH, a container host). A target with a control plane and one without
   have both driven the engine unchanged (D13, D14); a third shape proves nothing further until a consumer
   asks for it.
 - **`DetectStackDrift`.** It is what would catch an AWS resource edited in the console, and it is a paid

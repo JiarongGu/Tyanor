@@ -120,7 +120,15 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
                 $"'{AwsOptions.BucketFrom}' to \"{{unit}}:{{OutputKey}}\" naming a stack that exports one.");
 
         var source = Source(context);
-        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+
+        // Listed rather than streamed so the count is knowable. A website is hundreds of small files and
+        // this is the slow part of the run — the same reason the local provider narrates its copy, and for
+        // the same reason the engine cannot do it for us: the work is inside a create, where a provider
+        // with a control plane would have nothing to do.
+        var files = Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).ToList();
+        var uploaded = 0;
+
+        foreach (var file in files)
         {
             context.ThrowIfCancelled();
             await s3.PutObjectAsync(new PutObjectRequest
@@ -130,21 +138,30 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
                 FilePath = file,
                 ContentType = ContentTypes.Of(file),
             }, context.Cancellation);
+
+            // Percent is through THIS unit; the engine rescales it into the run.
+            uploaded++;
+            if (uploaded % 25 == 0 || uploaded == files.Count)
+                context.Progress($"{context.Label}: uploaded {uploaded} of {files.Count} files…",
+                    (int)(100.0 * uploaded / files.Count));
         }
 
         // Without this the files are up and the CDN keeps serving the old ones until they expire, which
         // looks exactly like a deployment that silently did nothing.
         if (await ResolveAsync(context, AwsOptions.InvalidateFrom) is { } distribution)
+        {
+            context.Progress($"{context.Label}: clearing the CDN cache…");
             await cloudFront.CreateInvalidationAsync(new CreateInvalidationRequest
             {
                 DistributionId = distribution,
                 InvalidationBatch = new InvalidationBatch
                 {
-                    // A caller reference must be unique per request; CloudFormation rejects a repeat.
+                    // A caller reference must be unique per request; CloudFront rejects a repeat.
                     CallerReference = Guid.NewGuid().ToString("N"),
                     Paths = new Paths { Quantity = 1, Items = ["/*"] },
                 },
             }, context.Cancellation);
+        }
     }
 
     /// <summary>Object key → size, or null when the bucket itself is not there.</summary>

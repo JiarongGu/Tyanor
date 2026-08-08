@@ -66,6 +66,10 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   of one per provider.
 - **`DefinitionException`** — a base type for "the procedure or request is wrong", so a consumer can tell it
   from "the provider failed" without matching on message text.
+- **A teardown gets a plan.** `PlanAsync(procedure, request, RunKind.Remove)` reports the units in the order
+  they will go, which are already gone, and every resource the teardown will destroy — `Plan.Destroying`,
+  `Plan.IsDestructive`. The destructive direction was the one without a preview. `Reconcile.DecideRemoval`
+  is the pure function behind it, so the teardown shown and the teardown run come from one place.
 
 ### Changed
 
@@ -89,11 +93,6 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   them into one value would re-invent a serialization format inside a string, which is how an untyped map
   becomes worse than typed fields rather than better.
 
-- **A teardown gets a plan.** `PlanAsync(procedure, request, RunKind.Remove)` reports the units in the order
-  they will go, which are already gone, and every resource the teardown will destroy — `Plan.Destroying`,
-  `Plan.IsDestructive`. The destructive direction was the one without a preview. `Reconcile.DecideRemoval`
-  is the pure function behind it, so the teardown shown and the teardown run come from one place.
-
 ### Fixed
 
 - `README.md`, `docs/architecture/overview.md` and `Reconcile`'s XML docs still claimed there was no state
@@ -102,3 +101,6 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   engine emitted run-relative numbers and both providers emitted -1 for everything, so a ten-minute stack
   deploy showed no movement at all. A driver now reports 0–100 through its OWN unit and the engine rescales
   into the run, weighted by `ProcedureUnit.Weight`. -1 survives as -1.
+- **`Plan.HasWorkInFlight` read the action rather than the phase**, so a teardown plan — where nothing ever
+  attaches — reported an idle provider however busy it was, which made every teardown plan with a live run
+  claim it had stalled and that nothing was in sync.

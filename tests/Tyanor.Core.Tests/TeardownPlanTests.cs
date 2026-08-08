@@ -125,6 +125,25 @@ public class TeardownPlanTests
     }
 
     [Fact]
+    public async Task A_teardown_plan_still_notices_the_provider_is_busy()
+    {
+        // Work in flight is read from the PHASE, not from the action. Reading the action was equivalent on
+        // an apply — only Converging produces Attach — and wrong here, because a teardown never attaches: a
+        // removal plan reported an idle provider however busy it was, which made every teardown plan claim
+        // a live run had stalled and that nothing was in sync.
+        var target = new FakeTarget { ["db"] = UnitPhase.Ready, ["api"] = UnitPhase.Converging };
+        var history = new InMemoryRunHistory();
+        await history.UpsertAsync(new RunRecord(
+            "run-A", "site", "acme", RunKind.Apply, RunStatus.Running, DateTimeOffset.UnixEpoch));
+
+        var plan = await new ProcedureRunner(target, history).PlanAsync(Site, Request(), RunKind.Remove);
+
+        Assert.True(plan.HasWorkInFlight);
+        Assert.False(plan.HasStalledRun);
+        Assert.True(plan.InSync);
+    }
+
+    [Fact]
     public async Task A_replacement_is_destructive_even_on_an_apply()
     {
         // Replacing usually means losing whatever the unit was holding, which is the other thing worth a

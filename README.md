@@ -82,9 +82,9 @@ foreach (var step in teardown.Steps) Console.WriteLine(step);   // in the order 
 
 A plan is a forecast and says which two things it honestly cannot know.
 
-**A library, not a service.** `Tyanor.Core` and `Tyanor.Engine` take **no package dependencies**. There is
-no daemon, no CLI, no ambient state and no background thread. DI is a separate, optional package — the
-minimal path is three lines with no container:
+**A library, not a service.** `Tyanor.Core`, `Tyanor.Engine` and `Tyanor.Testing` take **no package
+dependencies**. There is no daemon, no CLI, no ambient state and no background thread. DI is a separate,
+optional package — the minimal path is three lines with no container:
 
 ```csharp
 var runner = new ProcedureRunner(target, new FileRunHistory("runs.json"));
@@ -92,12 +92,15 @@ var plan   = await runner.PlanAsync(procedure, request);
 await runner.ApplyAsync(procedure, request);          // progress callback optional
 ```
 
-**State lives where you put it.**
+**State lives where you put it.** Two stores, deliberately separate: what Tyanor *owns* has to stay true,
+while the run log is an append-only account of attempts — different lifetimes, and a team sharing one does
+not necessarily want to share the other.
 
 ```csharp
-services.AddTyanor(cfg =>                            // optional package, if you use a container
+services.AddTyanor(cfg =>                                  // optional package, if you use a container
 {
-    cfg.UseFileState("/var/lib/myapp/runs.json");    // or SQLite, Postgres, S3, your own IRunHistory
+    cfg.UseFileState("/var/lib/myapp/state.json");         // what Tyanor owns — or your own IStateStore
+    cfg.UseFileHistory("/var/lib/myapp/runs.json");        // what was attempted — or your own IRunHistory
     cfg.AddTarget(new AwsTarget(credentials));
 });
 ```
@@ -125,6 +128,7 @@ with no cloud SDK installed. Synthesis happens earlier, on a machine that has th
 | `Tyanor.Core` | Contracts and the reconcile decision. No I/O, no provider, **no package dependencies**. |
 | `Tyanor.Engine` | `ProcedureRunner` — ordering, reconcile, bounded retry, classified outcomes, history, state. |
 | `Tyanor.Testing` | Contract suites — runnable proof an implementation behaves as the engine assumes. **No package dependencies.** |
+| `Tyanor.Extensions.DependencyInjection` | `AddTyanor`. Optional — the engine works without a container. |
 | `Tyanor.Providers.Local` | This machine: a directory from an artifact, a process run out of it, a health check. |
 | `Tyanor.Providers.Aws` | CloudFormation stacks, and website files in S3 behind CloudFront. |
 | `Tyanor.Providers.*` | One per target. The only place vendor vocabulary exists. |
@@ -144,8 +148,12 @@ services.AddTyanor(cfg =>
     cfg.AddTarget(new MyOwnTarget(…));               // …and are selected by Id
 });
 
-var runner = runners.For("my-own");                  // ProcedureRunners, injected
+// …then, wherever you deploy from:
+public MyDeployer(ProcedureRunners runners) => _runner = runners.For("my-own");
 ```
+
+Asking for "the" runner with several registered throws and names them rather than picking one — registering
+a second provider must not quietly change where a deployment goes.
 
 **Then prove it behaves.** `Tyanor.Testing` ships the contract suites the built-in providers run —
 the things the engine assumes that no signature states:

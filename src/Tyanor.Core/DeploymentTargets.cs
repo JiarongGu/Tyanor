@@ -50,9 +50,6 @@ public sealed class DeploymentTargets
     /// <summary>The ids registered, in order, for an error message or a picker in a UI.</summary>
     public IReadOnlyCollection<string> Ids => _targets.Keys.Order().ToList();
 
-    /// <summary>How many targets are registered.</summary>
-    public int Count => _targets.Count;
-
     /// <summary>
     /// The target with this id.
     /// </summary>

@@ -114,8 +114,8 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
     }
 
     /// <summary>
-    /// Wait for the server to answer. Ends three ways, and the difference between the last two is the
-    /// difference between "try again" and "fix your command".
+    /// Wait for the server to answer: it does, or it is gone, or it runs out of grace. The difference
+    /// between the last two is the difference between "fix your command" and "try again".
     /// </summary>
     /// <param name="context">The unit, and the progress callback that makes a slow boot look like a slow
     /// boot rather than a hang.</param>

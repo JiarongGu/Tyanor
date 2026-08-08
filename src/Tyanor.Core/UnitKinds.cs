@@ -41,9 +41,6 @@ public abstract class UnitKindDriver : IUnitDriver
     /// <summary>The option a unit sets to declare its kind.</summary>
     public string Option { get; }
 
-    /// <summary>The kinds this provider offers, for an error message worth reading.</summary>
-    public IReadOnlyCollection<string> Kinds => _kinds.Keys;
-
     /// <summary>Add a kind. Call from the constructor; a driver that changes its kinds later is not one.</summary>
     /// <param name="kind">What a unit writes in the option — lowercase by convention, matched case-insensitively.</param>
     /// <param name="driver">The driver for units of that kind.</param>

@@ -32,10 +32,6 @@ public sealed record DeploymentArtifact(IReadOnlyDictionary<string, string> Part
     /// <summary>The path for a part, or null when the artifact does not carry it.</summary>
     public string? Part(string name) => Parts.TryGetValue(name, out var p) ? p : null;
 
-    /// <summary>True when every named part is present — check BEFORE starting, so a missing input is a
-    /// clear refusal rather than a failure three units in.</summary>
-    public bool Has(params string[] names) => names.All(Parts.ContainsKey);
-
     /// <summary>
     /// The local path for a part that MUST be there, refusing clearly when it is not.
     /// </summary>

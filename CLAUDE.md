@@ -34,6 +34,10 @@ into a pause (resumable) or a failure (terminal). Runs are recorded in `IRunHist
 recorded in `IStateStore` and re-synced from reality by `RefreshAsync`, which is what makes a safe teardown
 and honest add/change/destroy counts possible.
 
+Every driver method takes a `UnitContext` — the unit, the request, progress and cancellation — so the
+contract can grow without breaking every implementation again (D16). `PlanAsync` runs the same decision the
+run will, in **either direction**: a teardown gets a plan because it is the one that destroys things.
+
 **Resume is not a feature; it is the absence of one.** Applying and resuming are the same call, because
 each unit is decided from what is true now rather than from what a previous run remembered.
 

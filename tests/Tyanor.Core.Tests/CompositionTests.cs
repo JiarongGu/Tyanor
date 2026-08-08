@@ -99,6 +99,19 @@ public class CompositionTests
     }
 
     [Fact]
+    public void A_target_that_was_never_registered_can_still_borrow_the_configured_history()
+    {
+        // The reason this overload exists rather than "just construct a ProcedureRunner": a one-off target —
+        // a scratch account, a target built from credentials typed in a minute ago — should still write to
+        // the same history and state the application configured, not to a second set nobody looks at.
+        using var provider = Build(new Fake("local"));
+
+        var runner = provider.GetRequiredService<ProcedureRunners>().For(new Fake("ad-hoc"));
+
+        Assert.NotNull(runner);
+    }
+
+    [Fact]
     public void History_and_state_are_shared_across_targets()
     {
         // A deployment's history belongs to the operator, not to the provider — one place to look for what

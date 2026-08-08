@@ -39,13 +39,13 @@ public sealed class ProcedureRunner(
     /// </summary>
     /// <param name="procedure">The units, in apply order.</param>
     /// <param name="request">What would be deployed, and where.</param>
-    /// <param name="ct">Cancellation.</param>
     /// <param name="kind">
     /// Which direction to plan. <see cref="RunKind.Remove"/> plans a TEARDOWN — the units in reverse order,
     /// which of them are already gone, and every resource the removal will destroy.
     /// <para>A teardown gets a plan because it is the operation that destroys things, and a safety gate that
-    /// covers only the recoverable direction is not one. This was missing.</para>
+    /// covers only the recoverable direction is not one.</para>
     /// </param>
+    /// <param name="ct">Cancellation.</param>
     public async Task<Plan> PlanAsync(
         Procedure procedure, DeploymentRequest request,
         RunKind kind = RunKind.Apply, CancellationToken ct = default)

@@ -71,11 +71,18 @@ public sealed record Plan(
         Steps.Where(s => s.Action is ReconcileAction.Recreate or ReconcileAction.SettleThenRecreate).ToList();
 
     /// <summary>
-    /// True when another run is already converging one of these units. Worth surfacing loudly: applying
-    /// now is safe (the engine attaches rather than conflicting), but the operator is watching someone
-    /// else's deployment, and should know that before they wonder why nothing they changed took effect.
+    /// True when the provider is already converging one of these units. Worth surfacing loudly: on an apply
+    /// it is safe (the engine attaches rather than conflicting), but the operator is watching someone else's
+    /// deployment, and should know that before they wonder why nothing they changed took effect.
     /// </summary>
-    public bool HasWorkInFlight => Steps.Any(s => s.Action is ReconcileAction.Attach);
+    /// <remarks>
+    /// Read from the PHASE, not from the action. Asking the action was equivalent for an apply — only
+    /// <see cref="UnitPhase.Converging"/> produces <see cref="ReconcileAction.Attach"/> — and wrong for a
+    /// teardown, where nothing ever attaches, so a removal plan reported an idle provider however busy it
+    /// was. That in turn made <see cref="HasStalledRun"/> always true and <see cref="InSync"/> always false
+    /// whenever a run was live, which is the opposite of what those are for.
+    /// </remarks>
+    public bool HasWorkInFlight => Steps.Any(s => s.Phase is UnitPhase.Converging);
 
     /// <summary>
     /// A run is recorded as live but NOTHING is converging in the provider. It paused, or the process
