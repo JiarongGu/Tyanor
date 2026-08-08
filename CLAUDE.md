@@ -44,9 +44,13 @@ src/
   Tyanor.Core/      contracts + the reconcile decision. No I/O, no provider, no dependencies.
   Tyanor.Engine/    ProcedureRunner: ordering, reconcile, retry, classified outcomes, history + state.
   Tyanor.Extensions.DependencyInjection/   AddTyanor. Optional — the engine works without a container.
+  Tyanor.Providers.Local/   this machine: a directory from an artifact, a process, a health check.
+                            The worked reference — read it before writing a second provider.
   Tyanor.Providers.*/   one per target. The ONLY place vendor vocabulary exists.
 tests/
   Tyanor.Core.Tests/    pure tests for the decision logic. Always-on, no cloud, no mocks of an SDK.
+  Tyanor.Providers.Local.Tests/   real files, real processes. A mocked filesystem would agree with
+                                  whatever the driver believed, which is the opposite of a test.
 ```
 
 **`Tyanor.Core` AND `Tyanor.Engine` take no package dependencies** — `doctor` checks it. If something needs

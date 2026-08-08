@@ -318,3 +318,72 @@ created things, and state that only landed on success would omit exactly what a 
 
 **Resources stay opaque** — id, type, fingerprint, all provider-defined. Tyanor stores identity, never a
 resource model, so D3's refusal of the graph survives this change intact.
+
+---
+
+## D13 — The abstraction was tested against a second shape before AWS was ported (2026-08-08)
+
+The first real provider is `Tyanor.Providers.Local` — deploy to a machine: materialize a directory from an
+artifact, run a long-lived process out of it, health-check its port, tear it down in reverse.
+
+**Decided against:** porting the AWS provider first, which was the obvious next step and had ~1,000 lines
+of already-working code waiting. The contracts had exactly one consumer's shape in them, and hardening them
+around the provider they were extracted from is the mistake D4 records — arrived at a second time.
+
+**Why a machine, of all targets.** It is the provider least able to help. It has **no control plane**:
+nothing keeps converging after the process that started the work goes away, nothing groups resources by
+deployment, and nothing can be asked "what did you create?". Every affordance the engine takes for granted
+when it talks to a cloud has to be built here out of a pid and a marker file. If the model survives that,
+it is a model; if it only works where CloudFormation is doing the hard parts, it was a description of AWS.
+
+### What it moved
+
+Two contracts, both wrong in the same way — a single consumer's circumstances written into a neutral type.
+
+- **`IDeploymentTarget.ValidateAsync` took a non-nullable `TargetCredentials`**, quietly asserting that
+  every target has a key and a secret. A machine has neither; it authenticates as whoever is running the
+  process. Now `TargetCredentials?`, where null means the identity is **ambient** — which also covers an
+  instance role and an already-selected kubeconfig context, so this was never really about being local.
+- **`DeploymentRequest.Options` was flat**, which is enough only when every unit is the same kind of thing.
+  Every CloudFormation unit is a stack, so there the unit's name IS its configuration. A machine deployment
+  is heterogeneous — a directory here, a process there — so `Option(unit, key)` now reads `"{unit}.{key}"`
+  falling back to `"{key}"`. Without a convention in the contract, every provider invents its own.
+
+### What it confirmed, and where the confirmation was a surprise
+
+- **The three failure classes held, including the one that looked cloud-specific.** `Credentials` is not
+  about tokens; it is *the provider rejected who we are*, and the operator's move is the same — become
+  someone allowed to do this, resume, keep the work. An `UnauthorizedAccessException` on a directory is
+  that error exactly. The class was named for expired cloud keys by accident of which provider came first.
+- **State (D12) is not a nicety here; it is the only thing that can answer ownership.** A cloud provider
+  makes D12 look like a convenience. A machine cannot be asked what belongs to a deployment at all, so
+  without the record a teardown cannot tell the directory it created from one that was already there.
+- **`UnitPhase`, `Reconcile.Decide`, `IUnitDriver` and the engine needed no change.** No
+  `if (provider == …)` exists in Core or Engine — the acceptance test for this work.
+
+### The case that looked like it needed a graph, and did not
+
+To replace the files a server is running out of, the server has to be stopped first. So `service` would
+have to come **after** `runtime` (it needs the files) and **before** it (it must stop first). Ordering
+cannot express that, and this is precisely the shape of argument that ends in a dependency DAG.
+
+It did not need one. Each build is written to its own directory — `{unit}/releases/{fingerprint}` — so
+nothing is ever replaced in place, the restart falls out of the service's fingerprint changing, and the
+procedure stays a list of two units applied in order. **What could not be solved by reordering was solved
+by changing the operation.** That is a third answer to add to D3's two ("put B first", "they are one
+unit"), and it is the one to reach for next time this argument appears.
+
+**Consequence for D3's revisit bar:** this was a real fan-out-shaped constraint from a real second shape,
+and it was absorbed without edges. The bar stays where it is.
+
+**Evidence.** 45 tests that copy real files and start real processes, including: a second run attaching to
+a server another run started rather than launching a competitor; a health check that never comes green
+pausing the run instead of failing it; a hand-edited deployment reported as drift and repaired by applying;
+an interrupted redeploy leaving the previous build serving; and a recorded pid whose start time does not
+match being refused rather than killed. That last one matters more than it reads — operating systems reuse
+pids, and a tool that kills whatever holds a remembered number eventually kills something that has nothing
+to do with the deployment.
+
+**What this does NOT claim.** The second *consumer* is still hypothetical: Daoris does not yet self-host
+through Tyanor, and Aurelia does not yet deploy through it. What has been proven is that a second *shape*
+fits. That is most of the value and it is not all of it — a real consumer will find things a test cannot.

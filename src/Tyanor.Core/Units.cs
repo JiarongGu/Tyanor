@@ -55,10 +55,12 @@ public enum ReconcileAction
 /// therefore no way for the two to disagree. It also means a crash, a closed laptop, or a second machine
 /// starting the same procedure all converge on the same answer.</para>
 ///
-/// <para><b>Why there is no state file.</b> The provider is already a database of what exists, and it keeps
-/// converging whether or not this process is alive. Mirroring it locally buys nothing and costs the drift,
-/// locking and repair problems that dominate operating a state-file tool. Tyanor records INTENT (a run
-/// happened, with this configuration) and reads FACT from the provider. See
+/// <para><b>Why state cannot make this decision.</b> Tyanor does keep one set of state — what it owns, so
+/// that a teardown removes what it created and a plan can count honestly (<c>docs/DECISIONS.md</c> D12).
+/// But the decision above is never taken from it. The provider is the arbiter of what is happening NOW,
+/// and it keeps converging whether or not this process is alive; state that went stale while the laptop
+/// was shut is repaired by re-reading, not consulted. That is the whole reason the mirror is affordable:
+/// a stale one costs a wrong COUNT, never a wrong ACTION. See
 /// <c>.claude/rules/reconcile-dont-mirror.md</c>.</para>
 ///
 /// <para>Ported from a deployer that survived a real crash-and-rebuild mid-deploy and resumed to

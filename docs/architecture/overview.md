@@ -15,8 +15,13 @@ IUnitDriver          create · update · remove · await  ← Tyanor.Providers.*
 provider API         CloudFormation, kubectl, ssh…
 ```
 
-Nothing else is going on. The engine has no workflow state, no plan, and no memory of a previous run: it
-asks the provider what is true and decides again.
+Nothing else is going on. The engine has no workflow state and no memory of a previous run: every unit's
+action is decided from what the provider reports now.
+
+Alongside that, and never feeding into the decision, Tyanor keeps **one set of state** — what it owns, per
+unit — because a provider working with raw resources cannot say what Tyanor created, and a teardown needs
+to know ([`../DECISIONS.md`](../DECISIONS.md) D12). `RefreshAsync` re-reads reality and rewrites state to
+match, which is why a stale mirror costs a wrong *count* and never a wrong *action*.
 
 ## The reconcile table
 
@@ -70,12 +75,20 @@ leak that motivated this.
 
 ## What is deliberately absent
 
-- **A state file** (D1) — the largest single simplification.
-- **A dependency graph** (D3) — ordering covers the real cases.
-- **A plan/diff step** — needs a resource model, which needs a graph.
+- **A dependency graph** (D3) — ordering covers the real cases, and the one constraint that looked like it
+  needed edges was absorbed by changing an operation instead (D13).
+- **A resource-level diff** ("this property becomes that") — needs a resource model, which needs the graph.
+  The unit-level plan plus resource-level add/change/destroy counts gives most of the value for none of it.
 - **Synthesis at apply time** (D5) — Tyanor executes a pre-built artifact.
 - **Plugin discovery** (D6) — providers register in the composition root.
+- **Coordination between machines writing state at once** (D12) — divergence is shown, not resolved.
 
-## Extending
+## Providers
+
+`Tyanor.Providers.Local` is the worked reference: it deploys a self-hosted server to a machine, and it is
+the shape with **no control plane** — nothing keeps converging once the process that started the work is
+gone, and nothing can be asked what belongs to a deployment. Everything the engine takes for granted
+against a cloud is built there out of a pid file and a marker (D13), which is what makes it the useful
+example to read before writing a second one.
 
 Adding a provider: [`../../.claude/skills/add-provider/SKILL.md`](../../.claude/skills/add-provider/SKILL.md).

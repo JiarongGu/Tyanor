@@ -17,13 +17,14 @@
 > | AWS mechanics (CFN/S3/ACM/Route 53 calls) | ~1,000 | ❌ not started — item 1 |
 > | Host IPC (`DeployModule`) | 585 | stays in Aurelia; it is UI wiring, not operations |
 >
-> So: roughly **half the code, most of the knowledge, and none of the running**. Nothing has deployed
-> anything yet, and no claim here should be read as if it had.
+> So: roughly **half the code, most of the knowledge, and none of the running**.
 >
-> **The one scoping call that matters most:** *do not port AWS before item 2.* The contracts will move when
-> a second, differently-shaped consumer arrives, and hardening them around one provider is exactly the
-> mistake that produced `CdkOutDir` in the source. Item 2 is cheap now and expensive after either consumer
-> ships.
+> **That last part is no longer true.** `Tyanor.Providers.Local` ships and deploys — a directory
+> materialized from an artifact, a process run out of it, a health check, a teardown — and it was built
+> before AWS on purpose, to test the contracts against a shape they were not extracted from. It found two
+> (`ValidateAsync` assumed credentials exist; `Options` assumed homogeneous units) and confirmed that
+> `UnitPhase`, `Reconcile` and the engine needed nothing. See **D13**. What is still true: no *cloud* has
+> been deployed to, and no real consumer ships on Tyanor yet.
 
 Open work, worked one item at a time, top first. Implement fully (rules → code → tests), update the docs
 it touches, **remove the item**, then commit. Discovered work is added here, never dropped.
@@ -32,9 +33,13 @@ it touches, **remove the item**, then commit. Discovered work is added here, nev
 
 ## 1. `Tyanor.Providers.Aws` — port the tested AWS deployer
 
-The engine is provider-neutral and unit-tested, but nothing drives a real cloud yet. The port source is
-Aurelia's `apps/desktop/Aurelia.Deployment` — **~2,600 lines that have deployed real infrastructure**,
-survived a crash-and-rebuild mid-run, and torn down cleanly.
+Nothing drives a real cloud yet. The port source is Aurelia's `apps/desktop/Aurelia.Deployment` —
+**~2,600 lines that have deployed real infrastructure**, survived a crash-and-rebuild mid-run, and torn
+down cleanly.
+
+**Unblocked as of D13**: the contracts have now been tested against a second shape, so the reason to wait
+is gone. `Tyanor.Providers.Local` is the worked reference — read it for what the six driver methods look
+like when nothing is faked, and note how little of it is anything but provider vocabulary.
 
 Split as measured on 2026-08-06:
 
@@ -53,17 +58,21 @@ Split as measured on 2026-08-06:
 - Acceptance: the phase table and the classifier are unit-tested against real status/code strings; a live
   deploy stays behind `TYANOR_LIVE_AWS`.
 
-## 2. Prove the abstraction with a second, differently-shaped consumer
+## 2. Put a real consumer on it
 
-Aurelia deploys a static site plus a serverless API. **Daoris needs to self-host a server** — a different
-shape, and the reason Tyanor exists rather than a helper library inside Aurelia.
+D13 proved a second *shape* fits, using a provider and tests inside this repo. It did not prove a second
+*consumer* fits, and that is a different claim: a real application brings a lifecycle, a UI, a logging
+opinion and a configuration story, and those are where a library gets pushed on.
 
-One consumer makes an abstraction a guess; two make it honest. Expect this to move `DeploymentRequest`
-and to reveal at least one thing wrongly assumed to be generic — that is the point, and it is cheaper now
-than after either consumer ships.
+- **Daoris self-hosting a server** is the closest fit — `Tyanor.Providers.Local` was built to its shape,
+  so this is now mostly wiring rather than design.
+- **Aurelia** is the other half, and it needs item 1 first.
 
-- Acceptance: both procedures run on the same engine with no `if (provider == …)` anywhere in Core or
-  Engine.
+Expect this to move `DeploymentRequest` again. That is not a failure of D13; a test cannot want something
+a person will.
+
+- Acceptance: one of the two ships a deployment through Tyanor, with the composition root in the
+  application and no Tyanor change required to make it work.
 
 ## 3. State backends beyond a local file — SQLite, Postgres, S3
 
@@ -111,4 +120,8 @@ procedures, not pushed by a diagram — and the temptation here is to invent a D
   a graph (D3). The UNIT-level plan that shipped gives most of the value — what will be created, replaced,
   or waited on — for none of that cost.
 - **Plugin discovery.** Providers register in the composition root (D6).
-- **Any provider beyond AWS**, until item 2 says what is actually shared.
+- **A third provider** (Kubernetes, SSH, a container host). Two shapes have now been checked against each
+  other and agree (D13); a third proves nothing further until a consumer asks for it.
+- **Anything a provider could orchestrate for itself.** The local provider was tempted twice — stopping a
+  process before replacing files, and retrying its own health check — and both belong to the engine, which
+  already has them. A provider that grows run-state logic is writing a second engine inside itself.

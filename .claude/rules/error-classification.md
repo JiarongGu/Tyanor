@@ -14,6 +14,12 @@ The three classes are not a taxonomy for its own sake — they are three *differ
 should do next*: re-authenticate, wait, or change the definition. If a fourth class ever earns its place,
 it must arrive with a fourth action.
 
+**`Credentials` is not about tokens**, and reading it that way is the commonest way a non-cloud provider
+classifies wrongly. It means *the provider rejected who we are*. An `UnauthorizedAccessException` on a
+directory is that error exactly: the OS refused this identity, the work already done is intact, and the
+operator's move is the credential move — become someone allowed to do this, then resume. The class was
+named for expired cloud keys by accident of which provider came first (`docs/DECISIONS.md` D13).
+
 Retrying is also a claim. Retrying a transient blip is honest; retrying a malformed request is a lie told
 five times, and retrying an expired credential merely delays the moment someone can fix it.
 

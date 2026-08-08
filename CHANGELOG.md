@@ -25,4 +25,27 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   `DECISIONS.md` must point both ways (it found five missing forward pointers on its first run), every rule
   indexed and linked, a credential scan, and the two architectural claims the README makes out loud.
 
-_No provider ships yet — see `TASKS.md` item 1._
+- **`Tyanor.Providers.Local` — the first provider, and it deploys.** A directory materialized from an
+  artifact part, a long-lived process run out of it, a TCP health check, a teardown in reverse. Built before
+  the AWS port on purpose: it is the target with **no control plane**, so everything the engine assumes when
+  it talks to a cloud has to be built from a pid file and a marker. 45 tests that copy real files and start
+  real processes. Reasoning in `docs/DECISIONS.md` D13.
+  - A new build is written *beside* the running one (`{unit}/releases/{fingerprint}`) and the server
+    restarts into it — which is also how a constraint that looked like it needed a dependency graph was
+    absorbed without one.
+  - A second run attaches to a server another run started rather than launching a competitor.
+  - A recorded pid whose start time does not match is refused rather than killed. Operating systems reuse
+    pids.
+
+### Changed
+
+- **`IDeploymentTarget.ValidateAsync` now takes `TargetCredentials?`** (breaking). Null means the target
+  authenticates ambiently — this machine's user, an instance role, a context already selected. The
+  non-nullable version asserted that every target has a key and a secret.
+- **`DeploymentRequest.Option(unit, key)`** reads `"{unit}.{key}"` falling back to `"{key}"`, so a provider
+  with heterogeneous units can configure each one without every provider inventing its own convention.
+
+### Fixed
+
+- `README.md`, `docs/architecture/overview.md` and `Reconcile`'s XML docs still claimed there was no state
+  file and no plan/diff — both reversed by D12 several commits earlier.

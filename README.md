@@ -5,8 +5,9 @@ providers; resume it after anything goes wrong.
 
 *天仪 — the celestial mechanism that brings order through coordinated operation.*
 
-> **Status: early.** The engine is built and unit-tested; the first provider is being ported from a
-> deployer that has run real infrastructure. See [`TASKS.md`](TASKS.md).
+> **Status: early.** The engine is built and tested, and one provider ships —
+> `Tyanor.Providers.Local`, which deploys a self-hosted server to a machine. The AWS provider is next,
+> ported from a deployer that has run real infrastructure. See [`TASKS.md`](TASKS.md).
 
 ## What it is
 
@@ -38,28 +39,37 @@ one that broke is remade.
 | AWS CDK | real code — typed, refactorable | delegated to CloudFormation |
 | **Tyanor** | **real C#** | **its own engine** — reconcile, classify, resume |
 
-Terraform's mechanics, CDK's authoring, and neither the state file nor the resource graph. See
+Terraform's mechanics, CDK's authoring, and none of the resource graph. See
 [`docs/DECISIONS.md`](docs/DECISIONS.md) D8 for where that line is drawn and why.
 
 ## What makes it different
 
-**No mirror of your infrastructure.** Tyanor records what was *attempted* — run history, at a location
-you configure — and reads what *exists* from the provider. It never keeps a local model of your resources.
-That is the deliberate fork from Terraform, and everything else follows from it:
+**Every decision is read from the provider, never from a file.** A run does not remember what it was
+doing; each unit is reconciled against what the target reports *right now*. That is the deliberate fork
+from Terraform, and three things follow from it:
 
 - **Resume is a re-run.** No separate resume path, so there is nothing for the two to disagree about.
-- **No drift, no locking, no `state rm`.** There is no local belief about the world to go stale.
 - **A crash is uninteresting.** Nothing local was authoritative. The provider kept converging anyway.
+- **A stale record costs a wrong count, never a wrong action** — which is what makes the state below
+  affordable, and repairable by re-reading instead of by surgery on the tool's bookkeeping.
 
-**Plans come from the provider, not from a file.** `PlanAsync` asks the target what each unit's phase is
-and runs the same decision the apply will run — so it cannot be stale the way a state-file plan can. It
-tells you what will be created, what will be **replaced**, and when another run is already in flight.
+**One set of state, and it answers ownership.** Tyanor records what it *owns*, per unit, wherever you put
+it — because a provider working with raw resources cannot tell you what Tyanor created, and without that a
+teardown cannot distinguish it from what was already there. `RefreshAsync` re-reads reality and rewrites
+state to match ([D12](docs/DECISIONS.md)).
+
+**Plans are a safety gate on your infrastructure.** `PlanAsync` asks the target what each unit's phase is
+and runs the same decision the apply will run, then compares recorded state against a live refresh:
 
 ```csharp
 var plan = await runner.PlanAsync(procedure, request);
+Console.WriteLine(plan.Summary);   // "3 to add, 1 to change, 0 to destroy"
 if (plan.Replacements.Count > 0) /* ask before destroying something */;
-if (plan.HasWorkInFlight)        /* someone else is mid-deploy */;
+if (plan.HasWorkInFlight)        /* someone else is mid-deploy — applying will attach to it */;
+if (plan.HasStalledRun)          /* a run is recorded live but nothing is converging */;
 ```
+
+It is a forecast and says which two things it honestly cannot know.
 
 **A library, not a service.** `Tyanor.Core` and `Tyanor.Engine` take **no package dependencies**. There is
 no daemon, no CLI, no ambient state and no background thread. DI is a separate, optional package — the
@@ -82,8 +92,9 @@ services.AddTyanor(cfg =>                            // optional package, if you
 ```
 
 Share that store and a plan can **see** runs from other machines — including one that stalled because the
-machine running it went away. Note the limit, stated rather than implied: that is state *checking*, not
-cross-machine *syncing*. Concurrent writers are not yet coordinated ([D11](docs/DECISIONS.md)).
+machine running it went away. Note the limit, stated rather than implied: two machines writing at the same
+instant are not coordinated, so divergence is shown rather than resolved. Resolving it is yours, because
+the right answer depends on facts Tyanor does not have ([D12](docs/DECISIONS.md)).
 
 **Every stop is classified.** An expired credential and a malformed template both end a run, but only one
 means the work so far was wasted. Credentials and transient errors *pause* — resumable, progress kept.
@@ -101,8 +112,36 @@ with no cloud SDK installed. Synthesis happens earlier, on a machine that has th
 | | |
 |---|---|
 | `Tyanor.Core` | Contracts and the reconcile decision. No I/O, no provider, **no package dependencies**. |
-| `Tyanor.Engine` | `ProcedureRunner` — ordering, reconcile, bounded retry, classified outcomes, history. |
+| `Tyanor.Engine` | `ProcedureRunner` — ordering, reconcile, bounded retry, classified outcomes, history, state. |
+| `Tyanor.Providers.Local` | This machine: a directory from an artifact, a process run out of it, a health check. |
 | `Tyanor.Providers.*` | One per target. The only place vendor vocabulary exists. |
+
+### Deploying a self-hosted server
+
+```csharp
+var procedure = new Procedure("server",
+[
+    new ProcedureUnit("runtime", "Application files"),
+    new ProcedureUnit("service", "Server", Weight: 3),
+]);
+
+var request = new DeploymentRequest("acme",
+    new DeploymentArtifact(new Dictionary<string, string> { ["app"] = publishOutput }),
+    new Dictionary<string, string>
+    {
+        ["runtime.kind"] = "directory",   ["runtime.source"] = "app",
+        ["service.kind"] = "process",     ["service.command"] = "dotnet",
+        ["service.args"] = "Server.dll",  ["service.watch"] = "runtime",
+        ["service.health.port"] = "8080",
+    });
+
+await new ProcedureRunner(new LocalTarget("/srv"), history, state)
+    .ApplyAsync(procedure, request, Console.WriteLine);
+```
+
+A new build lands beside the running one and the server restarts into it; a second run started while it is
+still booting **attaches** rather than launching a competitor. Settings are per unit, falling back to
+unscoped — `["kind"] = "directory"` once covers every unit that does not disagree.
 
 ## Ecosystem
 

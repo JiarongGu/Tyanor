@@ -23,8 +23,16 @@ then consumers depend on the leaked shape.
 - **Status vocabulary is mapped, never passed through.** A provider translates its own strings into
   `UnitPhase` inside `PhaseAsync`. No provider status string reaches the engine.
 - **Errors are classified, not surfaced raw** — see [`error-classification.md`](error-classification.md).
+- **Per-unit settings use `request.Option(unit, key)`**, which reads `"{unit}.{key}"` and falls back to
+  `"{key}"`. A provider whose units are all the same kind of thing never needs it — every CloudFormation
+  unit is a stack — but one with a directory here and a process there does, and without the convention in
+  the contract each provider would invent its own.
 - **The test:** would a Kubernetes provider and a bare-SSH provider both implement this without pretending?
   If either has to invent a meaning for a field, it belongs in `Options` or in the provider.
+- **A target may have no credentials at all**, so `ValidateAsync` takes `TargetCredentials?` — null means
+  the identity is ambient (this machine's user, an instance role, an already-selected context). The
+  non-nullable version was the same defect as `CdkOutDir`, just quieter: a neutral contract asserting the
+  circumstances of the only provider that existed (`docs/DECISIONS.md` D13).
 
 ## The authoring / executing split
 
