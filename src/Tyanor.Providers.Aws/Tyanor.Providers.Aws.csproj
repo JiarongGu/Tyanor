@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Tyanor.Providers.Aws</RootNamespace>
+    <Description>Tyanor AWS provider — CloudFormation stacks and S3/CloudFront website content, driven by the SDK with no CLI and no bootstrap. Templates are already synthesized; this executes them.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Tyanor.Core\Tyanor.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.CloudFormation" Version="4.0.9.7" />
+    <PackageReference Include="AWSSDK.CloudFront" Version="4.0.17.7" />
+    <PackageReference Include="AWSSDK.S3" Version="4.0.25.2" />
+    <PackageReference Include="AWSSDK.SecurityToken" Version="4.0.7.7" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The phase table and the classifier are the parts worth testing directly, and the parts that should
+         NOT be public API. -->
+    <InternalsVisibleTo Include="Tyanor.Providers.Aws.Tests" />
+  </ItemGroup>
+</Project>

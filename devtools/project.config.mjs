@@ -15,6 +15,7 @@ export default {
     'src/Tyanor.Engine/Tyanor.Engine.csproj',
     'src/Tyanor.Extensions.DependencyInjection/Tyanor.Extensions.DependencyInjection.csproj',
     'src/Tyanor.Providers.Local/Tyanor.Providers.Local.csproj',
+    'src/Tyanor.Providers.Aws/Tyanor.Providers.Aws.csproj',
   ],
 
   /**
