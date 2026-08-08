@@ -35,7 +35,65 @@ public sealed record DeploymentArtifact(IReadOnlyDictionary<string, string> Part
     /// <summary>True when every named part is present — check BEFORE starting, so a missing input is a
     /// clear refusal rather than a failure three units in.</summary>
     public bool Has(params string[] names) => names.All(Parts.ContainsKey);
+
+    /// <summary>
+    /// The local path for a part that MUST be there, refusing clearly when it is not.
+    /// </summary>
+    /// <param name="name">The part name, as the procedure chose it.</param>
+    /// <param name="expect">What the part has to be on disk. Checked, because a part pointing at the wrong
+    /// kind of thing fails later and more confusingly than it needs to.</param>
+    /// <exception cref="ArtifactException">The part is absent, or is not what <paramref name="expect"/> says.</exception>
+    /// <remarks>
+    /// <para>Here rather than in each provider because the first two both wrote it, identically, down to the
+    /// three separate failure messages — and the third would have written it again, slightly differently, so
+    /// that operators got a different sentence about the same mistake depending on where they deployed.</para>
+    /// <para>The failure is always terminal: no amount of retrying produces a file the build did not make.
+    /// Providers do not need to classify it — <see cref="IFailureClassifier"/> returning null for it is
+    /// correct, and the engine's default for null is <see cref="FailureClass.Hard"/>.</para>
+    /// </remarks>
+    public string RequirePart(string name, ArtifactPart expect = ArtifactPart.Any)
+    {
+        var path = Part(name)
+            ?? throw new ArtifactException(
+                $"The artifact has no part named '{name}'. It carries: " +
+                $"{string.Join(", ", Parts.Keys.OrderBy(k => k, StringComparer.Ordinal).DefaultIfEmpty("nothing"))}.");
+
+        var ok = expect switch
+        {
+            ArtifactPart.Directory => Directory.Exists(path),
+            ArtifactPart.File => File.Exists(path),
+            _ => Directory.Exists(path) || File.Exists(path),
+        };
+
+        if (!ok)
+            throw new ArtifactException(
+                $"Artifact part '{name}' points at '{path}', which is not " +
+                $"{(expect == ArtifactPart.Directory ? "a directory" : expect == ArtifactPart.File ? "a file" : "on this machine")}. " +
+                "Build first.");
+
+        return path;
+    }
 }
+
+/// <summary>What an artifact part has to be on disk.</summary>
+public enum ArtifactPart
+{
+    /// <summary>Either — the provider does not care which.</summary>
+    Any,
+
+    /// <summary>A tree of files: a publish output, a bundle, a chart.</summary>
+    Directory,
+
+    /// <summary>A single file: a template, a manifest, an archive.</summary>
+    File,
+}
+
+/// <summary>
+/// The artifact does not carry what the procedure asked for — a part that is not there, or one pointing at
+/// nothing. Always terminal: a build that did not happen does not start happening because someone retried.
+/// </summary>
+/// <param name="message">Plain language, naming what the artifact DOES carry.</param>
+public sealed class ArtifactException(string message) : DefinitionException(message);
 
 /// <summary>
 /// One request to converge a target on a desired state.

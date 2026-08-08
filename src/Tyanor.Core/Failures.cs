@@ -82,6 +82,26 @@ public sealed record OperationOutcome(bool Ok, string? Error = null, PauseReason
 }
 
 /// <summary>
+/// The PROCEDURE or the REQUEST is wrong — not the provider, and not the infrastructure.
+///
+/// <para>A unit that does not say what it is, an artifact part that was never built, a cross-unit reference
+/// that does not parse. Always terminal: retrying re-reads the same definition and reaches the same
+/// conclusion. Nothing about the target has been touched when one of these is raised, which is the point of
+/// raising it early.</para>
+///
+/// <para><b>Why this is a base class and not just a message.</b> A consumer showing a deployment to a person
+/// needs to tell two situations apart: "you have configured this wrongly, fix it and nothing is lost" and
+/// "AWS said no". They read differently, they go to different places in a UI, and only one of them is worth
+/// a support conversation. Catching a base type is how that stays possible without matching on text.</para>
+///
+/// <para>Providers do NOT need to classify these. An <see cref="IFailureClassifier"/> returning null for one
+/// is correct, and the engine's default for null is <see cref="FailureClass.Hard"/> — which is exactly what
+/// a wrong definition is.</para>
+/// </summary>
+/// <param name="message">Plain language, naming what was expected and what was found instead.</param>
+public abstract class DefinitionException(string message) : Exception(message);
+
+/// <summary>
 /// A provider's ability to say what one of ITS errors means. This is the only place a provider's error
 /// codes belong; the engine never inspects an exception it did not create.
 /// </summary>
