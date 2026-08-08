@@ -48,6 +48,12 @@ shapes (AWS keys, private-key blocks, JWTs, bearer tokens) rather than the word 
 all noise. Tuned to be slightly noisy and cheap to silence: a false positive costs one
 `tyanor:allow-secret` comment, and the opposite tuning is the one that leaks.
 
+### `test` (inside `doctor`)
+
+Reports **every** test project's summary, not the first. With one test project those are the same thing;
+with two, reading only the first means a provider suite failing hides behind a core suite passing — and the
+verdict line would still say which check failed, but the detail under it would name the wrong assembly.
+
 ### `dependency-free core` and `version is single-sourced` (inside `doctor`)
 
 Two claims the README makes out loud: that `Tyanor.Core` and `Tyanor.Engine` take **no package

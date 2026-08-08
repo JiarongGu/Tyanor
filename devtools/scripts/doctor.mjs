@@ -45,9 +45,17 @@ step('build', () => {
 
 step('test', () => {
   const r = sh('dotnet', ['test', cfg.solution, '-v', 'q', '--nologo']);
-  const summary = (r.stdout + r.stderr).split('\n').find((l) => /Passed!|Failed!/.test(l))?.trim();
-  if (r.status === 0) { console.log(); process.stdout.write(`      ${summary ?? 'passed'}\n      `); return []; }
-  return [summary ?? 'test run failed'];
+  // EVERY summary line — one per test project. Reporting only the first would hide a second project
+  // failing behind a first that passed, which is exactly the shape of bug this whole script exists for.
+  const summaries = (r.stdout + r.stderr).split('\n').filter((l) => /Passed!|Failed!/.test(l)).map((l) => l.trim());
+  if (r.status === 0) {
+    console.log();
+    for (const s of summaries) process.stdout.write(`      ${s}\n`);
+    process.stdout.write('      ');
+    return [];
+  }
+  const failures = summaries.filter((s) => /Failed!/.test(s));
+  return failures.length ? failures : summaries.length ? summaries : ['test run failed'];
 });
 
 // ── the architectural claims ─────────────────────────────────────────────────────────────────────
