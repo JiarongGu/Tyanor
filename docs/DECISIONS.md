@@ -387,3 +387,86 @@ to do with the deployment.
 **What this does NOT claim.** The second *consumer* is still hypothetical: Daoris does not yet self-host
 through Tyanor, and Aurelia does not yet deploy through it. What has been proven is that a second *shape*
 fits. That is most of the value and it is not all of it — a real consumer will find things a test cannot.
+
+---
+
+## D14 — The AWS port keeps the knowledge and leaves the application behind (2026-08-08)
+
+`Tyanor.Providers.Aws` ships: CloudFormation stacks, and S3 content with a CloudFront invalidation. Ported
+from a deployer that ran real infrastructure, survived a crash and rebuild mid-deploy, and tore down cleanly.
+
+**What was left out, which is most of it.** The source was ~2,600 lines. What crossed is the CloudFormation
+and S3 mechanics; four things did not, each for a different reason:
+
+- **The reconcile branches, the retry, the classification and the pause/fail mapping.** These were a single
+  50-line method beside the SDK calls. They are the engine now, and re-adding them inside a provider is the
+  mistake the add-provider skill exists to prevent. This is where most of the deleted lines went.
+- **`DeploymentBundler` — the `cdk synth` post-processing.** It rewrites a CDK assembly's asset references
+  and injects the operator's stack prefix and certificate. That is **authoring**, and D5 says it happens
+  earlier on a machine with the toolchain. Its OUTPUT — a directory of ready templates and asset zips — is
+  exactly the `DeploymentArtifact` this provider consumes, so the boundary landed where D5 said it would
+  without anything being bent to fit.
+- **The domain setup (ACM certificates, Route 53 validation and alias records).** Deferred, not rejected —
+  see below.
+- **The RDS pre-migration snapshot, the migration verification poll, the SEO prerenderer, and the host
+  IPC.** Application policy about one application's database and one application's website. A deployment
+  engine that knew about `__EFMigrationsHistory` would have stopped being one.
+
+### The interpretation that carries the most weight
+
+CloudFormation has two statuses one character apart that mean opposite things, and conflating them deletes
+a working stack — including its database.
+
+- `ROLLBACK_COMPLETE` is a failed **create**. CloudFormation refuses to update it; it can only be deleted.
+  So it is `Broken`, and the action is a replace.
+- `UPDATE_ROLLBACK_COMPLETE` is a failed **update**. The stack is back at its previous good configuration
+  and is perfectly updatable. So it is `Ready`.
+
+The same distinction decides which statuses are `Unwinding`. `Unwinding` means *it will settle into
+something unusable*, so only `ROLLBACK_IN_PROGRESS` and `DELETE_IN_PROGRESS` qualify. Every other rollback
+is reverting to a good state and is therefore `Converging` — and the wait reports the rollback itself as a
+failure, so an update that reverted is never mistaken for one that shipped. `REVIEW_IN_PROGRESS` is the odd
+one out: it ends in `_IN_PROGRESS` and nothing is happening, so attaching to it would hang rather than fail.
+
+A test enumerates `StackStatus` from the SDK by reflection and fails if AWS adds a status this table has not
+been told about. That is the check that stops the table rotting the next time the SDK is upgraded.
+
+### Two defects found in code that had run in production
+
+- **Every `AmazonCloudFormationException` was read as "the stack does not exist."** A throttle therefore read
+  as absent, and the create that followed would hit a stack that was there all along. Now only a
+  `ValidationError` that actually says "does not exist" counts, and everything else propagates to be
+  classified — so a throttle is retried as the transient error it is.
+- **`"No updates are to be performed"` shares its error code with genuine template errors.** It is matched on
+  message text, which this provider otherwise refuses to do, and the match is deliberately narrow: reading a
+  real validation failure as "already up to date" is the worse mistake by a wide margin.
+
+### Drift on AWS is CloudFormation-known drift, and that is a limit worth stating
+
+`RefreshAsync` reports stack resources with their CloudFormation status as the fingerprint. It does **not**
+call `DetectStackDrift`, which is what would actually detect a resource edited in the console — because that
+is a paid asynchronous operation per stack, far too expensive to run on every plan.
+
+So the local provider detects out-of-band drift (it content-hashes what it deployed) and the AWS provider
+does not. Rather than hide the difference, say it: on AWS, drift Tyanor reports is drift CloudFormation
+knows about, and the place to find the rest is CloudFormation's own drift detection.
+
+### What this does NOT claim
+
+**Nothing here has been run against AWS.** The parts that can be tested without a cloud are — the phase
+table and the classifier are pure functions over the real strings, and 91 tests cover them plus the
+configuration that is refused before any call is made. The SDK plumbing is a port of working code and is
+**unverified in this repo**. The live test exists, deploys a free single-resource stack, and is gated behind
+`TYANOR_LIVE_AWS`; until someone runs it, "ported" is the honest word and "working" is not.
+
+Mocking the SDK would not change that. A mock answers the question by agreeing with whatever this code
+believes, which is why the gate is a real deployment or nothing.
+
+### Deferred deliberately: the domain unit
+
+ACM certificate issuance plus Route 53 validation is the natural third kind, and it maps onto Tyanor's model
+suspiciously well — a certificate pending validation is `Converging`, and manual DNS is a
+`PauseReason.External` that resumes. That is exactly why it is being left alone: the interesting question is
+whether waiting for a human to add a DNS record should pause the whole procedure or only that unit, and the
+answer depends on what a real consumer wants to show its operator. Guessing it is how a wrong abstraction
+gets built confidently.

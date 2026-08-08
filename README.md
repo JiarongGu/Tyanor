@@ -5,9 +5,11 @@ providers; resume it after anything goes wrong.
 
 *天仪 — the celestial mechanism that brings order through coordinated operation.*
 
-> **Status: early.** The engine is built and tested, and one provider ships —
-> `Tyanor.Providers.Local`, which deploys a self-hosted server to a machine. The AWS provider is next,
-> ported from a deployer that has run real infrastructure. See [`TASKS.md`](TASKS.md).
+> **Status: early.** The engine is built and tested, and two providers ship: `Tyanor.Providers.Local`
+> (a self-hosted server on a machine) and `Tyanor.Providers.Aws` (CloudFormation and S3/CloudFront, ported
+> from a deployer that has run real infrastructure). The AWS provider's pure logic is tested against the
+> real status and error strings; **its SDK calls have not yet been run against AWS** — the live test is
+> gated behind `TYANOR_LIVE_AWS`. See [`TASKS.md`](TASKS.md) and [D14](docs/DECISIONS.md).
 
 ## What it is
 
@@ -114,7 +116,11 @@ with no cloud SDK installed. Synthesis happens earlier, on a machine that has th
 | `Tyanor.Core` | Contracts and the reconcile decision. No I/O, no provider, **no package dependencies**. |
 | `Tyanor.Engine` | `ProcedureRunner` — ordering, reconcile, bounded retry, classified outcomes, history, state. |
 | `Tyanor.Providers.Local` | This machine: a directory from an artifact, a process run out of it, a health check. |
+| `Tyanor.Providers.Aws` | CloudFormation stacks, and website files in S3 behind CloudFront. |
 | `Tyanor.Providers.*` | One per target. The only place vendor vocabulary exists. |
+
+Between them the engine has been driven by a target *with* a control plane and one with none. Neither
+needed a change to it, and there is no `if (provider == …)` in `Tyanor.Core` or `Tyanor.Engine`.
 
 ### Deploying a self-hosted server
 

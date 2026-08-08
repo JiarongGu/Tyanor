@@ -46,11 +46,15 @@ src/
   Tyanor.Extensions.DependencyInjection/   AddTyanor. Optional — the engine works without a container.
   Tyanor.Providers.Local/   this machine: a directory from an artifact, a process, a health check.
                             The worked reference — read it before writing a second provider.
+  Tyanor.Providers.Aws/     CloudFormation stacks + S3/CloudFront content. Ported; NOT yet run
+                            against AWS — the live test is gated behind TYANOR_LIVE_AWS (D14).
   Tyanor.Providers.*/   one per target. The ONLY place vendor vocabulary exists.
 tests/
   Tyanor.Core.Tests/    pure tests for the decision logic. Always-on, no cloud, no mocks of an SDK.
   Tyanor.Providers.Local.Tests/   real files, real processes. A mocked filesystem would agree with
                                   whatever the driver believed, which is the opposite of a test.
+  Tyanor.Providers.Aws.Tests/     the phase table and the classifier against the REAL strings, plus one
+                                  env-gated live deploy. Never mock the SDK: it would agree too.
 ```
 
 **`Tyanor.Core` AND `Tyanor.Engine` take no package dependencies** — `doctor` checks it. If something needs

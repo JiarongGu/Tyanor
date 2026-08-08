@@ -37,6 +37,20 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   - A recorded pid whose start time does not match is refused rather than killed. Operating systems reuse
     pids.
 
+- **`Tyanor.Providers.Aws` — the port.** CloudFormation stacks and website files in S3 behind CloudFront,
+  driven by the SDK with no CLI and no bootstrap, so an operator deploys with no cloud toolchain installed.
+  Templates are already synthesized; this executes them (D5). Reasoning in `docs/DECISIONS.md` D14.
+  - The phase table is tested against every CloudFormation status the SDK knows, enumerated by reflection so
+    a future SDK upgrade that adds one fails the build rather than landing silently in the fallback.
+    `ROLLBACK_COMPLETE` and `UPDATE_ROLLBACK_COMPLETE` are one character apart and opposite: the first must
+    be replaced, the second is perfectly updatable, and conflating them deletes a working stack.
+  - Every credential and transient error code from the source deployer, kept whole, with the
+    `InnerException` walk.
+  - Fixed in the port: the source read *every* CloudFormation exception as "the stack does not exist", so a
+    throttle read as absent and the create that followed hit a stack that was there all along.
+  - **Not run against AWS.** The pure logic is tested; the SDK plumbing is unverified in this repo. The live
+    test deploys a free single-resource stack and is gated behind `TYANOR_LIVE_AWS`.
+
 ### Changed
 
 - **`IDeploymentTarget.ValidateAsync` now takes `TargetCredentials?`** (breaking). Null means the target
@@ -44,6 +58,10 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   non-nullable version asserted that every target has a key and a secret.
 - **`DeploymentRequest.Option(unit, key)`** reads `"{unit}.{key}"` falling back to `"{key}"`, so a provider
   with heterogeneous units can configure each one without every provider inventing its own convention.
+- **`DeploymentRequest.OptionSet(unit, prefix)`** gathers a whole GROUP of settings whose keys a provider
+  cannot know in advance — CloudFormation parameters, Kubernetes labels, a process's environment. Encoding
+  them into one value would re-invent a serialization format inside a string, which is how an untyped map
+  becomes worse than typed fields rather than better.
 
 ### Fixed
 

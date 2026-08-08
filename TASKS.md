@@ -2,61 +2,59 @@
 
 > ## Where day one landed
 >
-> **The expensive part was the learning, and it is banked.** Tyanor is ~1,200 lines over 4 projects with
-> 50 tests, extracted from a deployer that had already run real infrastructure. What came across is the
-> part that is hard to *discover* — which reconcile branches exist, that only a terminal event may fail a
-> call, that a credential error must pause rather than fail, that a plan can be read from the provider
-> instead of a file. None of that was designed here; it was learned the expensive way, elsewhere.
+> **The expensive part was the learning, and it is banked.** What came across from the source deployer is
+> the part that is hard to *discover* — which reconcile branches exist, that only a terminal event may fail
+> a call, that a credential error must pause rather than fail, that a plan can be read from the provider.
+> None of that was designed here; it was learned the expensive way, elsewhere.
 >
-> **What is NOT here is the part that is merely hard to type.** Measured against the source
-> (`Aurelia.Deployment`, 2,597 lines):
+> Measured against the source (`Aurelia.Deployment`, 2,597 lines):
 >
-> | | Lines | State |
-> |---|---|---|
-> | Operational doctrine | ~700 of `AwsDeployer` + the contracts | ✅ ported, generalized, tested |
-> | AWS mechanics (CFN/S3/ACM/Route 53 calls) | ~1,000 | ❌ not started — item 1 |
-> | Host IPC (`DeployModule`) | 585 | stays in Aurelia; it is UI wiring, not operations |
+> | | State |
+> |---|---|
+> | Operational doctrine (~700 lines of `AwsDeployer` + the contracts) | ✅ ported, generalized, tested |
+> | AWS mechanics (CloudFormation / S3 / CloudFront) | ✅ ported — **never run against AWS**, see D14 |
+> | ACM + Route 53 domain setup (~350 lines) | deferred on purpose — item 1 |
+> | `cdk synth` post-processing (`DeploymentBundler`) | stays in Aurelia; it is authoring, not operations (D5) |
+> | DB snapshot, migration verification, prerenderer | stay in Aurelia; application policy, not operations |
+> | Host IPC (`DeployModule`, 585 lines) | stays in Aurelia; UI wiring, not operations |
 >
-> So: roughly **half the code, most of the knowledge, and none of the running**.
+> **Two providers ship.** `Tyanor.Providers.Local` deploys a self-hosted server to a machine and was built
+> before AWS on purpose, to test the contracts against a shape they were not extracted from (**D13**).
+> `Tyanor.Providers.Aws` is the port (**D14**). Between them the engine has been driven by a target with a
+> control plane and one with none, and needed no change for either.
 >
-> **That last part is no longer true.** `Tyanor.Providers.Local` ships and deploys — a directory
-> materialized from an artifact, a process run out of it, a health check, a teardown — and it was built
-> before AWS on purpose, to test the contracts against a shape they were not extracted from. It found two
-> (`ValidateAsync` assumed credentials exist; `Options` assumed homogeneous units) and confirmed that
-> `UnitPhase`, `Reconcile` and the engine needed nothing. See **D13**. What is still true: no *cloud* has
-> been deployed to, and no real consumer ships on Tyanor yet.
+> **What is still not true:** nothing has been deployed to a cloud from this repo — the AWS live test exists
+> and is gated behind `TYANOR_LIVE_AWS`, and until it runs, "ported" is the honest word. And no real
+> consumer ships on Tyanor yet.
 
 Open work, worked one item at a time, top first. Implement fully (rules → code → tests), update the docs
 it touches, **remove the item**, then commit. Discovered work is added here, never dropped.
 
 ---
 
-## 1. `Tyanor.Providers.Aws` — port the tested AWS deployer
+## 1. Run the AWS provider against AWS, then add the domain unit
 
-Nothing drives a real cloud yet. The port source is Aurelia's `apps/desktop/Aurelia.Deployment` —
-**~2,600 lines that have deployed real infrastructure**, survived a crash-and-rebuild mid-run, and torn
-down cleanly.
+Two halves of finishing D14, in this order — the second is not worth designing until the first has told us
+whether the plumbing is right.
 
-**Unblocked as of D13**: the contracts have now been tested against a second shape, so the reason to wait
-is gone. `Tyanor.Providers.Local` is the worked reference — read it for what the six driver methods look
-like when nothing is faked, and note how little of it is anything but provider vocabulary.
+**Run the live test.** `TYANOR_LIVE_AWS=1` plus key, secret and region. It deploys a free single-resource
+stack, plans, re-applies (the "No updates are to be performed" path, which resume depends on), refreshes and
+tears down. Everything testable without a cloud already is; what this covers is whether the SDK calls are
+wired correctly, and nothing else can tell us.
 
-Split as measured on 2026-08-06:
+Expect it to find something. A port that has never run never does exactly what it looks like it does.
 
-| Source | Lines | Destination |
-|---|---|---|
-| `Aws/*`, `AwsCloudFormation/*`, `Domains/AwsRoute53*` | ~800 | straight port into the provider |
-| `AwsDeployer.cs` | 699 | **split** — reconcile/classify/retry are already in the engine; keep only the CloudFormation calls |
-| `DeployModule.cs` | 585 | **stays in Aurelia** — it is host IPC, not operations |
+**Then the domain unit** — ACM certificate issuance and Route 53 validation, ~350 lines still in Aurelia
+(`Aws/AwsDomainSetup.cs`, `Domains/AwsRoute53DomainProvider.cs`). It maps onto the model well: a certificate
+pending validation is `Converging`, and manual DNS is a `PauseReason.External` that resumes.
 
-- Map CloudFormation status strings → `UnitPhase`. The four that matter: a non-rollback `*_IN_PROGRESS` is
-  `Converging`; a rollback `*_IN_PROGRESS` is `Unwinding`; `ROLLBACK_COMPLETE` and `*_FAILED` are `Broken`;
-  `*_COMPLETE` is `Ready`.
-- Port `ClassifyAwsError` as the `IFailureClassifier`. It already names the real codes — keep every one,
-  and keep the `InnerException` walk.
-- `"No updates are to be performed"` is `UpdateAsync → false`, not an error.
-- Acceptance: the phase table and the classifier are unit-tested against real status/code strings; a live
-  deploy stays behind `TYANOR_LIVE_AWS`.
+The open question, and the reason it is deferred rather than half-built: **when a deploy needs a human to add
+a DNS record, does the whole procedure pause or only that unit?** The source paused the whole thing and
+returned the records to show. That works because it had one consumer with one UI. Decide it with a real
+consumer, not from the armchair.
+
+- Acceptance: the live test passes against a real account and leaves nothing behind; the domain unit's pause
+  carries the records the operator has to add.
 
 ## 2. Put a real consumer on it
 
@@ -66,7 +64,9 @@ opinion and a configuration story, and those are where a library gets pushed on.
 
 - **Daoris self-hosting a server** is the closest fit — `Tyanor.Providers.Local` was built to its shape,
   so this is now mostly wiring rather than design.
-- **Aurelia** is the other half, and it needs item 1 first.
+- **Aurelia** is the other half. `Tyanor.Providers.Aws` covers its infrastructure and its website; what it
+  keeps is `DeploymentBundler` (authoring, D5), the DB snapshot and migration check, the prerenderer and
+  `DeployModule`. Needs item 1's domain unit before it is a straight swap.
 
 Expect this to move `DeploymentRequest` again. That is not a failure of D13; a test cannot want something
 a person will.
@@ -120,8 +120,12 @@ procedures, not pushed by a diagram — and the temptation here is to invent a D
   a graph (D3). The UNIT-level plan that shipped gives most of the value — what will be created, replaced,
   or waited on — for none of that cost.
 - **Plugin discovery.** Providers register in the composition root (D6).
-- **A third provider** (Kubernetes, SSH, a container host). Two shapes have now been checked against each
-  other and agree (D13); a third proves nothing further until a consumer asks for it.
+- **A fourth provider** (Kubernetes, SSH, a container host). A target with a control plane and one without
+  have both driven the engine unchanged (D13, D14); a third shape proves nothing further until a consumer
+  asks for it.
+- **`DetectStackDrift`.** It is what would catch an AWS resource edited in the console, and it is a paid
+  asynchronous call per stack — too expensive for every plan. So AWS drift is CloudFormation-known drift,
+  stated rather than hidden (D14).
 - **Anything a provider could orchestrate for itself.** The local provider was tempted twice — stopping a
   process before replacing files, and retrying its own health check — and both belong to the engine, which
   already has them. A provider that grows run-state logic is writing a second engine inside itself.
