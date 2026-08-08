@@ -28,7 +28,7 @@ public class AwsWiringTests
     {
         using var target = Target();
 
-        var error = await Assert.ThrowsAsync<AwsDeploymentException>(
+        var error = await Assert.ThrowsAsync<UnitKindException>(
             () => target.Driver.PhaseAsync(Api, Request([]), default));
 
         Assert.Contains(AwsOptions.StackKind, error.Message);        // and says what the choices are
@@ -42,7 +42,7 @@ public class AwsWiringTests
         using var target = Target();
         var request = Request(new Dictionary<string, string> { ["api.kind"] = "lambda" });
 
-        var error = await Assert.ThrowsAsync<AwsDeploymentException>(
+        var error = await Assert.ThrowsAsync<UnitKindException>(
             () => target.Driver.PhaseAsync(Api, request, default));
 
         Assert.Contains("lambda", error.Message);
@@ -60,10 +60,41 @@ public class AwsWiringTests
                 ["api.template"] = "the-one-nobody-built",
             });
 
-        var error = await Assert.ThrowsAsync<AwsDeploymentException>(
+        var error = await Assert.ThrowsAsync<ArtifactException>(
             () => target.Driver.CreateAsync(Api, request, default));
 
         Assert.Contains("built", error.Message);                     // says what the artifact DOES carry
+    }
+
+    [Fact]
+    public async Task Everything_wrong_with_a_DEFINITION_is_catchable_as_one_thing()
+    {
+        // What a consumer showing this to a person actually needs: "you configured this wrongly, fix it and
+        // nothing is lost" is a different screen from "CloudFormation rolled your stack back", and telling
+        // them apart must not require matching on message text.
+        using var target = Target();
+
+        Assert.IsAssignableFrom<DefinitionException>(await Record.ExceptionAsync(
+            () => target.Driver.PhaseAsync(Api, Request([]), default)));
+
+        Assert.IsAssignableFrom<DefinitionException>(await Record.ExceptionAsync(
+            () => target.Driver.CreateAsync(Api, Request(new Dictionary<string, string>
+            {
+                ["api.kind"] = AwsOptions.StackKind,        // a stack that names no template
+            }), default)));
+    }
+
+    [Fact]
+    public void A_definition_error_is_not_classified_which_makes_the_engine_fail_the_run()
+    {
+        // Providers do not have to know about Core's exceptions. Returning null is correct and the engine's
+        // default for null is Hard — which is exactly what a wrong definition is.
+        using var target = Target();
+
+        var unrecognised = target.Classifier.Classify(new AwsConfigurationException("no template"));
+
+        Assert.Null(unrecognised);
+        Assert.False(OperationOutcome.From(unrecognised ?? FailureClass.Hard).Resumable);
     }
 
     [Fact]
@@ -111,7 +142,7 @@ public class AwsWiringTests
             ["content.bucketFrom"] = reference,
         });
 
-        var error = await Assert.ThrowsAsync<AwsDeploymentException>(
+        var error = await Assert.ThrowsAsync<AwsConfigurationException>(
             () => target.Driver.PhaseAsync(new ProcedureUnit("content", "Website files"), request, default));
 
         Assert.Contains(AwsOptions.BucketFrom, error.Message);

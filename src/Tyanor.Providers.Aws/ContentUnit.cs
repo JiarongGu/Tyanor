@@ -117,7 +117,7 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     private async Task SyncAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
     {
         var bucket = await BucketAsync(unit, request, ct)
-            ?? throw new AwsDeploymentException(
+            ?? throw new AwsConfigurationException(
                 $"Unit '{unit.Name}' has no destination bucket. Set '{AwsOptions.Bucket}', or " +
                 $"'{AwsOptions.BucketFrom}' to \"{{unit}}:{{OutputKey}}\" naming a stack that exports one.");
 
@@ -179,17 +179,10 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     private static string Source(ProcedureUnit unit, DeploymentRequest request)
     {
         var name = request.Option(unit.Name, AwsOptions.Source)
-            ?? throw new AwsDeploymentException(
+            ?? throw new AwsConfigurationException(
                 $"Unit '{unit.Name}' is content but names no '{AwsOptions.Source}'.");
 
-        var path = request.Artifact.Part(name)
-            ?? throw new AwsDeploymentException($"The artifact has no part named '{name}'.");
-
-        if (!Directory.Exists(path))
-            throw new AwsDeploymentException(
-                $"Artifact part '{name}' points at '{path}', which is not a directory. Build first.");
-
-        return path;
+        return request.Artifact.RequirePart(name, ArtifactPart.Directory);
     }
 
     private async Task<string?> BucketAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
@@ -207,7 +200,7 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
 
         var parts = reference.Split(':', 2);
         if (parts.Length != 2 || parts.Any(string.IsNullOrWhiteSpace))
-            throw new AwsDeploymentException(
+            throw new AwsConfigurationException(
                 $"'{option}' on unit '{unit.Name}' is '{reference}'; it must be \"{{unit}}:{{OutputKey}}\".");
 
         try

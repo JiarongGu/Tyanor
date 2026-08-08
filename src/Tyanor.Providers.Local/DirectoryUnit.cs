@@ -180,26 +180,18 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
     }
 
     /// <summary>
-    /// Where this unit's files come from. A part the artifact does not carry is a HARD failure raised
-    /// before anything is touched — the operator named something that is not there, and no amount of
-    /// retrying will conjure it.
+    /// Where this unit's files come from. Both failures are terminal and are raised before anything on disk
+    /// is touched — the operator named something that is not there, and no amount of retrying conjures it.
     /// </summary>
     private static string Source(ProcedureUnit unit, DeploymentRequest request)
     {
         var name = request.Option(unit.Name, LocalOptions.Source)
-            ?? throw LocalDeploymentException.Misconfigured(unit.Name,
+            ?? throw new LocalConfigurationException(unit.Name,
                 $"Unit '{unit.Name}' is a directory but names no '{LocalOptions.Source}' — " +
                 "say which part of the artifact it is made of.");
 
-        var path = request.Artifact.Part(name)
-            ?? throw LocalDeploymentException.Misconfigured(unit.Name,
-                $"The artifact has no part named '{name}'. It carries: " +
-                $"{string.Join(", ", request.Artifact.Parts.Keys.DefaultIfEmpty("nothing"))}.");
-
-        if (!Directory.Exists(path))
-            throw LocalDeploymentException.Misconfigured(unit.Name,
-                $"Artifact part '{name}' points at '{path}', which is not a directory on this machine.");
-
-        return path;
+        // Core's check, not ours: the AWS provider wrote the same one, and an operator should not get a
+        // different sentence about the same mistake depending on where they deployed.
+        return request.Artifact.RequirePart(name, ArtifactPart.Directory);
     }
 }

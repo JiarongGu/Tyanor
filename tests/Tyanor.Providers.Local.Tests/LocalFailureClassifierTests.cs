@@ -83,7 +83,7 @@ public class LocalFailureClassifierTests
         // The driver knows exactly what happened; rediscovering it from an exception type would throw away
         // information we already had.
         Assert.Equal(FailureClass.Hard,
-            Classifier.Classify(LocalDeploymentException.Misconfigured("web", "no source")));
+            Classifier.Classify(LocalDeploymentException.Hard("web", "the process exited while starting")));
         Assert.Equal(FailureClass.Transient,
             Classifier.Classify(LocalDeploymentException.Transient("web", "still starting")));
     }

@@ -71,7 +71,7 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
         };
 
         using var process = Process.Start(info)
-            ?? throw LocalDeploymentException.Misconfigured(unit.Name, $"'{command}' started no process.");
+            ?? throw LocalDeploymentException.Hard(unit.Name, $"'{command}' started no process.");
 
         Records.Write(PidPath(request, unit.Name), new ProcessRecord(
             process.Id, new DateTimeOffset(process.StartTime), command, Desired(unit, request)));
@@ -136,13 +136,13 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
             ct.ThrowIfCancellationRequested();
 
             var record = Records.Read<ProcessRecord>(PidPath(request, unit.Name))
-                ?? throw LocalDeploymentException.Misconfigured(unit.Name,
+                ?? throw LocalDeploymentException.Hard(unit.Name,
                     $"{unit.Label}: nothing recorded a running process — it was removed while starting.");
 
             using (var process = Running(record))
             {
                 if (process is null)
-                    throw LocalDeploymentException.Misconfigured(unit.Name,
+                    throw LocalDeploymentException.Hard(unit.Name,
                         $"{unit.Label}: the process exited while starting. Check the command and its output.");
             }
 
@@ -255,7 +255,7 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
 
     private static string Command(ProcedureUnit unit, DeploymentRequest request) =>
         request.Option(unit.Name, LocalOptions.Command)
-        ?? throw LocalDeploymentException.Misconfigured(unit.Name,
+        ?? throw new LocalConfigurationException(unit.Name,
             $"Unit '{unit.Name}' is a process but names no '{LocalOptions.Command}'.");
 
     private string WorkingDirectory(ProcedureUnit unit, DeploymentRequest request)
@@ -276,7 +276,7 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
         if (request.Option(unit.Name, LocalOptions.HealthPort) is not { } raw) return null;
         return int.TryParse(raw, out var port) && port is > 0 and < 65536
             ? port
-            : throw LocalDeploymentException.Misconfigured(unit.Name,
+            : throw new LocalConfigurationException(unit.Name,
                 $"'{LocalOptions.HealthPort}' is '{raw}', which is not a port.");
     }
 
@@ -287,7 +287,7 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
 
         return int.TryParse(raw, out var seconds) && seconds > 0
             ? TimeSpan.FromSeconds(seconds)
-            : throw LocalDeploymentException.Misconfigured(unit.Name,
+            : throw new LocalConfigurationException(unit.Name,
                 $"'{LocalOptions.HealthSeconds}' is '{raw}', which is not a number of seconds.");
     }
 }

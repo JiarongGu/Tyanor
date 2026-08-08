@@ -205,7 +205,7 @@ internal sealed class StackUnit(
     /// </remarks>
     private async Task<string> StageAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
     {
-        var template = Part(unit, request, AwsOptions.Template, mustBeDirectory: false);
+        var template = Part(unit, request, AwsOptions.Template, ArtifactPart.File);
         var bucket = $"{request.Prefix}-deploy-{await account.IdAsync(ct)}".ToLowerInvariant();
         await EnsureBucketAsync(bucket, ct);
 
@@ -213,7 +213,7 @@ internal sealed class StackUnit(
         // renaming one here would produce a stack that cannot find its own Lambda code.
         if (request.Option(unit.Name, AwsOptions.Assets) is not null)
         {
-            var assets = Part(unit, request, AwsOptions.Assets, mustBeDirectory: true);
+            var assets = Part(unit, request, AwsOptions.Assets, ArtifactPart.Directory);
             foreach (var file in Directory.EnumerateFiles(assets, "*", SearchOption.AllDirectories))
             {
                 ct.ThrowIfCancellationRequested();
@@ -314,26 +314,17 @@ internal sealed class StackUnit(
         request.Tags?.Select(kv => new Tag { Key = kv.Key, Value = kv.Value }).ToList() ?? [];
 
     /// <summary>
-    /// Resolve an artifact part to a local path. A part the artifact does not carry is a HARD failure raised
-    /// before anything is uploaded — the operator named something that is not there.
+    /// Resolve an artifact part named by an option. Both failures are terminal and are raised before anything
+    /// is uploaded: the operator named a part that is not in the artifact, or one pointing at nothing.
     /// </summary>
-    private static string Part(ProcedureUnit unit, DeploymentRequest request, string option, bool mustBeDirectory)
+    private static string Part(ProcedureUnit unit, DeploymentRequest request, string option, ArtifactPart expect)
     {
         var name = request.Option(unit.Name, option)
-            ?? throw new AwsDeploymentException(
+            ?? throw new AwsConfigurationException(
                 $"Unit '{unit.Name}' names no '{option}' — say which part of the artifact it is.");
 
-        var path = request.Artifact.Part(name)
-            ?? throw new AwsDeploymentException(
-                $"The artifact has no part named '{name}'. It carries: " +
-                $"{string.Join(", ", request.Artifact.Parts.Keys.DefaultIfEmpty("nothing"))}.");
-
-        var exists = mustBeDirectory ? Directory.Exists(path) : File.Exists(path);
-        if (!exists)
-            throw new AwsDeploymentException(
-                $"Artifact part '{name}' points at '{path}', which is not " +
-                $"{(mustBeDirectory ? "a directory" : "a file")} on this machine. Build first.");
-
-        return path;
+        // Core's, not ours: the first two providers each wrote this check, identically, so an operator got a
+        // different sentence about the same mistake depending on where they deployed.
+        return request.Artifact.RequirePart(name, expect);
     }
 }

@@ -5,9 +5,25 @@ using System.Security;
 namespace Tyanor.Providers.Local;
 
 /// <summary>
-/// Something this provider knows exactly how to describe, carrying the class the operator's next move
-/// depends on. Raised where the driver already has the answer — a missing artifact part is not a
-/// mystery, and rediscovering that from an exception type would lose information we had.
+/// A unit of this provider is configured wrongly — no command, no source part, a port that is not a number.
+///
+/// <para>Separate from <see cref="LocalDeploymentException"/> on purpose. Both end a run, but a consumer
+/// showing a deployment to a person needs to tell "you have configured this wrongly, fix it and nothing is
+/// lost" from "the server would not start" — they read differently and only one is worth a support
+/// conversation. That is what <see cref="DefinitionException"/> is for.</para>
+/// </summary>
+/// <param name="unit">The unit whose configuration is wrong.</param>
+/// <param name="message">Plain language, naming what was expected.</param>
+public sealed class LocalConfigurationException(string unit, string message) : DefinitionException(message)
+{
+    /// <summary>The unit whose configuration is wrong.</summary>
+    public string Unit { get; } = unit;
+}
+
+/// <summary>
+/// Something went wrong ON the machine, carrying the class the operator's next move depends on. Raised where
+/// the driver already has the answer — a health check that timed out is not a mystery, and rediscovering that
+/// from an exception type would lose information we had.
 /// </summary>
 /// <param name="unit">The unit it happened to.</param>
 /// <param name="message">Plain language, for the operator.</param>
@@ -21,9 +37,8 @@ public sealed class LocalDeploymentException(string unit, string message, Failur
     /// <summary>What the operator should do next, in the only three flavours there are.</summary>
     public FailureClass Failure { get; } = failure;
 
-    /// <summary>The definition is wrong: a part that is not in the artifact, a kind nobody declared, a
-    /// command that does not exist. Retrying tells the same lie again.</summary>
-    internal static LocalDeploymentException Misconfigured(string unit, string message) =>
+    /// <summary>Terminal: the process would not run, or is not there to be waited on. Retrying repeats it.</summary>
+    internal static LocalDeploymentException Hard(string unit, string message) =>
         new(unit, message, FailureClass.Hard);
 
     /// <summary>Nothing about the desired state is wrong; the machine was busy or slow. Bounded retry,

@@ -14,5 +14,6 @@
     <ProjectReference Include="..\..\src\Tyanor.Core\Tyanor.Core.csproj" />
     <ProjectReference Include="..\..\src\Tyanor.Engine\Tyanor.Engine.csproj" />
     <ProjectReference Include="..\..\src\Tyanor.Providers.Local\Tyanor.Providers.Local.csproj" />
+    <ProjectReference Include="..\..\src\Tyanor.Testing\Tyanor.Testing.csproj" />
   </ItemGroup>
 </Project>

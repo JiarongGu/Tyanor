@@ -172,24 +172,43 @@ public class DirectoryPhaseTests
                 ["runtime.source"] = "the-one-nobody-built",
             });
 
-        var error = await Assert.ThrowsAsync<LocalDeploymentException>(
+        // Core's check, shared with every other provider, so an operator gets the same sentence about the
+        // same mistake wherever they deploy.
+        var error = await Assert.ThrowsAsync<ArtifactException>(
             () => box.Target.Driver.CreateAsync(Runtime, request, default));
 
-        Assert.Equal(FailureClass.Hard, error.Failure);
         Assert.Contains("app", error.Message);                          // says what the artifact DOES carry
         Assert.False(Directory.Exists(box.Deployed("acme", "runtime")));
     }
 
     [Fact]
-    public async Task A_unit_that_does_not_say_what_it_is_fails_HARD_rather_than_being_guessed()
+    public async Task A_unit_that_does_not_say_what_it_is_fails_rather_than_being_guessed()
     {
         using var box = new Sandbox();
         var request = new DeploymentRequest("acme", new DeploymentArtifact(new Dictionary<string, string>()));
 
-        var error = await Assert.ThrowsAsync<LocalDeploymentException>(
+        var error = await Assert.ThrowsAsync<UnitKindException>(
             () => box.Target.Driver.PhaseAsync(Runtime, request, default));
 
-        Assert.Equal(FailureClass.Hard, error.Failure);
+        Assert.Contains(LocalOptions.DirectoryKind, error.Message);      // names the kinds that DO exist
+        Assert.Contains(LocalOptions.ProcessKind, error.Message);
+    }
+
+    [Fact]
+    public async Task Everything_wrong_with_a_DEFINITION_is_catchable_as_one_thing()
+    {
+        // A wrong definition and a server that would not start are different situations for whoever is
+        // reading, and telling them apart must not require matching on message text.
+        using var box = new Sandbox();
+        var request = new DeploymentRequest("acme", new DeploymentArtifact(new Dictionary<string, string>()),
+            new Dictionary<string, string> { ["runtime.kind"] = LocalOptions.DirectoryKind });
+
+        Assert.IsAssignableFrom<DefinitionException>(await Record.ExceptionAsync(
+            () => box.Target.Driver.CreateAsync(Runtime, request, default)));
+
+        // …and Core's exceptions need no help from the provider's classifier: null means Hard to the engine,
+        // which is what a wrong definition is.
+        Assert.Null(box.Target.Classifier.Classify(new LocalConfigurationException("runtime", "no source")));
     }
 }
 

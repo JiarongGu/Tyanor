@@ -1,5 +1,6 @@
 using Tyanor.Engine;
 using Tyanor.Engine.State;
+using Tyanor.Testing;
 using Xunit;
 
 namespace Tyanor.Providers.Aws.Tests;
@@ -106,6 +107,58 @@ public class AwsLiveDeploymentTests
         Assert.Equal(UnitPhase.Missing,
             await target.Driver.PhaseAsync(new ProcedureUnit("marker", "Marker"), request, CancellationToken.None));
         Assert.Empty((await state.GetAsync("live", prefix)).Units);
+    }
+
+    [Fact]
+    public async Task The_stack_driver_satisfies_the_UnitDriver_contract()
+    {
+        if (Environment.GetEnvironmentVariable("TYANOR_LIVE_AWS") is null or "") return;   // vacuous pass
+
+        // The same suite a provider written outside this repository would run. It creates and destroys the
+        // unit several times, so it is slower than the walk-through above and checks different things: that
+        // a phase read changes nothing, that removing twice is fine, that an id survives a refresh, and that
+        // an update with nothing to change says so.
+        var credentials = new TargetCredentials(
+            Required("TYANOR_LIVE_AWS_KEY"), Required("TYANOR_LIVE_AWS_SECRET"), Required("TYANOR_LIVE_AWS_REGION"));
+
+        var work = Path.Combine(Path.GetTempPath(), "tyanor-contract-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(work);
+        var templatePath = Path.Combine(work, "marker.template.json");
+        await File.WriteAllTextAsync(templatePath, Template);
+
+        using var target = new AwsTarget(credentials);
+        var fixture = new StackFixture(target, templatePath);
+        try { await new UnitDriverContract(fixture).AssertAllAsync(CancellationToken.None); }
+        finally
+        {
+            await fixture.ResetAsync(CancellationToken.None);
+            try { Directory.Delete(work, recursive: true); } catch (IOException) { /* temp */ }
+        }
+    }
+
+    private sealed class StackFixture : IUnitDriverFixture
+    {
+        public StackFixture(AwsTarget target, string templatePath)
+        {
+            Driver = target.Driver;
+            Unit = new ProcedureUnit("marker", "Marker");
+            Request = new DeploymentRequest("tyanor-c-" + Guid.NewGuid().ToString("N")[..8],
+                new DeploymentArtifact(new Dictionary<string, string> { ["template"] = templatePath }),
+                new Dictionary<string, string>
+                {
+                    ["marker.kind"] = AwsOptions.StackKind,
+                    ["marker.template"] = "template",
+                    ["marker.capabilities"] = "",
+                });
+        }
+
+        public IUnitDriver Driver { get; }
+
+        public ProcedureUnit Unit { get; }
+
+        public DeploymentRequest Request { get; }
+
+        public Task ResetAsync(CancellationToken ct) => Driver.RemoveAsync(Unit, Request, ct);
     }
 
     private static string Required(string name) =>

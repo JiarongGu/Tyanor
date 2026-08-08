@@ -4,14 +4,6 @@ using Amazon.SecurityToken.Model;
 namespace Tyanor.Providers.Aws;
 
 /// <summary>
-/// Something this provider knows exactly how to describe: a definition that names what is not there.
-/// Always a HARD failure, which is why it carries no class — retrying an artifact part that does not exist
-/// produces the same answer, more slowly.
-/// </summary>
-/// <param name="message">Plain language, for the operator.</param>
-public sealed class AwsDeploymentException(string message) : Exception(message);
-
-/// <summary>
 /// The account we are deploying into, asked once.
 ///
 /// <para>Needed because the staging bucket is named after it, and worth memoizing because a procedure with

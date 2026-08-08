@@ -5,6 +5,28 @@ using Amazon.Runtime;
 namespace Tyanor.Providers.Aws;
 
 /// <summary>
+/// A unit of this provider is configured wrongly — no template named, a <c>bucketFrom</c> that does not
+/// parse, a part that is not in the artifact.
+///
+/// <para>Separate from <see cref="AwsDeploymentException"/> on purpose. Both end a run, but "you have
+/// configured this wrongly, and nothing has been touched" and "CloudFormation rolled your stack back" are
+/// different situations for whoever is reading — see <see cref="DefinitionException"/>.</para>
+/// </summary>
+/// <param name="message">Plain language, naming what was expected.</param>
+public sealed class AwsConfigurationException(string message) : DefinitionException(message);
+
+/// <summary>
+/// AWS did something terminal that this provider can describe better than the raw exception can — a stack
+/// that settled into a rollback, a delete that failed.
+///
+/// <para>Carries no <see cref="FailureClass"/> because it is always hard: the template produced this, and
+/// issuing the same template again produces it again. <see cref="AwsFailureClassifier"/> returns null for it
+/// and the engine's default for null is <see cref="FailureClass.Hard"/>, which is the right answer.</para>
+/// </summary>
+/// <param name="message">Plain language, including CloudFormation's first failure reason.</param>
+public sealed class AwsDeploymentException(string message) : Exception(message);
+
+/// <summary>
 /// How AWS's failures map onto the three classes.
 ///
 /// <para><b>Ported code, kept code.</b> Every error code below is one a real deployment actually hit, in an
