@@ -40,33 +40,60 @@ public sealed class ProcedureRunner(
     /// <param name="procedure">The units, in apply order.</param>
     /// <param name="request">What would be deployed, and where.</param>
     /// <param name="ct">Cancellation.</param>
-    public async Task<Plan> PlanAsync(Procedure procedure, DeploymentRequest request, CancellationToken ct = default)
+    /// <param name="kind">
+    /// Which direction to plan. <see cref="RunKind.Remove"/> plans a TEARDOWN — the units in reverse order,
+    /// which of them are already gone, and every resource the removal will destroy.
+    /// <para>A teardown gets a plan because it is the operation that destroys things, and a safety gate that
+    /// covers only the recoverable direction is not one. This was missing.</para>
+    /// </param>
+    public async Task<Plan> PlanAsync(
+        Procedure procedure, DeploymentRequest request,
+        RunKind kind = RunKind.Apply, CancellationToken ct = default)
     {
         var recorded = state is null ? null : await state.GetAsync(procedure.Name, request.Prefix, ct);
         var steps = new List<PlannedStep>();
         var drift = new List<Drift>();
+        var destroying = new List<Drift>();
 
-        foreach (var unit in procedure.Forward())
+        foreach (var unit in kind == RunKind.Apply ? procedure.Forward() : procedure.Reverse())
         {
             ct.ThrowIfCancellationRequested();
-            var phase = await WithRetryAsync(() => target.Driver.PhaseAsync(unit, request, ct), ct);
-            steps.Add(new PlannedStep(unit, phase, Reconcile.Decide(phase)));
+            // A plan is read-only, so nothing a driver says here is shown: progress belongs to a run.
+            var context = new UnitContext(unit, request, Ignore, ct);
+
+            var phase = await WithRetryAsync(() => target.Driver.PhaseAsync(context), ct);
+            steps.Add(new PlannedStep(unit, phase,
+                kind == RunKind.Apply ? Reconcile.Decide(phase) : Reconcile.DecideRemoval(phase)));
+
+            if (recorded is null) continue;
 
             // REFRESH: re-read what actually exists and compare it to what state records. This is what
             // makes the add/change/destroy counts real rather than a guess from configuration — and it is
             // why a state that has gone stale repairs itself instead of needing to be edited by hand.
-            if (recorded is not null)
+            var actual = await WithRetryAsync(() => target.Driver.RefreshAsync(context), ct);
+
+            if (kind == RunKind.Apply)
             {
-                var actual = await WithRetryAsync(() => target.Driver.RefreshAsync(unit, request, ct), ct);
                 drift.AddRange(StateDiff.ForUnit(unit.Name, recorded.For(unit.Name), actual));
+                continue;
             }
+
+            // A teardown destroys what is ACTUALLY there, not what was once recorded. A resource already
+            // deleted by hand is not something this run is about to take away, and counting it would inflate
+            // the one number the operator is deciding on.
+            destroying.AddRange(actual.Select(r => new Drift(unit.Name, r, ResourceChange.Destroy)));
         }
 
         // Both halves of "is anything already happening here?" — the provider, and the record of intent.
         // With a shared history the second one spans machines, which is what makes running Tyanor from a
         // laptop and a pipeline against the same deployment a visible situation rather than a silent race.
         var active = await history.LiveAsync(procedure.Name, request.Prefix, ct);
-        return new Plan(procedure.Name, request.Prefix, steps, active) { Drift = drift };
+        return new Plan(procedure.Name, request.Prefix, steps, active)
+        {
+            Kind = kind,
+            Drift = drift,
+            Destroying = destroying,
+        };
     }
 
     /// <summary>
@@ -92,7 +119,8 @@ public sealed class ProcedureRunner(
         foreach (var unit in procedure.Forward())
         {
             ct.ThrowIfCancellationRequested();
-            var actual = await WithRetryAsync(() => target.Driver.RefreshAsync(unit, request, ct), ct);
+            var context = new UnitContext(unit, request, Ignore, ct);
+            var actual = await WithRetryAsync(() => target.Driver.RefreshAsync(context), ct);
             current = current.With(unit.Name, actual);
         }
         await state.SaveAsync(current, ct);
@@ -155,8 +183,16 @@ public sealed class ProcedureRunner(
             foreach (var unit in units)
             {
                 ct.ThrowIfCancellationRequested();
-                if (kind == RunKind.Apply) await ConvergeAsync(unit, request, report, ct);
-                else await RetireAsync(unit, request, report, ct);
+
+                // The driver reports progress through ITS unit; this turns that into progress through the
+                // run. Done here rather than asked of every provider, because the engine is the only thing
+                // that knows how many units there are or what they weigh — and a provider computing it would
+                // need to be told, which is the sort of thing that gets told wrong.
+                var context = new UnitContext(
+                    unit, request, Rescale(report, unit, done, procedure.TotalWeight), ct);
+
+                if (kind == RunKind.Apply) await ConvergeAsync(context);
+                else await RetireAsync(context);
 
                 // Keep state current as we go, not once at the end: a run that pauses halfway has still
                 // created things, and state that only lands on success would omit exactly the resources a
@@ -197,48 +233,47 @@ public sealed class ProcedureRunner(
     /// Bring ONE unit to the desired state — read the phase, decide, act. The decision is
     /// <see cref="Reconcile.Decide"/> and nothing else; this method only carries it out.
     /// </summary>
-    private async Task ConvergeAsync(ProcedureUnit unit, DeploymentRequest request, Action<ProgressReport> report, CancellationToken ct)
+    private async Task ConvergeAsync(UnitContext context)
     {
-        var phase = await WithRetryAsync(() => target.Driver.PhaseAsync(unit, request, ct), ct);
-        var action = Reconcile.Decide(phase);
+        var phase = await WithRetryAsync(() => target.Driver.PhaseAsync(context), context.Cancellation);
 
-        switch (action)
+        switch (Reconcile.Decide(phase))
         {
             case ReconcileAction.Attach:
                 // Someone else's operation is already converging this unit. Watch it; issue nothing.
-                report(new ProgressReport(unit.Name, $"{unit.Label}: already in progress — resuming.", -1));
-                await target.Driver.AwaitSettledAsync(unit, request, report, ct);
+                context.Progress($"{context.Label}: already in progress — resuming.");
+                await target.Driver.AwaitSettledAsync(context);
                 return;
 
             case ReconcileAction.SettleThenRecreate:
-                report(new ProgressReport(unit.Name, $"{unit.Label}: rolling back — waiting for it to settle.", -1));
+                context.Progress($"{context.Label}: rolling back — waiting for it to settle.");
                 // The wait is EXPECTED to end in failure: that is what unwinding settles into. Swallow it
                 // here and let the recreate below be the real attempt.
-                try { await target.Driver.AwaitSettledAsync(unit, request, report, ct); }
+                try { await target.Driver.AwaitSettledAsync(context); }
                 catch (OperationCanceledException) { throw; }
                 catch { /* settled into a failed state, which is exactly what we were waiting for */ }
                 goto case ReconcileAction.Recreate;
 
             case ReconcileAction.Recreate:
-                report(new ProgressReport(unit.Name, $"{unit.Label}: cannot be updated in place — remaking it.", -1));
-                await WithRetryAsync(() => target.Driver.RemoveAsync(unit, request, ct), ct);
-                await CreateAndWaitAsync(unit, request, report, ct);
+                context.Progress($"{context.Label}: cannot be updated in place — remaking it.");
+                await WithRetryAsync(() => target.Driver.RemoveAsync(context), context.Cancellation);
+                await CreateAndWaitAsync(context);
                 return;
 
             case ReconcileAction.Update:
-                report(new ProgressReport(unit.Name, $"{unit.Label}: updating…", -1));
-                if (!await WithRetryAsync(() => target.Driver.UpdateAsync(unit, request, ct), ct))
+                context.Progress($"{context.Label}: updating…");
+                if (!await WithRetryAsync(() => target.Driver.UpdateAsync(context), context.Cancellation))
                 {
                     // "Nothing to change" is success, and on a resume it is the ordinary answer.
-                    report(new ProgressReport(unit.Name, $"{unit.Label}: already up to date.", -1, ProgressStatus.Success));
+                    context.Progress($"{context.Label}: already up to date.", status: ProgressStatus.Success);
                     return;
                 }
-                await target.Driver.AwaitSettledAsync(unit, request, report, ct);
+                await target.Driver.AwaitSettledAsync(context);
                 return;
 
             default:
-                report(new ProgressReport(unit.Name, $"{unit.Label}: creating…", -1));
-                await CreateAndWaitAsync(unit, request, report, ct);
+                context.Progress($"{context.Label}: creating…");
+                await CreateAndWaitAsync(context);
                 return;
         }
     }
@@ -254,27 +289,31 @@ public sealed class ProcedureRunner(
         var current = await state.GetAsync(procedure.Name, request.Prefix, ct);
         var resources = removed
             ? []                                            // torn down: the unit owns nothing now
-            : await WithRetryAsync(() => target.Driver.RefreshAsync(unit, request, ct), ct);
+            : await WithRetryAsync(() => target.Driver.RefreshAsync(new UnitContext(unit, request, Ignore, ct)), ct);
         await state.SaveAsync(current.With(unit.Name, resources), ct);
     }
 
-    private async Task CreateAndWaitAsync(ProcedureUnit unit, DeploymentRequest request, Action<ProgressReport> report, CancellationToken ct)
+    private async Task CreateAndWaitAsync(UnitContext context)
     {
-        await WithRetryAsync(() => target.Driver.CreateAsync(unit, request, ct), ct);
-        await target.Driver.AwaitSettledAsync(unit, request, report, ct);
+        await WithRetryAsync(() => target.Driver.CreateAsync(context), context.Cancellation);
+        await target.Driver.AwaitSettledAsync(context);
     }
 
     /// <summary>Remove one unit, tolerating one that is already gone — teardown must be re-runnable.</summary>
-    private async Task RetireAsync(ProcedureUnit unit, DeploymentRequest request, Action<ProgressReport> report, CancellationToken ct)
+    private async Task RetireAsync(UnitContext context)
     {
-        var phase = await WithRetryAsync(() => target.Driver.PhaseAsync(unit, request, ct), ct);
-        if (phase == UnitPhase.Missing)
+        var phase = await WithRetryAsync(() => target.Driver.PhaseAsync(context), context.Cancellation);
+
+        // The same decision the teardown PLAN showed, taken again from what is true now — so what an
+        // operator was shown and what happens come from one function rather than two that can disagree.
+        if (Reconcile.DecideRemoval(phase) == ReconcileAction.Nothing)
         {
-            report(new ProgressReport(unit.Name, $"{unit.Label}: already removed.", -1, ProgressStatus.Success));
+            context.Progress($"{context.Label}: already removed.", status: ProgressStatus.Success);
             return;
         }
-        report(new ProgressReport(unit.Name, $"{unit.Label}: removing…", -1));
-        await WithRetryAsync(() => target.Driver.RemoveAsync(unit, request, ct), ct);
+
+        context.Progress($"{context.Label}: removing…");
+        await WithRetryAsync(() => target.Driver.RemoveAsync(context), context.Cancellation);
     }
 
     /// <summary>
@@ -299,6 +338,28 @@ public sealed class ProcedureRunner(
         => await WithRetryAsync(async () => { await op(); return true; }, ct);
 
     private static int Percent(int done, int total) => total <= 0 ? -1 : (int)Math.Round(100.0 * done / total);
+
+    /// <summary>
+    /// Wrap a progress callback so a driver's unit-relative percent arrives as a run-relative one.
+    /// </summary>
+    /// <remarks>
+    /// -1 passes through untouched: a driver saying "I cannot tell" must not be turned into a number, which
+    /// would be the one kind of progress worse than none. Anything outside 0–100 is treated the same way
+    /// rather than clamped, because a driver reporting 140 has a bug and quietly making it 100 hides it.
+    /// </remarks>
+    private static Action<ProgressReport> Rescale(
+        Action<ProgressReport> report, ProcedureUnit unit, int done, int total)
+    {
+        if (total <= 0) return report;
+
+        return line =>
+        {
+            if (line.Percent is < 0 or > 100) { report(line); return; }
+
+            var through = done + unit.Weight * (line.Percent / 100.0);
+            report(line with { Percent = (int)Math.Round(100.0 * through / total) });
+        };
+    }
 
     /// <summary>What to tell the operator. A pause says the work is kept, because it is.</summary>
     private static string Explain(OperationOutcome outcome) => outcome.Reason?.Value switch

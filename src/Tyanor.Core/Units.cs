@@ -44,6 +44,12 @@ public enum ReconcileAction
 
     /// <summary>It is settled but unusable: remove it, then create fresh.</summary>
     Recreate,
+
+    /// <summary>Take it away. Only a teardown decides this — see <see cref="Reconcile.DecideRemoval"/>.</summary>
+    Remove,
+
+    /// <summary>There is nothing to do to this unit. Only a teardown decides this, for a unit already gone.</summary>
+    Nothing,
 }
 
 /// <summary>
@@ -82,9 +88,28 @@ public static class Reconcile
     };
 
     /// <summary>
+    /// What to do about a unit in <paramref name="phase"/> when the procedure is being TORN DOWN.
+    /// </summary>
+    /// <param name="phase">What the provider reports right now.</param>
+    /// <remarks>
+    /// <para>Two answers, because a teardown has two: take it away, or notice it is already gone. Every
+    /// phase that is not <see cref="UnitPhase.Missing"/> gets removed — including
+    /// <see cref="UnitPhase.Converging"/>, which is the one worth stating. Removal does NOT attach: a unit
+    /// mid-create is a unit that will exist in a minute, and waiting politely for someone else's creation to
+    /// finish before destroying it is not a kindness, it is a longer teardown with the same ending.</para>
+    /// <para>A separate function from <see cref="Decide"/> rather than a branch inside it, so that a plan
+    /// can be computed for a teardown without the engine running one — which is the whole point of a plan,
+    /// and was missing for the only operation that destroys anything.</para>
+    /// </remarks>
+    public static ReconcileAction DecideRemoval(UnitPhase phase) =>
+        phase == UnitPhase.Missing ? ReconcileAction.Nothing : ReconcileAction.Remove;
+
+    /// <summary>
     /// Whether this action issues a mutating call. <see cref="ReconcileAction.Attach"/> does not — it is
     /// the "someone else is already doing it" answer, and a provider adapter that mutates here has
-    /// misunderstood the model.
+    /// misunderstood the model. Neither does <see cref="ReconcileAction.Nothing"/>, which is a teardown
+    /// meeting a unit that is already gone.
     /// </summary>
-    public static bool Mutates(ReconcileAction action) => action is not ReconcileAction.Attach;
+    public static bool Mutates(ReconcileAction action) =>
+        action is not (ReconcileAction.Attach or ReconcileAction.Nothing);
 }

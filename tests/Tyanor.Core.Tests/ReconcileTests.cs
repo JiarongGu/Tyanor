@@ -29,14 +29,18 @@ public class ReconcileTests
         => Assert.Equal(expected, Reconcile.Decide(phase));
 
     [Fact]
-    public void Attach_is_the_only_non_mutating_action()
+    public void Only_attaching_and_doing_nothing_leave_the_provider_alone()
     {
         // Stated as a test because it is a contract a provider adapter can silently break: an adapter
         // that "helpfully" re-applies while attaching reintroduces exactly the conflict Attach prevents.
-        var mutating = Enum.GetValues<ReconcileAction>().Where(Reconcile.Mutates).ToArray();
+        //
+        // Named rather than counted. The count version of this passed for months and then failed the moment
+        // a genuinely non-mutating action was added, which taught nobody anything — whereas a new action
+        // that IS mutating and gets missed here is the case worth catching.
+        ReconcileAction[] harmless = [ReconcileAction.Attach, ReconcileAction.Nothing];
 
-        Assert.DoesNotContain(ReconcileAction.Attach, mutating);
-        Assert.Equal(Enum.GetValues<ReconcileAction>().Length - 1, mutating.Length);
+        foreach (var action in Enum.GetValues<ReconcileAction>())
+            Assert.Equal(!harmless.Contains(action), Reconcile.Mutates(action));
     }
 
     [Fact]

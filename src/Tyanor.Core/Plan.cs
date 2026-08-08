@@ -21,6 +21,8 @@ public sealed record PlannedStep(ProcedureUnit Unit, UnitPhase Phase, ReconcileA
         ReconcileAction.Attach => $"{Unit.Label}: ALREADY RUNNING — will wait for it, change nothing",
         ReconcileAction.Recreate => $"{Unit.Label}: REPLACE — it is in a state the provider cannot update",
         ReconcileAction.SettleThenRecreate => $"{Unit.Label}: REPLACE — waiting for a rollback to finish first",
+        ReconcileAction.Remove => $"{Unit.Label}: DESTROY",
+        ReconcileAction.Nothing => $"{Unit.Label}: nothing to do (already gone)",
         _ => $"{Unit.Label}: {Action}",
     };
 }
@@ -52,6 +54,12 @@ public sealed record PlannedStep(ProcedureUnit Unit, UnitPhase Phase, ReconcileA
 public sealed record Plan(
     string Procedure, string Prefix, IReadOnlyList<PlannedStep> Steps, RunRecord? ActiveRun = null)
 {
+    /// <summary>
+    /// Which direction this plan is for. A teardown gets a plan too — it is the operation that destroys
+    /// things, so it is the one that most needs a gate in front of it.
+    /// </summary>
+    public RunKind Kind { get; init; } = RunKind.Apply;
+
     /// <summary>Steps that will issue a mutating call.</summary>
     public IReadOnlyList<PlannedStep> Changes => Steps.Where(s => s.Mutates).ToList();
 
@@ -93,6 +101,18 @@ public sealed record Plan(
     /// </summary>
     public IReadOnlyList<Drift> Drift { get; init; } = [];
 
+    /// <summary>
+    /// Resources this run will DELIBERATELY destroy — the ones a teardown is about to take away. Empty for
+    /// an apply, which destroys nothing on purpose.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="Drift"/> because they answer different questions and only one of them is a
+    /// surprise. Drift is "the world moved without me"; this is "I am about to remove twelve things". A
+    /// teardown that reported its own intent as drift would be describing the operator's own decision as an
+    /// anomaly.
+    /// </remarks>
+    public IReadOnlyList<Drift> Destroying { get; init; } = [];
+
     /// <summary>Resources that exist in the provider but not in state — created outside Tyanor, or a state
     /// that was lost. They will be adopted on the next apply.</summary>
     public int ToAdd => Drift.Count(d => d.Change == ResourceChange.Add);
@@ -100,8 +120,11 @@ public sealed record Plan(
     /// <summary>Resources whose fingerprint no longer matches what was recorded.</summary>
     public int ToChange => Drift.Count(d => d.Change == ResourceChange.Change);
 
-    /// <summary>Resources in state that are gone from the provider — deleted outside Tyanor.</summary>
-    public int ToDestroy => Drift.Count(d => d.Change == ResourceChange.Destroy);
+    /// <summary>
+    /// Resources that will be gone afterwards: the ones a teardown will destroy, plus the ones already
+    /// deleted outside Tyanor.
+    /// </summary>
+    public int ToDestroy => Drift.Count(d => d.Change == ResourceChange.Destroy) + Destroying.Count;
 
     /// <summary>
     /// The line an operator reads before deciding: <c>3 to add, 1 to change, 0 to destroy</c>.
@@ -121,4 +144,14 @@ public sealed record Plan(
 
     /// <summary>Nothing to do — every unit is already as asked, no drift, and no run is outstanding.</summary>
     public bool IsNoOp => Changes.Count == 0 && !HasWorkInFlight && ActiveRun is null && !HasDrift;
+
+    /// <summary>
+    /// The line to put a confirmation behind. True when this plan will take something away that exists —
+    /// a teardown with anything left to destroy, or a unit the provider will not update in place.
+    /// </summary>
+    /// <remarks>
+    /// The distinction between this and <see cref="Changes"/> is the one worth wiring into a UI: a create
+    /// or an update is recoverable by running it again, and a destroy is not recoverable at all.
+    /// </remarks>
+    public bool IsDestructive => Destroying.Count > 0 || Replacements.Count > 0;
 }
