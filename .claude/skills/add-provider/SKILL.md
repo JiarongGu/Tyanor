@@ -41,15 +41,23 @@ public sealed class <Name>Target : IDeploymentTarget
 validation, and showing the operator which account they are about to deploy into is the cheapest guard
 against deploying to the wrong one.
 
-### 2. `IUnitDriver` — five methods, no orchestration
+### 2. `IUnitDriver` — six methods, no orchestration
+
+Every one takes a `UnitContext`: the unit, the request, progress and cancellation.
 
 | Method | Must do | Must NOT do |
 |---|---|---|
-| `PhaseAsync` | map YOUR status vocabulary onto `UnitPhase` | leak the raw status upward |
-| `CreateAsync` | issue the create | wait for it (the engine waits, so Attach uses the same wait) |
+| `PhaseAsync` | map YOUR status vocabulary onto `UnitPhase` | change anything — it runs during a plan |
+| `CreateAsync` | issue the create | wait for a CONTROL PLANE (the engine waits, so Attach uses the same wait) |
 | `UpdateAsync` | apply config; return `false` for "nothing to change" | treat no-change as an error |
 | `RemoveAsync` | remove and wait until gone | fail when it is already gone |
-| `AwaitSettledAsync` | poll to settled; report progress; throw if it settled badly | swallow a failure |
+| `AwaitSettledAsync` | poll to settled; throw if it settled badly | swallow a failure |
+| `RefreshAsync` | report what the unit OWNS, with stable ids | throw when the unit is absent — return empty |
+
+**Report progress from wherever the work actually is.** If your provider has no control plane, the work is
+in `CreateAsync` and `RemoveAsync`, not in the wait — `context.Progress("copied 412 of 900 files…", 46)`.
+The percent is through YOUR unit; the engine rescales it into the run. Use -1 when there is no honest
+fraction; it stays -1 rather than being turned into a number.
 
 The phase mapping is the crux. Get these right:
 

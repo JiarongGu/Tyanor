@@ -32,9 +32,9 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
     /// alive but not yet answering is work in flight, and re-issuing against it starts a second server on
     /// a port only one of them can have.
     /// </summary>
-    public async Task<UnitPhase> PhaseAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public async Task<UnitPhase> PhaseAsync(UnitContext context)
     {
-        var record = Records.Read<ProcessRecord>(PidPath(request, unit.Name));
+        var record = Records.Read<ProcessRecord>(PidPath(context));
         if (record is null) return UnitPhase.Missing;                  // never started, or cleanly removed
 
         using var process = Running(record);
@@ -42,26 +42,26 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
         // than a handle on anything, so the unit is Broken and the engine clears it and starts fresh.
         if (process is null) return UnitPhase.Broken;
 
-        if (await AnsweringAsync(unit, request, ct)) return UnitPhase.Ready;
+        if (await AnsweringAsync(context)) return UnitPhase.Ready;
 
         // Alive but silent. Inside the grace window that is a server still booting; past it, it is a server
         // that is not going to boot, and calling that Converging forever would hang the run instead of
         // telling anyone.
-        return DateTimeOffset.UtcNow < record.StartedAt + Grace(unit, request)
+        return DateTimeOffset.UtcNow < record.StartedAt + Grace(context)
             ? UnitPhase.Converging
             : UnitPhase.Broken;
     }
 
     /// <summary>Start it and return. The engine does the waiting, so attaching uses the identical wait.</summary>
-    public Task CreateAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public Task CreateAsync(UnitContext context)
     {
-        var command = Command(unit, request);
-        var workingDirectory = WorkingDirectory(unit, request);
+        var command = Command(context);
+        var workingDirectory = WorkingDirectory(context);
         Directory.CreateDirectory(workingDirectory);
 
         var info = new ProcessStartInfo(command)
         {
-            Arguments = request.Option(unit.Name, LocalOptions.Arguments) ?? "",
+            Arguments = context.Option(LocalOptions.Arguments) ?? "",
             WorkingDirectory = workingDirectory,
             // Not redirected on purpose: the server's output goes wherever the caller's does. A library
             // that captures an operator's logs into a pipe nobody reads has decided something that is not
@@ -71,10 +71,10 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
         };
 
         using var process = Process.Start(info)
-            ?? throw LocalDeploymentException.Hard(unit.Name, $"'{command}' started no process.");
+            ?? throw LocalDeploymentException.Hard(context.Name, $"'{command}' started no process.");
 
-        Records.Write(PidPath(request, unit.Name), new ProcessRecord(
-            process.Id, new DateTimeOffset(process.StartTime), command, Desired(unit, request)));
+        Records.Write(PidPath(context), new ProcessRecord(
+            process.Id, new DateTimeOffset(process.StartTime), command, Desired(context)));
         return Task.CompletedTask;
     }
 
@@ -84,20 +84,20 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
     /// the CONTENT it serves, which is how a new build of the watched directory restarts the server and a
     /// re-run of the same build does not.
     /// </summary>
-    public async Task<bool> UpdateAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public async Task<bool> UpdateAsync(UnitContext context)
     {
-        var record = Records.Read<ProcessRecord>(PidPath(request, unit.Name));
-        if (record is not null && record.Fingerprint == Desired(unit, request)) return false;
+        var record = Records.Read<ProcessRecord>(PidPath(context));
+        if (record is not null && record.Fingerprint == Desired(context)) return false;
 
-        await RemoveAsync(unit, request, ct);
-        await CreateAsync(unit, request, ct);
+        await RemoveAsync(context);
+        await CreateAsync(context);
         return true;
     }
 
     /// <inheritdoc/>
-    public async Task RemoveAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public async Task RemoveAsync(UnitContext context)
     {
-        var path = PidPath(request, unit.Name);
+        var path = PidPath(context);
         if (Records.Read<ProcessRecord>(path) is { } record)
         {
             using var process = Running(record);
@@ -107,7 +107,7 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
                 // and the next create would fail against something the operator cannot see.
                 try { process.Kill(entireProcessTree: true); }
                 catch (InvalidOperationException) { /* exited between the check and the kill — the goal */ }
-                await process.WaitForExitAsync(ct);
+                await process.WaitForExitAsync(context.Cancellation);
             }
         }
         Records.Delete(path);
@@ -117,51 +117,48 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
     /// Wait for the server to answer. Ends three ways, and the difference between the last two is the
     /// difference between "try again" and "fix your command".
     /// </summary>
-    /// <param name="unit">The unit.</param>
-    /// <param name="request">The deployment.</param>
-    /// <param name="report">Progress, so a slow boot looks like a slow boot rather than a hang.</param>
-    /// <param name="ct">Cancellation.</param>
+    /// <param name="context">The unit, and the progress callback that makes a slow boot look like a slow
+    /// boot rather than a hang.</param>
     /// <exception cref="LocalDeploymentException">
     /// HARD when the process is gone — it exited during startup, and starting it again produces the same
     /// crash. TRANSIENT when the grace window expires with it still alive: nothing about the desired state
     /// is wrong, so the run pauses and the operator can resume, at which point the phase read decides
     /// whether it was merely slow or is genuinely broken.
     /// </exception>
-    public async Task AwaitSettledAsync(
-        ProcedureUnit unit, DeploymentRequest request, Action<ProgressReport> report, CancellationToken ct)
+    public async Task AwaitSettledAsync(UnitContext context)
     {
         var polls = 0;
         while (true)
         {
-            ct.ThrowIfCancellationRequested();
+            context.ThrowIfCancelled();
 
-            var record = Records.Read<ProcessRecord>(PidPath(request, unit.Name))
-                ?? throw LocalDeploymentException.Hard(unit.Name,
-                    $"{unit.Label}: nothing recorded a running process — it was removed while starting.");
+            var record = Records.Read<ProcessRecord>(PidPath(context))
+                ?? throw LocalDeploymentException.Hard(context.Name,
+                    $"{context.Label}: nothing recorded a running process — it was removed while starting.");
 
             using (var process = Running(record))
             {
                 if (process is null)
-                    throw LocalDeploymentException.Hard(unit.Name,
-                        $"{unit.Label}: the process exited while starting. Check the command and its output.");
+                    throw LocalDeploymentException.Hard(context.Name,
+                        $"{context.Label}: the process exited while starting. Check the command and its output.");
             }
 
-            if (await AnsweringAsync(unit, request, ct))
+            if (await AnsweringAsync(context))
             {
-                report(new ProgressReport(unit.Name, $"{unit.Label}: answering.", -1, ProgressStatus.Success));
+                context.Progress($"{context.Label}: answering.", status: ProgressStatus.Success);
                 return;
             }
 
             // The window runs from when the PROCESS started, not from when this wait did. A second run
             // attaching to a server that has been failing to boot for five minutes should not be granted a
             // fresh five.
-            if (DateTimeOffset.UtcNow >= record.StartedAt + Grace(unit, request))
-                throw LocalDeploymentException.Transient(unit.Name,
-                    $"{unit.Label}: still not answering after {Grace(unit, request).TotalSeconds:0} seconds.");
+            if (DateTimeOffset.UtcNow >= record.StartedAt + Grace(context))
+                throw LocalDeploymentException.Transient(context.Name,
+                    $"{context.Label}: still not answering after {Grace(context).TotalSeconds:0} seconds.");
 
             if (polls++ % 8 == 0)
-                report(new ProgressReport(unit.Name, $"{unit.Label}: started — waiting for it to answer…", -1));
-            await Task.Delay(Poll, ct);
+                context.Progress($"{context.Label}: started — waiting for it to answer…");
+            await Task.Delay(Poll, context.Cancellation);
         }
     }
 
@@ -170,10 +167,9 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
     /// and a pid does not. The fingerprint is what it was started to run, so a plan reports a pending
     /// restart as a change to one resource rather than as nothing at all.
     /// </summary>
-    public Task<IReadOnlyList<ResourceState>> RefreshAsync(
-        ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context)
     {
-        var path = PidPath(request, unit.Name);
+        var path = PidPath(context);
         var record = Records.Read<ProcessRecord>(path);
         if (record is null) return Task.FromResult<IReadOnlyList<ResourceState>>([]);
 
@@ -218,76 +214,76 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
     /// is the most Tyanor can honestly claim, and pretending to a health check nobody configured would be
     /// worse than admitting the limit.
     /// </summary>
-    private static async Task<bool> AnsweringAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    private static async Task<bool> AnsweringAsync(UnitContext context)
     {
-        if (Port(unit, request) is not { } port) return true;
+        if (Port(context) is not { } port) return true;
 
         try
         {
             using var client = new TcpClient();
-            using var probe = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            using var probe = CancellationTokenSource.CreateLinkedTokenSource(context.Cancellation);
             probe.CancelAfter(ProbeTimeout);
             await client.ConnectAsync(IPAddress.Loopback, port, probe.Token);
             return true;
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return false; }
+        catch (OperationCanceledException) when (!context.Cancellation.IsCancellationRequested) { return false; }
         catch (SocketException) { return false; }            // refused: not up yet, which is an answer
     }
 
-    private string PidPath(DeploymentRequest request, string unit) =>
-        Path.Combine(LocalPaths.Bookkeeping(root, request), $"{unit}.pid.json");
+    private string PidPath(UnitContext context) =>
+        Path.Combine(LocalPaths.Bookkeeping(root, context), $"{context.Name}.pid.json");
 
-    private string Desired(ProcedureUnit unit, DeploymentRequest request)
+    private string Desired(UnitContext context)
     {
         // The content the server serves is part of what it IS: a new build in the watched directory is a
         // different service, even though the command line has not changed a character.
-        var watched = request.Option(unit.Name, LocalOptions.Watch);
+        var watched = context.Option(LocalOptions.Watch);
         var content = watched is null
             ? null
-            : Records.Read<UnitMarker>(LocalPaths.Marker(root, request, watched))?.Content;
+            : Records.Read<UnitMarker>(LocalPaths.Marker(root, context.Request, watched))?.Content;
 
         return Fingerprints.Of(
-            Command(unit, request),
-            request.Option(unit.Name, LocalOptions.Arguments),
-            WorkingDirectory(unit, request),
+            Command(context),
+            context.Option(LocalOptions.Arguments),
+            WorkingDirectory(context),
             content);
     }
 
-    private static string Command(ProcedureUnit unit, DeploymentRequest request) =>
-        request.Option(unit.Name, LocalOptions.Command)
-        ?? throw new LocalConfigurationException(unit.Name,
-            $"Unit '{unit.Name}' is a process but names no '{LocalOptions.Command}'.");
+    private static string Command(UnitContext context) =>
+        context.Option(LocalOptions.Command)
+        ?? throw new LocalConfigurationException(context.Name,
+            $"Unit '{context.Name}' is a process but names no '{LocalOptions.Command}'.");
 
-    private string WorkingDirectory(ProcedureUnit unit, DeploymentRequest request)
+    private string WorkingDirectory(UnitContext context)
     {
-        if (request.Option(unit.Name, LocalOptions.WorkingDirectory) is { } explicitly) return explicitly;
+        if (context.Option(LocalOptions.WorkingDirectory) is { } explicitly) return explicitly;
 
         // The watched unit's CURRENT RELEASE, not its directory — which is what makes "run the thing I
         // just unpacked" need no configuration, and is also why a new build can be written while this one
         // is still running: the two are never the same folder.
-        if (request.Option(unit.Name, LocalOptions.Watch) is { } watched)
-            return LocalPaths.CurrentRelease(root, request, watched) ?? LocalPaths.Unit(root, request, watched);
+        if (context.Option(LocalOptions.Watch) is { } watched)
+            return LocalPaths.CurrentRelease(root, context.Request, watched) ?? LocalPaths.Unit(root, context.Request, watched);
 
-        return Path.Combine(root, request.Prefix);
+        return Path.Combine(root, context.Request.Prefix);
     }
 
-    private static int? Port(ProcedureUnit unit, DeploymentRequest request)
+    private static int? Port(UnitContext context)
     {
-        if (request.Option(unit.Name, LocalOptions.HealthPort) is not { } raw) return null;
+        if (context.Option(LocalOptions.HealthPort) is not { } raw) return null;
         return int.TryParse(raw, out var port) && port is > 0 and < 65536
             ? port
-            : throw new LocalConfigurationException(unit.Name,
+            : throw new LocalConfigurationException(context.Name,
                 $"'{LocalOptions.HealthPort}' is '{raw}', which is not a port.");
     }
 
-    private static TimeSpan Grace(ProcedureUnit unit, DeploymentRequest request)
+    private static TimeSpan Grace(UnitContext context)
     {
-        if (request.Option(unit.Name, LocalOptions.HealthSeconds) is not { } raw)
+        if (context.Option(LocalOptions.HealthSeconds) is not { } raw)
             return TimeSpan.FromSeconds(LocalOptions.DefaultHealthSeconds);
 
         return int.TryParse(raw, out var seconds) && seconds > 0
             ? TimeSpan.FromSeconds(seconds)
-            : throw new LocalConfigurationException(unit.Name,
+            : throw new LocalConfigurationException(context.Name,
                 $"'{LocalOptions.HealthSeconds}' is '{raw}', which is not a number of seconds.");
     }
 }

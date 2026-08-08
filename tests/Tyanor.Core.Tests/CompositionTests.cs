@@ -17,12 +17,12 @@ public class CompositionTests
         public IFailureClassifier Classifier => this;
         public FailureClass? Classify(Exception error) => null;
         public Task<TargetIdentity> ValidateAsync(TargetCredentials? c, CancellationToken ct) => Task.FromResult(new TargetIdentity(true));
-        public Task<UnitPhase> PhaseAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.FromResult(UnitPhase.Missing);
-        public Task CreateAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.CompletedTask;
-        public Task<bool> UpdateAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.FromResult(false);
-        public Task RemoveAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.CompletedTask;
-        public Task AwaitSettledAsync(ProcedureUnit u, DeploymentRequest r, Action<ProgressReport> p, CancellationToken ct) => Task.CompletedTask;
-        public Task<IReadOnlyList<ResourceState>> RefreshAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct)
+        public Task<UnitPhase> PhaseAsync(UnitContext c) => Task.FromResult(UnitPhase.Missing);
+        public Task CreateAsync(UnitContext c) => Task.CompletedTask;
+        public Task<bool> UpdateAsync(UnitContext c) => Task.FromResult(false);
+        public Task RemoveAsync(UnitContext c) => Task.CompletedTask;
+        public Task AwaitSettledAsync(UnitContext c) => Task.CompletedTask;
+        public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext c)
             => Task.FromResult<IReadOnlyList<ResourceState>>([]);
     }
 

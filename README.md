@@ -66,12 +66,21 @@ and runs the same decision the apply will run, then compares recorded state agai
 ```csharp
 var plan = await runner.PlanAsync(procedure, request);
 Console.WriteLine(plan.Summary);   // "3 to add, 1 to change, 0 to destroy"
-if (plan.Replacements.Count > 0) /* ask before destroying something */;
+if (plan.IsDestructive)          /* ask before taking something away */;
 if (plan.HasWorkInFlight)        /* someone else is mid-deploy — applying will attach to it */;
 if (plan.HasStalledRun)          /* a run is recorded live but nothing is converging */;
 ```
 
-It is a forecast and says which two things it honestly cannot know.
+**A teardown gets one too** — it is the direction that is not recoverable by running it again, so it is the
+one that most needs a gate:
+
+```csharp
+var teardown = await runner.PlanAsync(procedure, request, RunKind.Remove);
+Console.WriteLine(teardown.Summary);        // "0 to add, 0 to change, 12 to destroy"
+foreach (var step in teardown.Steps) Console.WriteLine(step);   // in the order they will go
+```
+
+A plan is a forecast and says which two things it honestly cannot know.
 
 **A library, not a service.** `Tyanor.Core` and `Tyanor.Engine` take **no package dependencies**. There is
 no daemon, no CLI, no ambient state and no background thread. DI is a separate, optional package — the

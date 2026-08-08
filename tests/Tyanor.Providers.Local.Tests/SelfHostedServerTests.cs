@@ -187,8 +187,8 @@ public class SelfHostedServerTests
         var request = Request(box, healthPort: port);
 
         // Started out of band: another operator, a pipeline, or a run whose process has since gone away.
-        await box.Target.Driver.CreateAsync(Runtime, request, default);
-        await box.Target.Driver.CreateAsync(Service, request, default);
+        await box.Target.Driver.CreateAsync(new UnitContext(Runtime, request));
+        await box.Target.Driver.CreateAsync(new UnitContext(Service, request));
         var started = box.Pid("acme", "service");
 
         var plan = await box.Runner.PlanAsync(Server, request);

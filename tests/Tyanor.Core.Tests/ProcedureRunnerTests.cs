@@ -169,38 +169,38 @@ public class ProcedureRunnerTests
         public Dictionary<string, Exception> ThrowOnceThenSucceed { get; } = [];
         public Dictionary<string, int> Attempts { get; } = [];
 
-        private void Guard(ProcedureUnit u)
+        private void Guard(UnitContext c)
         {
-            Attempts[u.Name] = Attempts.GetValueOrDefault(u.Name) + 1;
-            if (Throw.TryGetValue(u.Name, out var always)) throw always;
-            if (ThrowOnceThenSucceed.TryGetValue(u.Name, out var once) && Attempts[u.Name] == 1) throw once;
+            Attempts[c.Name] = Attempts.GetValueOrDefault(c.Name) + 1;
+            if (Throw.TryGetValue(c.Name, out var always)) throw always;
+            if (ThrowOnceThenSucceed.TryGetValue(c.Name, out var once) && Attempts[c.Name] == 1) throw once;
         }
 
-        public Task<UnitPhase> PhaseAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct)
+        public Task<UnitPhase> PhaseAsync(UnitContext c)
         {
-            Guard(u);
-            return Task.FromResult(Phases.GetValueOrDefault(u.Name, UnitPhase.Missing));
+            Guard(c);
+            return Task.FromResult(Phases.GetValueOrDefault(c.Name, UnitPhase.Missing));
         }
 
-        public Task CreateAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct)
-        { Calls.Add($"{u.Name}:create"); return Task.CompletedTask; }
+        public Task CreateAsync(UnitContext c)
+        { Calls.Add($"{c.Name}:create"); return Task.CompletedTask; }
 
-        public Task<bool> UpdateAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct)
-        { Calls.Add($"{u.Name}:update"); return Task.FromResult(!NothingToUpdate.Contains(u.Name)); }
+        public Task<bool> UpdateAsync(UnitContext c)
+        { Calls.Add($"{c.Name}:update"); return Task.FromResult(!NothingToUpdate.Contains(c.Name)); }
 
-        public Task RemoveAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct)
-        { Calls.Add($"{u.Name}:remove"); return Task.CompletedTask; }
+        public Task RemoveAsync(UnitContext c)
+        { Calls.Add($"{c.Name}:remove"); return Task.CompletedTask; }
 
         /// <summary>What the unit "holds" — scripted per unit; empty unless a test says otherwise.</summary>
         public Dictionary<string, List<ResourceState>> Resources { get; } = [];
 
-        public Task<IReadOnlyList<ResourceState>> RefreshAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct)
-            => Task.FromResult<IReadOnlyList<ResourceState>>(Resources.GetValueOrDefault(u.Name) ?? []);
+        public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext c)
+            => Task.FromResult<IReadOnlyList<ResourceState>>(Resources.GetValueOrDefault(c.Name) ?? []);
 
-        public Task AwaitSettledAsync(ProcedureUnit u, DeploymentRequest r, Action<ProgressReport> report, CancellationToken ct)
+        public Task AwaitSettledAsync(UnitContext c)
         {
             // Only recorded when it is the WHOLE action (Attach) — otherwise every create would log one.
-            if (Phases.GetValueOrDefault(u.Name) == UnitPhase.Converging) Calls.Add($"{u.Name}:await");
+            if (Phases.GetValueOrDefault(c.Name) == UnitPhase.Converging) Calls.Add($"{c.Name}:await");
             return Task.CompletedTask;
         }
     }

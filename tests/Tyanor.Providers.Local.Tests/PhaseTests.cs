@@ -23,7 +23,7 @@ public class DirectoryPhaseTests
     {
         using var box = new Sandbox();
 
-        Assert.Equal(UnitPhase.Missing, await box.Target.Driver.PhaseAsync(Runtime, Request(box), default));
+        Assert.Equal(UnitPhase.Missing, await box.Target.Driver.PhaseAsync(new UnitContext(Runtime, Request(box))));
     }
 
     [Fact]
@@ -33,7 +33,7 @@ public class DirectoryPhaseTests
         using var box = new Sandbox();
         Directory.CreateDirectory(box.Deployed("acme", "runtime"));
 
-        Assert.Equal(UnitPhase.Missing, await box.Target.Driver.PhaseAsync(Runtime, Request(box), default));
+        Assert.Equal(UnitPhase.Missing, await box.Target.Driver.PhaseAsync(new UnitContext(Runtime, Request(box))));
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public class DirectoryPhaseTests
         Directory.CreateDirectory(deployed);
         await File.WriteAllTextAsync(Path.Combine(deployed, "half-copied.dll"), "…");
 
-        Assert.Equal(UnitPhase.Broken, await box.Target.Driver.PhaseAsync(Runtime, Request(box), default));
+        Assert.Equal(UnitPhase.Broken, await box.Target.Driver.PhaseAsync(new UnitContext(Runtime, Request(box))));
     }
 
     [Fact]
@@ -56,9 +56,9 @@ public class DirectoryPhaseTests
         box.Publish("app.dll", "v1");
         var request = Request(box);
 
-        await box.Target.Driver.CreateAsync(Runtime, request, default);
+        await box.Target.Driver.CreateAsync(new UnitContext(Runtime, request));
 
-        Assert.Equal(UnitPhase.Ready, await box.Target.Driver.PhaseAsync(Runtime, request, default));
+        Assert.Equal(UnitPhase.Ready, await box.Target.Driver.PhaseAsync(new UnitContext(Runtime, request)));
         Assert.Equal("v1", await File.ReadAllTextAsync(Path.Combine(box.Live("acme", "runtime"), "app.dll")));
     }
 
@@ -70,9 +70,9 @@ public class DirectoryPhaseTests
         using var box = new Sandbox();
         box.Publish("app.dll", "v1");
         var request = Request(box);
-        await box.Target.Driver.CreateAsync(Runtime, request, default);
+        await box.Target.Driver.CreateAsync(new UnitContext(Runtime, request));
 
-        Assert.False(await box.Target.Driver.UpdateAsync(Runtime, request, default));
+        Assert.False(await box.Target.Driver.UpdateAsync(new UnitContext(Runtime, request)));
     }
 
     [Fact]
@@ -81,11 +81,11 @@ public class DirectoryPhaseTests
         using var box = new Sandbox();
         box.Publish("app.dll", "v1");
         var request = Request(box);
-        await box.Target.Driver.CreateAsync(Runtime, request, default);
+        await box.Target.Driver.CreateAsync(new UnitContext(Runtime, request));
 
         box.Publish("app.dll", "v2");
 
-        Assert.True(await box.Target.Driver.UpdateAsync(Runtime, request, default));
+        Assert.True(await box.Target.Driver.UpdateAsync(new UnitContext(Runtime, request)));
         Assert.Equal("v2", await File.ReadAllTextAsync(Path.Combine(box.Live("acme", "runtime"), "app.dll")));
     }
 
@@ -97,11 +97,11 @@ public class DirectoryPhaseTests
         using var box = new Sandbox();
         box.Publish("app.dll", "v1");
         var request = Request(box);
-        await box.Target.Driver.CreateAsync(Runtime, request, default);
+        await box.Target.Driver.CreateAsync(new UnitContext(Runtime, request));
 
         await File.WriteAllTextAsync(Path.Combine(box.Live("acme", "runtime"), "app.dll"), "hand-patched");
 
-        Assert.True(await box.Target.Driver.UpdateAsync(Runtime, request, default));
+        Assert.True(await box.Target.Driver.UpdateAsync(new UnitContext(Runtime, request)));
         Assert.Equal("v1", await File.ReadAllTextAsync(Path.Combine(box.Live("acme", "runtime"), "app.dll")));
     }
 
@@ -115,16 +115,17 @@ public class DirectoryPhaseTests
         using var box = new Sandbox();
         box.Publish("app.dll", "v1");
         var request = Request(box);
-        await box.Target.Driver.CreateAsync(Runtime, request, default);
+        await box.Target.Driver.CreateAsync(new UnitContext(Runtime, request));
 
         box.Publish("app.dll", "v2");
         using var interrupted = new CancellationTokenSource();
         await interrupted.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => box.Target.Driver.UpdateAsync(Runtime, request, interrupted.Token));
+            () => box.Target.Driver.UpdateAsync(
+                new UnitContext(Runtime, request, _ => { }, interrupted.Token)));
 
-        Assert.Equal(UnitPhase.Ready, await box.Target.Driver.PhaseAsync(Runtime, request, default));
+        Assert.Equal(UnitPhase.Ready, await box.Target.Driver.PhaseAsync(new UnitContext(Runtime, request)));
         Assert.Equal("v1", await File.ReadAllTextAsync(Path.Combine(box.Live("acme", "runtime"), "app.dll")));
     }
 
@@ -134,11 +135,11 @@ public class DirectoryPhaseTests
         using var box = new Sandbox();
         box.Publish("app.dll", "v1");
         var request = Request(box);
-        await box.Target.Driver.CreateAsync(Runtime, request, default);
+        await box.Target.Driver.CreateAsync(new UnitContext(Runtime, request));
 
-        var before = Assert.Single(await box.Target.Driver.RefreshAsync(Runtime, request, default));
+        var before = Assert.Single(await box.Target.Driver.RefreshAsync(new UnitContext(Runtime, request)));
         await File.WriteAllTextAsync(Path.Combine(box.Live("acme", "runtime"), "app.dll"), "edited");
-        var after = Assert.Single(await box.Target.Driver.RefreshAsync(Runtime, request, default));
+        var after = Assert.Single(await box.Target.Driver.RefreshAsync(new UnitContext(Runtime, request)));
 
         Assert.Equal(box.Deployed("acme", "runtime"), before.Id);       // identity survives the edit
         Assert.Equal("local/directory", before.Type);
@@ -151,13 +152,13 @@ public class DirectoryPhaseTests
         using var box = new Sandbox();
         box.Publish("app.dll", "v1");
         var request = Request(box);
-        await box.Target.Driver.CreateAsync(Runtime, request, default);
+        await box.Target.Driver.CreateAsync(new UnitContext(Runtime, request));
 
-        await box.Target.Driver.RemoveAsync(Runtime, request, default);
-        await box.Target.Driver.RemoveAsync(Runtime, request, default);   // teardown must be re-runnable
+        await box.Target.Driver.RemoveAsync(new UnitContext(Runtime, request));
+        await box.Target.Driver.RemoveAsync(new UnitContext(Runtime, request));   // teardown must be re-runnable
 
         Assert.False(Directory.Exists(box.Deployed("acme", "runtime")));
-        Assert.Empty(await box.Target.Driver.RefreshAsync(Runtime, request, default));
+        Assert.Empty(await box.Target.Driver.RefreshAsync(new UnitContext(Runtime, request)));
     }
 
     [Fact]
@@ -175,7 +176,7 @@ public class DirectoryPhaseTests
         // Core's check, shared with every other provider, so an operator gets the same sentence about the
         // same mistake wherever they deploy.
         var error = await Assert.ThrowsAsync<ArtifactException>(
-            () => box.Target.Driver.CreateAsync(Runtime, request, default));
+            () => box.Target.Driver.CreateAsync(new UnitContext(Runtime, request)));
 
         Assert.Contains("app", error.Message);                          // says what the artifact DOES carry
         Assert.False(Directory.Exists(box.Deployed("acme", "runtime")));
@@ -188,7 +189,7 @@ public class DirectoryPhaseTests
         var request = new DeploymentRequest("acme", new DeploymentArtifact(new Dictionary<string, string>()));
 
         var error = await Assert.ThrowsAsync<UnitKindException>(
-            () => box.Target.Driver.PhaseAsync(Runtime, request, default));
+            () => box.Target.Driver.PhaseAsync(new UnitContext(Runtime, request)));
 
         Assert.Contains(LocalOptions.DirectoryKind, error.Message);      // names the kinds that DO exist
         Assert.Contains(LocalOptions.ProcessKind, error.Message);
@@ -204,7 +205,7 @@ public class DirectoryPhaseTests
             new Dictionary<string, string> { ["runtime.kind"] = LocalOptions.DirectoryKind });
 
         Assert.IsAssignableFrom<DefinitionException>(await Record.ExceptionAsync(
-            () => box.Target.Driver.CreateAsync(Runtime, request, default)));
+            () => box.Target.Driver.CreateAsync(new UnitContext(Runtime, request))));
 
         // …and Core's exceptions need no help from the provider's classifier: null means Hard to the engine,
         // which is what a wrong definition is.
@@ -241,7 +242,7 @@ public class ProcessPhaseTests
     {
         using var box = new Sandbox();
 
-        Assert.Equal(UnitPhase.Missing, await box.Target.Driver.PhaseAsync(Service, Request(box), default));
+        Assert.Equal(UnitPhase.Missing, await box.Target.Driver.PhaseAsync(new UnitContext(Service, Request(box))));
     }
 
     [Fact]
@@ -252,9 +253,9 @@ public class ProcessPhaseTests
         using var box = new Sandbox();
         var request = Request(box);
 
-        await box.Target.Driver.CreateAsync(Service, request, default);
+        await box.Target.Driver.CreateAsync(new UnitContext(Service, request));
 
-        Assert.Equal(UnitPhase.Ready, await box.Target.Driver.PhaseAsync(Service, request, default));
+        Assert.Equal(UnitPhase.Ready, await box.Target.Driver.PhaseAsync(new UnitContext(Service, request)));
         Assert.NotNull(box.Pid("acme", "service"));
     }
 
@@ -266,9 +267,9 @@ public class ProcessPhaseTests
         using var box = new Sandbox();
         var request = Request(box, healthPort: Sandbox.FreePort(), graceSeconds: 60);
 
-        await box.Target.Driver.CreateAsync(Service, request, default);
+        await box.Target.Driver.CreateAsync(new UnitContext(Service, request));
 
-        Assert.Equal(UnitPhase.Converging, await box.Target.Driver.PhaseAsync(Service, request, default));
+        Assert.Equal(UnitPhase.Converging, await box.Target.Driver.PhaseAsync(new UnitContext(Service, request)));
     }
 
     [Fact]
@@ -279,9 +280,9 @@ public class ProcessPhaseTests
         using var server = Sandbox.Listen(port);          // stands in for the server's own socket
         var request = Request(box, healthPort: port, graceSeconds: 60);
 
-        await box.Target.Driver.CreateAsync(Service, request, default);
+        await box.Target.Driver.CreateAsync(new UnitContext(Service, request));
 
-        Assert.Equal(UnitPhase.Ready, await box.Target.Driver.PhaseAsync(Service, request, default));
+        Assert.Equal(UnitPhase.Ready, await box.Target.Driver.PhaseAsync(new UnitContext(Service, request)));
     }
 
     [Fact]
@@ -292,10 +293,10 @@ public class ProcessPhaseTests
         using var box = new Sandbox();
         var request = Request(box, healthPort: Sandbox.FreePort(), graceSeconds: 1);
 
-        await box.Target.Driver.CreateAsync(Service, request, default);
+        await box.Target.Driver.CreateAsync(new UnitContext(Service, request));
         await Task.Delay(1_300);
 
-        Assert.Equal(UnitPhase.Broken, await box.Target.Driver.PhaseAsync(Service, request, default));
+        Assert.Equal(UnitPhase.Broken, await box.Target.Driver.PhaseAsync(new UnitContext(Service, request)));
     }
 
     [Fact]
@@ -303,7 +304,7 @@ public class ProcessPhaseTests
     {
         using var box = new Sandbox();
         var request = Request(box);
-        await box.Target.Driver.CreateAsync(Service, request, default);
+        await box.Target.Driver.CreateAsync(new UnitContext(Service, request));
 
         using (var victim = Process.GetProcessById(box.Pid("acme", "service")!.Value))
         {
@@ -311,8 +312,8 @@ public class ProcessPhaseTests
             await victim.WaitForExitAsync();
         }
 
-        Assert.Equal(UnitPhase.Broken, await box.Target.Driver.PhaseAsync(Service, request, default));
-        Assert.Empty(await box.Target.Driver.RefreshAsync(Service, request, default));   // it owns nothing now
+        Assert.Equal(UnitPhase.Broken, await box.Target.Driver.PhaseAsync(new UnitContext(Service, request)));
+        Assert.Empty(await box.Target.Driver.RefreshAsync(new UnitContext(Service, request)));   // it owns nothing now
     }
 
     [Fact]
@@ -331,9 +332,9 @@ public class ProcessPhaseTests
             Path.Combine(box.Root, "acme", ".tyanor", "service.pid.json"),
             new ProcessRecord(Environment.ProcessId, DateTimeOffset.UtcNow.AddDays(-1), "not-ours", "x"));
 
-        Assert.Equal(UnitPhase.Broken, await box.Target.Driver.PhaseAsync(Service, request, default));
+        Assert.Equal(UnitPhase.Broken, await box.Target.Driver.PhaseAsync(new UnitContext(Service, request)));
 
-        await box.Target.Driver.RemoveAsync(Service, request, default);
+        await box.Target.Driver.RemoveAsync(new UnitContext(Service, request));
 
         Assert.False(Process.GetCurrentProcess().HasExited);
         Assert.Null(box.Pid("acme", "service"));           // the stale record is cleared, though
@@ -344,13 +345,13 @@ public class ProcessPhaseTests
     {
         using var box = new Sandbox();
         var request = Request(box);
-        await box.Target.Driver.CreateAsync(Service, request, default);
+        await box.Target.Driver.CreateAsync(new UnitContext(Service, request));
         var pid = box.Pid("acme", "service")!.Value;
 
-        await box.Target.Driver.RemoveAsync(Service, request, default);
-        await box.Target.Driver.RemoveAsync(Service, request, default);
+        await box.Target.Driver.RemoveAsync(new UnitContext(Service, request));
+        await box.Target.Driver.RemoveAsync(new UnitContext(Service, request));
 
-        Assert.Equal(UnitPhase.Missing, await box.Target.Driver.PhaseAsync(Service, request, default));
+        Assert.Equal(UnitPhase.Missing, await box.Target.Driver.PhaseAsync(new UnitContext(Service, request)));
         Assert.Throws<ArgumentException>(() => Process.GetProcessById(pid));
     }
 
@@ -366,7 +367,7 @@ public class ProcessPhaseTests
                 ["service.workDir"] = box.Root,
             });
 
-        var error = await Record.ExceptionAsync(() => box.Target.Driver.CreateAsync(Service, request, default));
+        var error = await Record.ExceptionAsync(() => box.Target.Driver.CreateAsync(new UnitContext(Service, request)));
 
         Assert.NotNull(error);
         Assert.Equal(FailureClass.Hard, box.Target.Classifier.Classify(error));

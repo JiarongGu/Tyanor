@@ -37,6 +37,17 @@ internal static class LocalPaths
         var marker = Records.Read<UnitMarker>(Marker(root, request, unit));
         return marker is null ? null : Path.Combine(Unit(root, request, unit), Releases, marker.Release);
     }
+
+    // Overloads for the unit currently being worked on — the ordinary case, and the one that would
+    // otherwise thread `request` and `unit.Name` through every call.
+    public static string Unit(string root, UnitContext context) => Unit(root, context.Request, context.Name);
+
+    public static string Bookkeeping(string root, UnitContext context) => Bookkeeping(root, context.Request);
+
+    public static string Marker(string root, UnitContext context) => Marker(root, context.Request, context.Name);
+
+    public static string? CurrentRelease(string root, UnitContext context) =>
+        CurrentRelease(root, context.Request, context.Name);
 }
 
 /// <summary>

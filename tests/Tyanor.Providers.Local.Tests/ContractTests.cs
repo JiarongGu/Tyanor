@@ -72,7 +72,7 @@ public class LocalDriverContractTests : IDisposable
 
         // The driver's own remove IS the reset — which is worth noticing, because a provider whose remove
         // does not fully return to nothing fails half this suite, and that is exactly the defect it should.
-        public Task ResetAsync(CancellationToken ct) => Driver.RemoveAsync(Unit, Request, ct);
+        public Task ResetAsync(CancellationToken ct) => Driver.RemoveAsync(new UnitContext(Unit, Request));
     }
 }
 

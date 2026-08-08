@@ -44,16 +44,19 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
     public override string Subject => "IUnitDriver";
 
     private IUnitDriver Driver => fixture.Driver;
-    private ProcedureUnit Unit => fixture.Unit;
-    private DeploymentRequest Request => fixture.Request;
 
-    private static void Ignore(ProgressReport _) { }
+    /// <summary>
+    /// A context the way the engine builds one — except that progress goes nowhere, because what a driver
+    /// SAYS is not what this contract is about.
+    /// </summary>
+    private UnitContext Context(CancellationToken ct) =>
+        new(fixture.Unit, fixture.Request, _ => { }, ct);
 
     /// <summary>Create it and wait, the way the engine does.</summary>
     private async Task DeployAsync(CancellationToken ct)
     {
-        await Driver.CreateAsync(Unit, Request, ct);
-        await Driver.AwaitSettledAsync(Unit, Request, Ignore, ct);
+        await Driver.CreateAsync(Context(ct));
+        await Driver.AwaitSettledAsync(Context(ct));
     }
 
     /// <inheritdoc/>
@@ -62,7 +65,7 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
         ("Nothing deployed reads as Missing", async ct =>
         {
             await fixture.ResetAsync(ct);
-            var phase = await Driver.PhaseAsync(Unit, Request, ct);
+            var phase = await Driver.PhaseAsync(Context(ct));
             return phase == UnitPhase.Missing ? null : $"got {phase}; the engine will not create it";
         }),
 
@@ -71,7 +74,7 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
             // Absent is a fact, not a failure. Throwing here makes a plan of an undeployed procedure
             // impossible, which is the plan people most want.
             await fixture.ResetAsync(ct);
-            var resources = await Driver.RefreshAsync(Unit, Request, ct);
+            var resources = await Driver.RefreshAsync(Context(ct));
             return resources.Count == 0 ? null : $"reported {resources.Count} resources before anything existed";
         }),
 
@@ -80,7 +83,7 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
             // Teardown must be re-runnable: an interrupted one is resumed by running it again, and it will
             // meet units it already removed.
             await fixture.ResetAsync(ct);
-            await Driver.RemoveAsync(Unit, Request, ct);
+            await Driver.RemoveAsync(Context(ct));
             return null;
         }),
 
@@ -88,7 +91,7 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
         {
             await fixture.ResetAsync(ct);
             await DeployAsync(ct);
-            var phase = await Driver.PhaseAsync(Unit, Request, ct);
+            var phase = await Driver.PhaseAsync(Context(ct));
             return phase != UnitPhase.Missing ? null : "still Missing after create; the engine will create it again";
         }),
 
@@ -98,7 +101,7 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
             // created from what was already there.
             await fixture.ResetAsync(ct);
             await DeployAsync(ct);
-            var resources = await Driver.RefreshAsync(Unit, Request, ct);
+            var resources = await Driver.RefreshAsync(Context(ct));
             return resources.Count > 0 ? null : "refresh reported nothing after a successful create";
         }),
 
@@ -109,8 +112,8 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
             await fixture.ResetAsync(ct);
             await DeployAsync(ct);
 
-            var first = (await Driver.RefreshAsync(Unit, Request, ct)).Select(r => r.Id).Order().ToList();
-            var second = (await Driver.RefreshAsync(Unit, Request, ct)).Select(r => r.Id).Order().ToList();
+            var first = (await Driver.RefreshAsync(Context(ct))).Select(r => r.Id).Order().ToList();
+            var second = (await Driver.RefreshAsync(Context(ct))).Select(r => r.Id).Order().ToList();
             return first.SequenceEqual(second, StringComparer.Ordinal)
                 ? null
                 : $"ids changed between reads: [{string.Join(", ", first)}] then [{string.Join(", ", second)}]";
@@ -120,7 +123,7 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
         {
             await fixture.ResetAsync(ct);
             await DeployAsync(ct);
-            var blank = (await Driver.RefreshAsync(Unit, Request, ct)).Count(r => string.IsNullOrWhiteSpace(r.Id));
+            var blank = (await Driver.RefreshAsync(Context(ct))).Count(r => string.IsNullOrWhiteSpace(r.Id));
             return blank == 0 ? null : $"{blank} resources came back with no id";
         }),
 
@@ -131,8 +134,8 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
             await fixture.ResetAsync(ct);
             await DeployAsync(ct);
 
-            var first = await Driver.PhaseAsync(Unit, Request, ct);
-            var second = await Driver.PhaseAsync(Unit, Request, ct);
+            var first = await Driver.PhaseAsync(Context(ct));
+            var second = await Driver.PhaseAsync(Context(ct));
             return first == second ? null : $"phase moved from {first} to {second} with nothing in between";
         }),
 
@@ -143,7 +146,7 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
             await fixture.ResetAsync(ct);
             await DeployAsync(ct);
 
-            var changed = await Driver.UpdateAsync(Unit, Request, ct);
+            var changed = await Driver.UpdateAsync(Context(ct));
             return changed ? "update reported a change immediately after a create" : null;
         }),
 
@@ -151,9 +154,9 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
         {
             await fixture.ResetAsync(ct);
             await DeployAsync(ct);
-            await Driver.RemoveAsync(Unit, Request, ct);
+            await Driver.RemoveAsync(Context(ct));
 
-            var phase = await Driver.PhaseAsync(Unit, Request, ct);
+            var phase = await Driver.PhaseAsync(Context(ct));
             return phase == UnitPhase.Missing ? null : $"got {phase} after remove; the unit was not fully removed";
         }),
 
@@ -161,9 +164,9 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
         {
             await fixture.ResetAsync(ct);
             await DeployAsync(ct);
-            await Driver.RemoveAsync(Unit, Request, ct);
+            await Driver.RemoveAsync(Context(ct));
 
-            var resources = await Driver.RefreshAsync(Unit, Request, ct);
+            var resources = await Driver.RefreshAsync(Context(ct));
             return resources.Count == 0 ? null : $"{resources.Count} resources survived the remove";
         }),
 
@@ -171,8 +174,8 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
         {
             await fixture.ResetAsync(ct);
             await DeployAsync(ct);
-            await Driver.RemoveAsync(Unit, Request, ct);
-            await Driver.RemoveAsync(Unit, Request, ct);
+            await Driver.RemoveAsync(Context(ct));
+            await Driver.RemoveAsync(Context(ct));
             return null;
         }),
 
@@ -182,10 +185,10 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
             // only create once fails the first time something goes wrong rather than the first time it runs.
             await fixture.ResetAsync(ct);
             await DeployAsync(ct);
-            await Driver.RemoveAsync(Unit, Request, ct);
+            await Driver.RemoveAsync(Context(ct));
             await DeployAsync(ct);
 
-            var phase = await Driver.PhaseAsync(Unit, Request, ct);
+            var phase = await Driver.PhaseAsync(Context(ct));
             return phase != UnitPhase.Missing ? null : "the second create left it Missing";
         }),
     ];

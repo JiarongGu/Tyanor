@@ -172,40 +172,55 @@ public interface IUnitDriver
 {
     /// <summary>What the provider says about this unit right now, normalized. This is the ONLY place a
     /// provider's status strings are interpreted.</summary>
-    Task<UnitPhase> PhaseAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct);
+    /// <param name="context">The unit, the request, progress and cancellation.</param>
+    /// <remarks>
+    /// Must be READ-ONLY. It runs during a plan, and a driver that repairs something while reporting on it
+    /// makes the plan a lie and the apply a surprise.
+    /// </remarks>
+    Task<UnitPhase> PhaseAsync(UnitContext context);
 
     /// <summary>Create the unit. Must NOT wait for convergence — the engine does that separately, so that
     /// attaching to someone else's in-flight operation uses the identical wait.</summary>
-    Task CreateAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct);
+    /// <param name="context">The unit, the request, progress and cancellation.</param>
+    /// <remarks>
+    /// "Does not wait" means does not wait for a CONTROL PLANE. A provider without one does its work right
+    /// here — copying files, starting a process — and should report progress while doing it.
+    /// </remarks>
+    Task CreateAsync(UnitContext context);
 
     /// <summary>
     /// Apply the desired configuration to an existing unit. Return <c>false</c> when the provider reports
     /// there is nothing to change — that is a SUCCESS (and on a resume it is the common case), not an
     /// error to be swallowed by the caller.
     /// </summary>
-    Task<bool> UpdateAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct);
+    /// <param name="context">The unit, the request, progress and cancellation.</param>
+    Task<bool> UpdateAsync(UnitContext context);
 
     /// <summary>Remove the unit and wait until it is gone. Removal is the one operation the engine cannot
-    /// meaningfully attach to halfway, so drivers own the wait.</summary>
-    Task RemoveAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct);
+    /// meaningfully attach to halfway, so drivers own the wait — and should report progress through it,
+    /// because a teardown that takes minutes and says nothing looks like one that has frozen.</summary>
+    /// <param name="context">The unit, the request, progress and cancellation.</param>
+    Task RemoveAsync(UnitContext context);
 
     /// <summary>
     /// Wait until the unit stops converging. Throw if it settles into a failed state — the engine turns
-    /// that into a classified outcome. Report progress through <paramref name="report"/> as it goes.
+    /// that into a classified outcome. Report progress as it goes.
     /// </summary>
-    Task AwaitSettledAsync(ProcedureUnit unit, DeploymentRequest request, Action<ProgressReport> report, CancellationToken ct);
+    /// <param name="context">The unit, the request, progress and cancellation.</param>
+    Task AwaitSettledAsync(UnitContext context);
 
     /// <summary>
     /// What actually exists for this unit right now, as the provider sees it. This is how state gets
     /// re-synced from a real deployment rather than trusted: a refresh re-reads reality and state is
     /// rewritten to match, so drift is repaired instead of accumulating.
     /// </summary>
+    /// <param name="context">The unit, the request, progress and cancellation.</param>
     /// <remarks>
     /// Return an empty list when the unit is absent — that is a fact, not a failure. A provider that
     /// genuinely cannot enumerate its resources should return empty and leave `Fingerprint` null
     /// elsewhere; a plan then reports what it cannot know rather than inventing certainty.
     /// </remarks>
-    Task<IReadOnlyList<ResourceState>> RefreshAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct);
+    Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context);
 }
 
 /// <summary>A deployment target: credentials, identity, and a driver for its units.</summary>

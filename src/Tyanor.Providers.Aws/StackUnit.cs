@@ -28,47 +28,47 @@ internal sealed class StackUnit(
     private static readonly TimeSpan Poll = TimeSpan.FromSeconds(6);
 
     /// <inheritdoc/>
-    public async Task<UnitPhase> PhaseAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
-        => CloudFormationPhases.Of(await StatusAsync(Name(request, unit), ct));
+    public async Task<UnitPhase> PhaseAsync(UnitContext context)
+        => CloudFormationPhases.Of(await StatusAsync(Name(context), context.Cancellation));
 
     /// <summary>
     /// Stage the template and its assets, then issue the create. Does NOT wait — the engine waits, so
     /// attaching to an operation someone else started uses the identical wait.
     /// </summary>
-    public async Task CreateAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public async Task CreateAsync(UnitContext context)
     {
-        var templateUrl = await StageAsync(unit, request, ct);
+        var templateUrl = await StageAsync(context);
         await cfn.CreateStackAsync(new CreateStackRequest
         {
-            StackName = Name(request, unit),
+            StackName = Name(context),
             TemplateURL = templateUrl,
-            Parameters = Parameters(unit, request),
-            Capabilities = Capabilities(unit, request),
-            Tags = Tags(request),
+            Parameters = Parameters(context),
+            Capabilities = Capabilities(context),
+            Tags = Tags(context),
             // ROLLBACK rather than DELETE: on failure the stack record and its events survive, so the cause
             // is still readable — and AwaitSettledAsync reads it, which is the difference between telling an
             // operator "the API stack failed because the role name was taken" and telling them it failed.
             OnFailure = OnFailure.ROLLBACK,
-        }, ct);
+        }, context.Cancellation);
     }
 
     /// <summary>
     /// Apply the template to an existing stack. Returns false when CloudFormation says there is nothing to
     /// change, which is a SUCCESS and on a resume is the ordinary answer for every unit that already finished.
     /// </summary>
-    public async Task<bool> UpdateAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public async Task<bool> UpdateAsync(UnitContext context)
     {
-        var templateUrl = await StageAsync(unit, request, ct);
+        var templateUrl = await StageAsync(context);
         try
         {
             await cfn.UpdateStackAsync(new UpdateStackRequest
             {
-                StackName = Name(request, unit),
+                StackName = Name(context),
                 TemplateURL = templateUrl,
-                Parameters = Parameters(unit, request),
-                Capabilities = Capabilities(unit, request),
-                Tags = Tags(request),
-            }, ct);
+                Parameters = Parameters(context),
+                Capabilities = Capabilities(context),
+                Tags = Tags(context),
+            }, context.Cancellation);
             return true;
         }
         catch (AmazonCloudFormationException e) when (CloudFormationPhases.IsNoUpdatesNeeded(e.Message))
@@ -79,25 +79,25 @@ internal sealed class StackUnit(
 
     /// <summary>Delete the stack and wait until it is gone — removal is the one operation the engine cannot
     /// meaningfully attach to halfway, so the driver owns the wait.</summary>
-    public async Task RemoveAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public async Task RemoveAsync(UnitContext context)
     {
-        var name = Name(request, unit);
-        if (await StatusAsync(name, ct) is null) return;        // already gone; teardown must be re-runnable
+        var name = Name(context);
+        if (await StatusAsync(name, context.Cancellation) is null) return;        // already gone; teardown must be re-runnable
 
-        await cfn.DeleteStackAsync(new DeleteStackRequest { StackName = name }, ct);
+        await cfn.DeleteStackAsync(new DeleteStackRequest { StackName = name }, context.Cancellation);
 
         while (true)
         {
-            ct.ThrowIfCancellationRequested();
-            await Task.Delay(Poll, ct);
+            context.ThrowIfCancelled();
+            await Task.Delay(Poll, context.Cancellation);
 
-            var status = await StatusAsync(name, ct);
+            var status = await StatusAsync(name, context.Cancellation);
             // Null is success here: once a stack is fully deleted CloudFormation stops describing it at all,
             // so "it does not exist" is exactly the outcome being waited for.
             if (status is null || status == "DELETE_COMPLETE") return;
             if (status == "DELETE_FAILED")
                 throw new AwsDeploymentException(
-                    $"Could not remove {name} (DELETE_FAILED). {await FirstFailureAsync(name, ct)}");
+                    $"Could not remove {name} (DELETE_FAILED). {await FirstFailureAsync(name, context.Cancellation)}");
         }
     }
 
@@ -106,28 +106,27 @@ internal sealed class StackUnit(
     /// badly — including into a rollback that left the stack usable, because a reverted update is still an
     /// update that did not ship.
     /// </summary>
-    public async Task AwaitSettledAsync(
-        ProcedureUnit unit, DeploymentRequest request, Action<ProgressReport> report, CancellationToken ct)
+    public async Task AwaitSettledAsync(UnitContext context)
     {
-        var name = Name(request, unit);
+        var name = Name(context);
         var seen = new HashSet<string>();
 
         while (true)
         {
-            ct.ThrowIfCancellationRequested();
-            await Task.Delay(Poll, ct);
-            await StreamEventsAsync(name, unit, seen, report, ct);
+            context.ThrowIfCancelled();
+            await Task.Delay(Poll, context.Cancellation);
+            await StreamEventsAsync(name, context, seen);
 
-            var status = await StatusAsync(name, ct);
+            var status = await StatusAsync(name, context.Cancellation);
             if (!CloudFormationPhases.Settled(status)) continue;
 
             if (CloudFormationPhases.SettledBadly(status))
                 // Hard, via the classifier not recognising it: the template produced this, and issuing the
                 // same template again produces it again. What has to change is the definition.
                 throw new AwsDeploymentException(
-                    $"{unit.Label} failed ({status}). {await FirstFailureAsync(name, ct)}");
+                    $"{context.Label} failed ({status}). {await FirstFailureAsync(name, context.Cancellation)}");
 
-            report(new ProgressReport(unit.Name, $"{unit.Label}: done.", -1, ProgressStatus.Success));
+            context.Progress($"{context.Label}: done.", status: ProgressStatus.Success);
             return;
         }
     }
@@ -144,14 +143,13 @@ internal sealed class StackUnit(
     /// drift CloudFormation knows about. A resource someone edited in the console reads as unchanged, and
     /// the honest place to find out is CloudFormation's own drift detection.
     /// </remarks>
-    public async Task<IReadOnlyList<ResourceState>> RefreshAsync(
-        ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public async Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context)
     {
-        var name = Name(request, unit);
-        if (await StatusAsync(name, ct) is null) return [];      // absent is a fact, not a failure
+        var name = Name(context);
+        if (await StatusAsync(name, context.Cancellation) is null) return [];      // absent is a fact, not a failure
 
         var resources = (await cfn.DescribeStackResourcesAsync(
-            new DescribeStackResourcesRequest { StackName = name }, ct)).StackResources;
+            new DescribeStackResourcesRequest { StackName = name }, context.Cancellation)).StackResources;
 
         return resources
             .Where(r => r.PhysicalResourceId is not null)
@@ -170,7 +168,7 @@ internal sealed class StackUnit(
             ?? new Dictionary<string, string>();
     }
 
-    private static string Name(DeploymentRequest request, ProcedureUnit unit) => $"{request.Prefix}-{unit.Name}";
+    private static string Name(UnitContext context) => $"{context.Request.Prefix}-{context.Name}";
 
     /// <summary>
     /// The stack's status, or null when it does not exist.
@@ -203,34 +201,34 @@ internal sealed class StackUnit(
     /// bucket is <c>{prefix}-deploy-{account}</c> — per account so two operators never collide, and derived
     /// rather than configured so there is nothing to get wrong.
     /// </remarks>
-    private async Task<string> StageAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    private async Task<string> StageAsync(UnitContext context)
     {
-        var template = Part(unit, request, AwsOptions.Template, ArtifactPart.File);
-        var bucket = $"{request.Prefix}-deploy-{await account.IdAsync(ct)}".ToLowerInvariant();
-        await EnsureBucketAsync(bucket, ct);
+        var template = Part(context, AwsOptions.Template, ArtifactPart.File);
+        var bucket = $"{context.Request.Prefix}-deploy-{await account.IdAsync(context.Cancellation)}".ToLowerInvariant();
+        await EnsureBucketAsync(bucket, context.Cancellation);
 
         // Assets keep their file names: those ARE the object keys the synthesized template refers to, so
         // renaming one here would produce a stack that cannot find its own Lambda code.
-        if (request.Option(unit.Name, AwsOptions.Assets) is not null)
+        if (context.Option(AwsOptions.Assets) is not null)
         {
-            var assets = Part(unit, request, AwsOptions.Assets, ArtifactPart.Directory);
+            var assets = Part(context, AwsOptions.Assets, ArtifactPart.Directory);
             foreach (var file in Directory.EnumerateFiles(assets, "*", SearchOption.AllDirectories))
             {
-                ct.ThrowIfCancellationRequested();
+                context.ThrowIfCancelled();
                 await s3.PutObjectAsync(new PutObjectRequest
                 {
                     BucketName = bucket,
                     Key = Path.GetRelativePath(assets, file).Replace('\\', '/'),
                     FilePath = file,
-                }, ct);
+                }, context.Cancellation);
             }
         }
 
-        var key = $"{Name(request, unit)}/{Path.GetFileName(template)}";
+        var key = $"{Name(context)}/{Path.GetFileName(template)}";
         await s3.PutObjectAsync(new PutObjectRequest
         {
             BucketName = bucket, Key = key, FilePath = template, ContentType = "application/json",
-        }, ct);
+        }, context.Cancellation);
 
         return $"https://{bucket}.s3.{region}.amazonaws.com/{key}";
     }
@@ -245,13 +243,13 @@ internal sealed class StackUnit(
     }
 
     private async Task StreamEventsAsync(
-        string name, ProcedureUnit unit, HashSet<string> seen, Action<ProgressReport> report, CancellationToken ct)
+        string name, UnitContext context, HashSet<string> seen)
     {
         List<StackEvent> events;
         try
         {
             events = (await cfn.DescribeStackEventsAsync(
-                new DescribeStackEventsRequest { StackName = name }, ct)).StackEvents;
+                new DescribeStackEventsRequest { StackName = name }, context.Cancellation)).StackEvents;
         }
         catch (AmazonCloudFormationException e) when (CloudFormationPhases.IsStackMissing(e.ErrorCode, e.Message))
         {
@@ -271,8 +269,8 @@ internal sealed class StackUnit(
             var reason = failed && !string.IsNullOrWhiteSpace(e.ResourceStatusReason)
                 ? $" — {e.ResourceStatusReason}"
                 : "";
-            report(new ProgressReport(unit.Name, $"{e.LogicalResourceId}: {status}{reason}", -1,
-                failed ? ProgressStatus.Error : ProgressStatus.Info));
+            context.Progress($"{e.LogicalResourceId}: {status}{reason}",
+                status: failed ? ProgressStatus.Error : ProgressStatus.Info);
         }
     }
 
@@ -300,31 +298,31 @@ internal sealed class StackUnit(
         }
     }
 
-    private static List<Parameter> Parameters(ProcedureUnit unit, DeploymentRequest request) =>
-        request.OptionSet(unit.Name, AwsOptions.ParameterPrefix)
+    private static List<Parameter> Parameters(UnitContext context) =>
+        context.Options(AwsOptions.ParameterPrefix)
             .Select(kv => new Parameter { ParameterKey = kv.Key, ParameterValue = kv.Value })
             .ToList();
 
-    private static List<string> Capabilities(ProcedureUnit unit, DeploymentRequest request) =>
-        (request.Option(unit.Name, AwsOptions.Capabilities) ?? AwsOptions.DefaultCapabilities)
+    private static List<string> Capabilities(UnitContext context) =>
+        (context.Option(AwsOptions.Capabilities) ?? AwsOptions.DefaultCapabilities)
         .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .ToList();
 
-    private static List<Tag> Tags(DeploymentRequest request) =>
-        request.Tags?.Select(kv => new Tag { Key = kv.Key, Value = kv.Value }).ToList() ?? [];
+    private static List<Tag> Tags(UnitContext context) =>
+        context.Request.Tags?.Select(kv => new Tag { Key = kv.Key, Value = kv.Value }).ToList() ?? [];
 
     /// <summary>
     /// Resolve an artifact part named by an option. Both failures are terminal and are raised before anything
     /// is uploaded: the operator named a part that is not in the artifact, or one pointing at nothing.
     /// </summary>
-    private static string Part(ProcedureUnit unit, DeploymentRequest request, string option, ArtifactPart expect)
+    private static string Part(UnitContext context, string option, ArtifactPart expect)
     {
-        var name = request.Option(unit.Name, option)
+        var name = context.Option(option)
             ?? throw new AwsConfigurationException(
-                $"Unit '{unit.Name}' names no '{option}' — say which part of the artifact it is.");
+                $"Unit '{context.Name}' names no '{option}' — say which part of the artifact it is.");
 
         // Core's, not ours: the first two providers each wrote this check, identically, so an operator got a
         // different sentence about the same mistake depending on where they deployed.
-        return request.Artifact.RequirePart(name, expect);
+        return context.Artifact.RequirePart(name, expect);
     }
 }

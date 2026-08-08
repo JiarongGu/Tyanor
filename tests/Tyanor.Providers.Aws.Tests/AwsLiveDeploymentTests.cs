@@ -105,7 +105,7 @@ public class AwsLiveDeploymentTests
         }
 
         Assert.Equal(UnitPhase.Missing,
-            await target.Driver.PhaseAsync(new ProcedureUnit("marker", "Marker"), request, CancellationToken.None));
+            await target.Driver.PhaseAsync(new UnitContext(new ProcedureUnit("marker", "Marker"), request)));
         Assert.Empty((await state.GetAsync("live", prefix)).Units);
     }
 
@@ -158,7 +158,7 @@ public class AwsLiveDeploymentTests
 
         public DeploymentRequest Request { get; }
 
-        public Task ResetAsync(CancellationToken ct) => Driver.RemoveAsync(Unit, Request, ct);
+        public Task ResetAsync(CancellationToken ct) => Driver.RemoveAsync(new UnitContext(Unit, Request));
     }
 
     private static string Required(string name) =>

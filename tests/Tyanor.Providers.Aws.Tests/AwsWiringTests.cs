@@ -29,7 +29,7 @@ public class AwsWiringTests
         using var target = Target();
 
         var error = await Assert.ThrowsAsync<UnitKindException>(
-            () => target.Driver.PhaseAsync(Api, Request([]), default));
+            () => target.Driver.PhaseAsync(new UnitContext(Api, Request([]))));
 
         Assert.Contains(AwsOptions.StackKind, error.Message);        // and says what the choices are
         Assert.Contains(AwsOptions.ContentKind, error.Message);
@@ -43,7 +43,7 @@ public class AwsWiringTests
         var request = Request(new Dictionary<string, string> { ["api.kind"] = "lambda" });
 
         var error = await Assert.ThrowsAsync<UnitKindException>(
-            () => target.Driver.PhaseAsync(Api, request, default));
+            () => target.Driver.PhaseAsync(new UnitContext(Api, request)));
 
         Assert.Contains("lambda", error.Message);
     }
@@ -61,7 +61,7 @@ public class AwsWiringTests
             });
 
         var error = await Assert.ThrowsAsync<ArtifactException>(
-            () => target.Driver.CreateAsync(Api, request, default));
+            () => target.Driver.CreateAsync(new UnitContext(Api, request)));
 
         Assert.Contains("built", error.Message);                     // says what the artifact DOES carry
     }
@@ -75,13 +75,13 @@ public class AwsWiringTests
         using var target = Target();
 
         Assert.IsAssignableFrom<DefinitionException>(await Record.ExceptionAsync(
-            () => target.Driver.PhaseAsync(Api, Request([]), default)));
+            () => target.Driver.PhaseAsync(new UnitContext(Api, Request([])))));
 
         Assert.IsAssignableFrom<DefinitionException>(await Record.ExceptionAsync(
-            () => target.Driver.CreateAsync(Api, Request(new Dictionary<string, string>
+            () => target.Driver.CreateAsync(new UnitContext(Api, Request(new Dictionary<string, string>
             {
                 ["api.kind"] = AwsOptions.StackKind,        // a stack that names no template
-            }), default)));
+            })))));
     }
 
     [Fact]
@@ -143,7 +143,7 @@ public class AwsWiringTests
         });
 
         var error = await Assert.ThrowsAsync<AwsConfigurationException>(
-            () => target.Driver.PhaseAsync(new ProcedureUnit("content", "Website files"), request, default));
+            () => target.Driver.PhaseAsync(new UnitContext(new ProcedureUnit("content", "Website files"), request)));
 
         Assert.Contains(AwsOptions.BucketFrom, error.Message);
     }

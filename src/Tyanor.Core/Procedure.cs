@@ -52,7 +52,15 @@ public enum ProgressStatus
 /// </summary>
 /// <param name="Unit">Which unit this concerns, or the procedure name for run-level lines.</param>
 /// <param name="Message">Plain language. Not an exception message, not a status code.</param>
-/// <param name="Percent">0–100, or -1 when the step genuinely has no measurable fraction —
-/// which is honest, where a fabricated number is not.</param>
+/// <param name="Percent">
+/// 0–100, or -1 when the step genuinely has no measurable fraction — which is honest, where a fabricated
+/// number is not.
+/// <para><b>A DRIVER reports progress through its OWN unit; the engine rescales it into the run.</b> A
+/// stack halfway through its resources reports 50, and an operator watching a four-unit procedure sees that
+/// arrive as whatever share of the whole it actually is. Without the rule the number has no frame of
+/// reference — the engine has always emitted run-relative percentages, so a driver emitting its own would
+/// have been read as one, and a unit half done would have shown as a run half done.</para>
+/// <para>-1 survives the rescaling as -1. Unknown does not become a fraction of anything.</para>
+/// </param>
 /// <param name="Status">Tone.</param>
 public sealed record ProgressReport(string Unit, string Message, int Percent, ProgressStatus Status = ProgressStatus.Info);

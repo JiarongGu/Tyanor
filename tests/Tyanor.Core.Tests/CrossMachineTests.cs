@@ -119,13 +119,13 @@ public sealed class CrossMachineTests : IDisposable
         public FailureClass? Classify(Exception error) => null;
         public Task<TargetIdentity> ValidateAsync(TargetCredentials? c, CancellationToken ct) => Task.FromResult(new TargetIdentity(true));
 
-        public Task<UnitPhase> PhaseAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) =>
-            Task.FromResult(phases.GetValueOrDefault(u.Name, UnitPhase.Missing));
-        public Task CreateAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.CompletedTask;
-        public Task<bool> UpdateAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.FromResult(true);
-        public Task RemoveAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.CompletedTask;
-        public Task AwaitSettledAsync(ProcedureUnit u, DeploymentRequest r, Action<ProgressReport> report, CancellationToken ct) => Task.CompletedTask;
-        public Task<IReadOnlyList<ResourceState>> RefreshAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct)
+        public Task<UnitPhase> PhaseAsync(UnitContext c) =>
+            Task.FromResult(phases.GetValueOrDefault(c.Name, UnitPhase.Missing));
+        public Task CreateAsync(UnitContext c) => Task.CompletedTask;
+        public Task<bool> UpdateAsync(UnitContext c) => Task.FromResult(true);
+        public Task RemoveAsync(UnitContext c) => Task.CompletedTask;
+        public Task AwaitSettledAsync(UnitContext c) => Task.CompletedTask;
+        public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext c)
             => Task.FromResult<IReadOnlyList<ResourceState>>([]);
     }
 }

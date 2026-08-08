@@ -542,3 +542,64 @@ that none of our own code has to satisfy drifts into describing something nobody
 **What a contract cannot do**, said plainly: it checks behaviour against a real target, so a provider still
 needs something real to point it at. The AWS driver contract runs only behind `TYANOR_LIVE_AWS`, for the
 same reason the live deployment test does.
+
+---
+
+## D16 — The gate goes in front of the destructive direction too (2026-08-09)
+
+Three changes, found by asking what the plan and the driver contract could not express.
+
+### A teardown gets a plan
+
+`PlanAsync` only ever planned an apply. So the operation that DESTROYS things — the one that is not
+recoverable by running it again — had no preview at all, while the recoverable one had a good one. A safety
+gate covering only the safe direction is not a safety gate.
+
+`PlanAsync(procedure, request, RunKind.Remove)` now reports the units in the order they will actually go
+(reverse), which of them are already gone, and every resource the teardown will destroy. `Plan.Destroying`
+is kept separate from `Plan.Drift` because they answer different questions and only one of them is a
+surprise: drift is *the world moved without me*, and this is *I am about to remove twelve things*. A
+teardown that reported its own intent as drift would describe the operator's decision as an anomaly.
+
+It counts what is ACTUALLY there rather than what state once recorded. A resource someone already deleted
+by hand is not something this run is about to take away, and counting it would inflate the single number
+the whole decision rests on.
+
+`Reconcile.DecideRemoval` is a second pure function beside `Decide`, so the teardown a person was SHOWN and
+the teardown that runs come from one place rather than two that can drift apart. It has two answers, and
+notably no `Attach`: a unit mid-create is a unit that will exist in a minute, and waiting politely for
+someone else's creation to finish before destroying it is a longer teardown with the same ending.
+
+### Progress has a frame of reference, and it is the unit's
+
+`ProgressReport.Percent` never said whose scale it was on. The engine emitted run-relative numbers; both
+shipped providers emitted -1 for everything, which is safe, useless, and why a ten-minute CloudFormation
+deploy showed no movement at all. A driver that had emitted its own number would have been read as
+run-relative — a unit half done showing as a run half done.
+
+**A driver reports through its own unit; the engine rescales into the run**, weighting by
+`ProcedureUnit.Weight` so a ten-minute unit and a ten-second one are not each half the bar. -1 survives as
+-1: a driver saying "I cannot tell" must not be turned into a number, which is the one kind of progress
+worse than none.
+
+### `IUnitDriver` takes a context, so the next addition is not another break
+
+Only `AwaitSettledAsync` was given a progress callback. That is exactly right for a provider whose work
+happens in a control plane it polls, and useless for one whose work happens in `CreateAsync` because there
+is no control plane to hand it to. Copying a large directory and waiting out a stack deletion both reported
+nothing — and those are the providers D15 promised were first-class.
+
+Fixing it meant breaking the interface. So it broke once, properly: every method now takes one
+`UnitContext` carrying the unit, the request, progress and cancellation. The next thing the contract needs
+is additive rather than another break for every implementer, including the ones outside this repository.
+
+The context also carries the shorthands both providers had been writing by hand —
+`context.Option(key)` for `request.Option(unit.Name, key)`, and `context.Progress(...)` for building a
+`ProgressReport` with the unit's name threaded through it.
+
+**Evidence that this was overdue:** the driver contract changed twice in one session before this — nullable
+credentials, then progress. Pre-1.0 is when that stops being free.
+
+**What it cost:** a mechanical refactor of both providers, and it dropped a cancellation token on the way
+through. The test for "an interrupted redeploy leaves the previous build serving" caught it, which is the
+argument for having written that test rather than assuming the ordering held.

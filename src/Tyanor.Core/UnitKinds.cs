@@ -59,8 +59,7 @@ public abstract class UnitKindDriver : IUnitDriver
     /// <summary>
     /// The driver for one unit.
     /// </summary>
-    /// <param name="unit">The unit.</param>
-    /// <param name="request">Where its kind is declared.</param>
+    /// <param name="context">The unit, and where its kind is declared.</param>
     /// <exception cref="UnitKindException">The unit declares no kind, or one this provider does not have.</exception>
     /// <remarks>
     /// There is deliberately NO default kind, not even when a provider offers only one. Guessing would deploy
@@ -68,45 +67,37 @@ public abstract class UnitKindDriver : IUnitDriver
     /// quietly — and the moment a second kind is added, every unit that relied on the default changes meaning
     /// without changing text.
     /// </remarks>
-    public IUnitDriver For(ProcedureUnit unit, DeploymentRequest request)
+    public IUnitDriver For(UnitContext context)
     {
-        var kind = request.Option(unit.Name, Option);
+        var kind = context.Option(Option);
         if (kind is null)
             throw new UnitKindException(
-                $"Unit '{unit.Name}' declares no '{Option}'. Set it to one of: {Available()}.");
+                $"Unit '{context.Name}' declares no '{Option}'. Set it to one of: {Available()}.");
 
         return _kinds.TryGetValue(kind, out var driver)
             ? driver
             : throw new UnitKindException(
-                $"Unit '{unit.Name}' declares {Option} '{kind}', which this provider does not have. " +
+                $"Unit '{context.Name}' declares {Option} '{kind}', which this provider does not have. " +
                 $"It offers: {Available()}.");
     }
 
     /// <inheritdoc/>
-    public Task<UnitPhase> PhaseAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
-        => For(unit, request).PhaseAsync(unit, request, ct);
+    public Task<UnitPhase> PhaseAsync(UnitContext context) => For(context).PhaseAsync(context);
 
     /// <inheritdoc/>
-    public Task CreateAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
-        => For(unit, request).CreateAsync(unit, request, ct);
+    public Task CreateAsync(UnitContext context) => For(context).CreateAsync(context);
 
     /// <inheritdoc/>
-    public Task<bool> UpdateAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
-        => For(unit, request).UpdateAsync(unit, request, ct);
+    public Task<bool> UpdateAsync(UnitContext context) => For(context).UpdateAsync(context);
 
     /// <inheritdoc/>
-    public Task RemoveAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
-        => For(unit, request).RemoveAsync(unit, request, ct);
+    public Task RemoveAsync(UnitContext context) => For(context).RemoveAsync(context);
 
     /// <inheritdoc/>
-    public Task AwaitSettledAsync(
-        ProcedureUnit unit, DeploymentRequest request, Action<ProgressReport> report, CancellationToken ct)
-        => For(unit, request).AwaitSettledAsync(unit, request, report, ct);
+    public Task AwaitSettledAsync(UnitContext context) => For(context).AwaitSettledAsync(context);
 
     /// <inheritdoc/>
-    public Task<IReadOnlyList<ResourceState>> RefreshAsync(
-        ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
-        => For(unit, request).RefreshAsync(unit, request, ct);
+    public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context) => For(context).RefreshAsync(context);
 
     private string Available() =>
         _kinds.Count == 0 ? "none — this provider registered no kinds" : string.Join(", ", _kinds.Keys.Order());

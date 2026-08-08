@@ -69,6 +69,11 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
 
 ### Changed
 
+- **`IUnitDriver`'s six methods now take one `UnitContext`** (breaking) carrying the unit, the request,
+  progress and cancellation. Only `AwaitSettledAsync` had a progress callback, which is right for a provider
+  that polls a control plane and useless for one that does its work in `CreateAsync` — so copying a large
+  directory and waiting out a stack deletion both reported nothing. Breaking once properly makes the next
+  addition to the contract additive, including for implementers outside this repository. D16.
 - **Registering a second `IDeploymentTarget` no longer silently changes which one deploys** (breaking, and
   the reason the rest of this exists). `AddTarget` registered `IDeploymentTarget` and the runner resolved it
   by type, so the last one registered won and there was no way to ask for a particular one — undiscoverable,
@@ -84,7 +89,16 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   them into one value would re-invent a serialization format inside a string, which is how an untyped map
   becomes worse than typed fields rather than better.
 
+- **A teardown gets a plan.** `PlanAsync(procedure, request, RunKind.Remove)` reports the units in the order
+  they will go, which are already gone, and every resource the teardown will destroy — `Plan.Destroying`,
+  `Plan.IsDestructive`. The destructive direction was the one without a preview. `Reconcile.DecideRemoval`
+  is the pure function behind it, so the teardown shown and the teardown run come from one place.
+
 ### Fixed
 
 - `README.md`, `docs/architecture/overview.md` and `Reconcile`'s XML docs still claimed there was no state
   file and no plan/diff — both reversed by D12 several commits earlier.
+- **Progress had no frame of reference.** `ProgressReport.Percent` never said whose scale it was on: the
+  engine emitted run-relative numbers and both providers emitted -1 for everything, so a ten-minute stack
+  deploy showed no movement at all. A driver now reports 0–100 through its OWN unit and the engine rescales
+  into the run, weighted by `ProcedureUnit.Weight`. -1 survives as -1.

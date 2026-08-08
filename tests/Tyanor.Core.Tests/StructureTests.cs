@@ -18,12 +18,12 @@ public class DeploymentTargetsTests
         public IFailureClassifier Classifier => this;
         public FailureClass? Classify(Exception error) => null;
         public Task<TargetIdentity> ValidateAsync(TargetCredentials? c, CancellationToken ct) => Task.FromResult(new TargetIdentity(true));
-        public Task<UnitPhase> PhaseAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.FromResult(UnitPhase.Missing);
-        public Task CreateAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.CompletedTask;
-        public Task<bool> UpdateAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.FromResult(false);
-        public Task RemoveAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.CompletedTask;
-        public Task AwaitSettledAsync(ProcedureUnit u, DeploymentRequest r, Action<ProgressReport> p, CancellationToken ct) => Task.CompletedTask;
-        public Task<IReadOnlyList<ResourceState>> RefreshAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct)
+        public Task<UnitPhase> PhaseAsync(UnitContext c) => Task.FromResult(UnitPhase.Missing);
+        public Task CreateAsync(UnitContext c) => Task.CompletedTask;
+        public Task<bool> UpdateAsync(UnitContext c) => Task.FromResult(false);
+        public Task RemoveAsync(UnitContext c) => Task.CompletedTask;
+        public Task AwaitSettledAsync(UnitContext c) => Task.CompletedTask;
+        public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext c)
             => Task.FromResult<IReadOnlyList<ResourceState>>([]);
     }
 
@@ -91,12 +91,12 @@ public class UnitKindDriverTests
 {
     private sealed class Stub(UnitPhase phase) : IUnitDriver
     {
-        public Task<UnitPhase> PhaseAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.FromResult(phase);
-        public Task CreateAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.CompletedTask;
-        public Task<bool> UpdateAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.FromResult(false);
-        public Task RemoveAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct) => Task.CompletedTask;
-        public Task AwaitSettledAsync(ProcedureUnit u, DeploymentRequest r, Action<ProgressReport> p, CancellationToken ct) => Task.CompletedTask;
-        public Task<IReadOnlyList<ResourceState>> RefreshAsync(ProcedureUnit u, DeploymentRequest r, CancellationToken ct)
+        public Task<UnitPhase> PhaseAsync(UnitContext c) => Task.FromResult(phase);
+        public Task CreateAsync(UnitContext c) => Task.CompletedTask;
+        public Task<bool> UpdateAsync(UnitContext c) => Task.FromResult(false);
+        public Task RemoveAsync(UnitContext c) => Task.CompletedTask;
+        public Task AwaitSettledAsync(UnitContext c) => Task.CompletedTask;
+        public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext c)
             => Task.FromResult<IReadOnlyList<ResourceState>>([]);
     }
 
@@ -120,13 +120,13 @@ public class UnitKindDriverTests
     {
         var driver = new TwoKinds();
 
-        Assert.Equal(UnitPhase.Ready, await driver.PhaseAsync(Unit, Request(("web.kind", "directory")), default));
-        Assert.Equal(UnitPhase.Converging, await driver.PhaseAsync(Unit, Request(("web.kind", "process")), default));
+        Assert.Equal(UnitPhase.Ready, await driver.PhaseAsync(new UnitContext(Unit, Request(("web.kind", "directory")))));
+        Assert.Equal(UnitPhase.Converging, await driver.PhaseAsync(new UnitContext(Unit, Request(("web.kind", "process")))));
     }
 
     [Fact]
     public async Task An_unscoped_kind_covers_every_unit_that_does_not_disagree()
-        => Assert.Equal(UnitPhase.Ready, await new TwoKinds().PhaseAsync(Unit, Request(("kind", "directory")), default));
+        => Assert.Equal(UnitPhase.Ready, await new TwoKinds().PhaseAsync(new UnitContext(Unit, Request(("kind", "directory")))));
 
     [Fact]
     public async Task A_unit_that_declares_no_kind_is_refused_and_told_what_the_choices_are()
@@ -135,7 +135,7 @@ public class UnitKindDriverTests
         // described, and the moment a second kind is added every unit relying on the default changes
         // meaning without changing text.
         var error = await Assert.ThrowsAsync<UnitKindException>(
-            () => new TwoKinds().PhaseAsync(Unit, Request(), default));
+            () => new TwoKinds().PhaseAsync(new UnitContext(Unit, Request())));
 
         Assert.Contains("directory", error.Message);
         Assert.Contains("process", error.Message);
@@ -145,7 +145,7 @@ public class UnitKindDriverTests
     public async Task A_kind_the_provider_does_not_have_is_refused()
     {
         var error = await Assert.ThrowsAsync<UnitKindException>(
-            () => new TwoKinds().PhaseAsync(Unit, Request(("web.kind", "lambda")), default));
+            () => new TwoKinds().PhaseAsync(new UnitContext(Unit, Request(("web.kind", "lambda")))));
 
         Assert.Contains("lambda", error.Message);
     }
@@ -153,7 +153,7 @@ public class UnitKindDriverTests
     [Fact]
     public async Task A_kind_is_matched_however_it_is_cased()
         => Assert.Equal(UnitPhase.Ready,
-            await new TwoKinds().PhaseAsync(Unit, Request(("web.kind", "Directory")), default));
+            await new TwoKinds().PhaseAsync(new UnitContext(Unit, Request(("web.kind", "Directory")))));
 
     [Fact]
     public void Registering_one_kind_twice_is_a_mistake_worth_refusing()

@@ -29,23 +29,23 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
     /// interrupted copy leaves behind is not work in progress — it is wreckage, and it reads as
     /// <see cref="UnitPhase.Broken"/> so the engine remakes it.
     /// </summary>
-    public Task<UnitPhase> PhaseAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public Task<UnitPhase> PhaseAsync(UnitContext context)
     {
-        var path = LocalPaths.Unit(root, request, unit.Name);
+        var path = LocalPaths.Unit(root, context);
         if (!Directory.Exists(path) || !Directory.EnumerateFileSystemEntries(path).Any())
             return Task.FromResult(UnitPhase.Missing);
 
         // Files but no usable marker: a FIRST copy was interrupted, or someone put this here by hand.
         // Either way what is on disk is not something we can reason about. The marker is written last and
         // moved into place atomically, so this means what it says.
-        var release = LocalPaths.CurrentRelease(root, request, unit.Name);
+        var release = LocalPaths.CurrentRelease(root, context);
         return Task.FromResult(release is null || !Directory.Exists(release) ? UnitPhase.Broken : UnitPhase.Ready);
     }
 
     /// <inheritdoc/>
-    public Task CreateAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public Task CreateAsync(UnitContext context)
     {
-        Materialize(unit, request, ct);
+        Materialize(context);
         return Task.CompletedTask;
     }
 
@@ -53,35 +53,34 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
     /// Materialize when the artifact has moved on, or when the release that is current is no longer what
     /// we wrote. Otherwise report no change — which on a resume is the ordinary answer, and is a success.
     /// </summary>
-    public Task<bool> UpdateAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public Task<bool> UpdateAsync(UnitContext context)
     {
-        var marker = Records.Read<UnitMarker>(LocalPaths.Marker(root, request, unit.Name));
-        var release = LocalPaths.CurrentRelease(root, request, unit.Name);
+        var marker = Records.Read<UnitMarker>(LocalPaths.Marker(root, context));
+        var release = LocalPaths.CurrentRelease(root, context);
 
         // Two questions, and both have to be no. "Is there a new build?" is the one people expect; "has
         // anyone edited what I deployed?" is the one that makes the tool worth trusting, because a
         // hand-patched server that survives every redeploy is how a machine drifts away from its recipe.
         if (marker is not null
             && release is not null
-            && marker.Source == Fingerprints.OfDirectory(Source(unit, request))
+            && marker.Source == Fingerprints.OfDirectory(Source(context))
             && marker.Content == Fingerprints.OfDirectory(release))
             return Task.FromResult(false);
 
-        Materialize(unit, request, ct);
+        Materialize(context);
         return Task.FromResult(true);
     }
 
     /// <inheritdoc/>
-    public Task RemoveAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public Task RemoveAsync(UnitContext context)
     {
-        var path = LocalPaths.Unit(root, request, unit.Name);
+        var path = LocalPaths.Unit(root, context);
         if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
         return Task.CompletedTask;
     }
 
     /// <summary>Returns at once — see <see cref="PhaseAsync"/> for why there is nothing to wait for.</summary>
-    public Task AwaitSettledAsync(
-        ProcedureUnit unit, DeploymentRequest request, Action<ProgressReport> report, CancellationToken ct)
+    public Task AwaitSettledAsync(UnitContext context)
         => Task.CompletedTask;
 
     /// <summary>
@@ -90,22 +89,21 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
     /// should be. That difference is the whole point of a refresh, and it is what turns "someone edited
     /// the deployed files" into a number on a plan.
     /// </summary>
-    public Task<IReadOnlyList<ResourceState>> RefreshAsync(
-        ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context)
     {
-        var release = LocalPaths.CurrentRelease(root, request, unit.Name);
+        var release = LocalPaths.CurrentRelease(root, context);
         var content = release is null ? null : Fingerprints.OfDirectory(release);
 
         return Task.FromResult<IReadOnlyList<ResourceState>>(content is null
             ? []
-            : [new ResourceState(LocalPaths.Unit(root, request, unit.Name), "local/directory", content)]);
+            : [new ResourceState(LocalPaths.Unit(root, context), "local/directory", content)]);
     }
 
-    private void Materialize(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    private void Materialize(UnitContext context)
     {
-        var source = Source(unit, request);
+        var source = Source(context);
         var build = Fingerprints.OfDirectory(source)!;
-        var path = LocalPaths.Unit(root, request, unit.Name);
+        var path = LocalPaths.Unit(root, context);
         var release = Path.Combine(path, LocalPaths.Releases, build);
 
         // Copy first, THEN move the marker. Until the last line the marker still names the previous
@@ -115,9 +113,9 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
         //
         // On a FIRST deployment there is no previous marker, so the same interruption leaves files with no
         // marker beside them, which reads as Broken and is remade. Both are what should happen.
-        Sync(source, release, ct);
-        Records.Write(LocalPaths.Marker(root, request, unit.Name),
-            new UnitMarker(unit.Name, build, Fingerprints.OfDirectory(release) ?? "", build, DateTimeOffset.UtcNow));
+        Sync(source, release, context);
+        Records.Write(LocalPaths.Marker(root, context),
+            new UnitMarker(context.Name, build, Fingerprints.OfDirectory(release) ?? "", build, DateTimeOffset.UtcNow));
 
         Prune(path, keep: build);
     }
@@ -133,7 +131,7 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
     /// violation classifies as transient, so the run pauses and the operator can stop the service and
     /// resume, which is the honest answer rather than a silent partial repair.
     /// </remarks>
-    private static void Sync(string source, string destination, CancellationToken ct)
+    private static void Sync(string source, string destination, UnitContext context)
     {
         Directory.CreateDirectory(destination);
 
@@ -144,15 +142,27 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
         var wanted = new HashSet<string>(
             OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
-        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        // Listed rather than streamed, because a copy that can say "412 of 900" is the difference between a
+        // deployment that looks slow and one that looks stuck. This is work the ENGINE cannot narrate — it
+        // happens inside a create, where a provider with a control plane would have nothing to do.
+        var files = Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).ToList();
+        var copied = 0;
+
+        foreach (var file in files)
         {
-            ct.ThrowIfCancellationRequested();
+            context.ThrowIfCancelled();
             var relative = Path.GetRelativePath(source, file);
             wanted.Add(relative);
 
             var target = Path.Combine(destination, relative);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             File.Copy(file, target, overwrite: true);
+
+            // Percent is through THIS unit; the engine rescales it into the run.
+            copied++;
+            if (copied % 25 == 0 || copied == files.Count)
+                context.Progress($"{context.Label}: copied {copied} of {files.Count} files…",
+                    (int)(100.0 * copied / files.Count));
         }
 
         foreach (var stale in Directory.EnumerateFiles(destination, "*", SearchOption.AllDirectories)
@@ -183,15 +193,15 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
     /// Where this unit's files come from. Both failures are terminal and are raised before anything on disk
     /// is touched — the operator named something that is not there, and no amount of retrying conjures it.
     /// </summary>
-    private static string Source(ProcedureUnit unit, DeploymentRequest request)
+    private static string Source(UnitContext context)
     {
-        var name = request.Option(unit.Name, LocalOptions.Source)
-            ?? throw new LocalConfigurationException(unit.Name,
-                $"Unit '{unit.Name}' is a directory but names no '{LocalOptions.Source}' — " +
+        var name = context.Option(LocalOptions.Source)
+            ?? throw new LocalConfigurationException(context.Name,
+                $"Unit '{context.Name}' is a directory but names no '{LocalOptions.Source}' — " +
                 "say which part of the artifact it is made of.");
 
         // Core's check, not ours: the AWS provider wrote the same one, and an operator should not get a
         // different sentence about the same mistake depending on where they deployed.
-        return request.Artifact.RequirePart(name, ArtifactPart.Directory);
+        return context.Artifact.RequirePart(name, ArtifactPart.Directory);
     }
 }

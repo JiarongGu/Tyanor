@@ -32,17 +32,17 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     /// what <see cref="UpdateAsync"/> is for, and "already up to date" is an answer the engine already knows
     /// how to report.
     /// </remarks>
-    public async Task<UnitPhase> PhaseAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public async Task<UnitPhase> PhaseAsync(UnitContext context)
     {
-        var bucket = await BucketAsync(unit, request, ct);
+        var bucket = await BucketAsync(context);
         if (bucket is null) return UnitPhase.Missing;         // the stack that makes it is not deployed yet
 
-        return await ObjectsAsync(bucket, ct) is null ? UnitPhase.Missing : UnitPhase.Ready;
+        return await ObjectsAsync(bucket, context.Cancellation) is null ? UnitPhase.Missing : UnitPhase.Ready;
     }
 
     /// <inheritdoc/>
-    public Task CreateAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
-        => SyncAsync(unit, request, ct);
+    public Task CreateAsync(UnitContext context)
+        => SyncAsync(context);
 
     /// <summary>
     /// Re-sync, and report whether anything actually moved.
@@ -54,16 +54,16 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     /// Reporting false here is what stops a redeploy of an unchanged build from invalidating a CDN for
     /// nothing.
     /// </remarks>
-    public async Task<bool> UpdateAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public async Task<bool> UpdateAsync(UnitContext context)
     {
-        var bucket = await BucketAsync(unit, request, ct);
-        var deployed = bucket is null ? null : await ObjectsAsync(bucket, ct);
+        var bucket = await BucketAsync(context);
+        var deployed = bucket is null ? null : await ObjectsAsync(bucket, context.Cancellation);
 
         if (deployed is not null
-            && LocalFiles(unit, request).All(f => deployed.TryGetValue(f.Key, out var size) && size == f.Value))
+            && LocalFiles(context).All(f => deployed.TryGetValue(f.Key, out var size) && size == f.Value))
             return false;
 
-        await SyncAsync(unit, request, ct);
+        await SyncAsync(context);
         return true;
     }
 
@@ -72,28 +72,27 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     /// it, and that stack's own removal takes it. A unit that deleted another unit's resource would break
     /// reverse-order teardown by reaching sideways.
     /// </summary>
-    public async Task RemoveAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public async Task RemoveAsync(UnitContext context)
     {
-        var bucket = await BucketAsync(unit, request, ct);
+        var bucket = await BucketAsync(context);
         if (bucket is null) return;
 
-        var deployed = await ObjectsAsync(bucket, ct);
+        var deployed = await ObjectsAsync(bucket, context.Cancellation);
         if (deployed is null || deployed.Count == 0) return;
 
         foreach (var batch in deployed.Keys.Chunk(1000))       // DeleteObjects takes at most 1000 at a time
         {
-            ct.ThrowIfCancellationRequested();
+            context.ThrowIfCancelled();
             await s3.DeleteObjectsAsync(new DeleteObjectsRequest
             {
                 BucketName = bucket,
                 Objects = batch.Select(k => new KeyVersion { Key = k }).ToList(),
-            }, ct);
+            }, context.Cancellation);
         }
     }
 
     /// <summary>Nothing to wait for — see the note on this class about why there is no converging state.</summary>
-    public Task AwaitSettledAsync(
-        ProcedureUnit unit, DeploymentRequest request, Action<ProgressReport> report, CancellationToken ct)
+    public Task AwaitSettledAsync(UnitContext context)
         => Task.CompletedTask;
 
     /// <summary>
@@ -101,42 +100,41 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     /// rather than a hash of every object, which is the honest trade — it catches a website that lost files
     /// or was replaced, and it does not catch an edit that happens to preserve the byte count.
     /// </summary>
-    public async Task<IReadOnlyList<ResourceState>> RefreshAsync(
-        ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    public async Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context)
     {
-        var bucket = await BucketAsync(unit, request, ct);
+        var bucket = await BucketAsync(context);
         if (bucket is null) return [];
 
-        var deployed = await ObjectsAsync(bucket, ct);
+        var deployed = await ObjectsAsync(bucket, context.Cancellation);
         if (deployed is null) return [];
 
         return [new ResourceState($"s3://{bucket}", "AWS::S3::Bucket",
             $"{deployed.Count} objects, {deployed.Values.Sum()} bytes")];
     }
 
-    private async Task SyncAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
+    private async Task SyncAsync(UnitContext context)
     {
-        var bucket = await BucketAsync(unit, request, ct)
+        var bucket = await BucketAsync(context)
             ?? throw new AwsConfigurationException(
-                $"Unit '{unit.Name}' has no destination bucket. Set '{AwsOptions.Bucket}', or " +
+                $"Unit '{context.Name}' has no destination bucket. Set '{AwsOptions.Bucket}', or " +
                 $"'{AwsOptions.BucketFrom}' to \"{{unit}}:{{OutputKey}}\" naming a stack that exports one.");
 
-        var source = Source(unit, request);
+        var source = Source(context);
         foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
         {
-            ct.ThrowIfCancellationRequested();
+            context.ThrowIfCancelled();
             await s3.PutObjectAsync(new PutObjectRequest
             {
                 BucketName = bucket,
                 Key = Path.GetRelativePath(source, file).Replace('\\', '/'),
                 FilePath = file,
                 ContentType = ContentTypes.Of(file),
-            }, ct);
+            }, context.Cancellation);
         }
 
         // Without this the files are up and the CDN keeps serving the old ones until they expire, which
         // looks exactly like a deployment that silently did nothing.
-        if (await ResolveAsync(unit, request, AwsOptions.InvalidateFrom, ct) is { } distribution)
+        if (await ResolveAsync(context, AwsOptions.InvalidateFrom) is { } distribution)
             await cloudFront.CreateInvalidationAsync(new CreateInvalidationRequest
             {
                 DistributionId = distribution,
@@ -146,7 +144,7 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
                     CallerReference = Guid.NewGuid().ToString("N"),
                     Paths = new Paths { Quantity = 1, Items = ["/*"] },
                 },
-            }, ct);
+            }, context.Cancellation);
     }
 
     /// <summary>Object key → size, or null when the bucket itself is not there.</summary>
@@ -168,44 +166,43 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
         catch (AmazonS3Exception e) when (e.ErrorCode is "NoSuchBucket") { return null; }
     }
 
-    private Dictionary<string, long> LocalFiles(ProcedureUnit unit, DeploymentRequest request)
+    private static Dictionary<string, long> LocalFiles(UnitContext context)
     {
-        var source = Source(unit, request);
+        var source = Source(context);
         return Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories)
             .ToDictionary(f => Path.GetRelativePath(source, f).Replace('\\', '/'), f => new FileInfo(f).Length,
                 StringComparer.Ordinal);
     }
 
-    private static string Source(ProcedureUnit unit, DeploymentRequest request)
+    private static string Source(UnitContext context)
     {
-        var name = request.Option(unit.Name, AwsOptions.Source)
+        var name = context.Option(AwsOptions.Source)
             ?? throw new AwsConfigurationException(
-                $"Unit '{unit.Name}' is content but names no '{AwsOptions.Source}'.");
+                $"Unit '{context.Name}' is content but names no '{AwsOptions.Source}'.");
 
-        return request.Artifact.RequirePart(name, ArtifactPart.Directory);
+        return context.Artifact.RequirePart(name, ArtifactPart.Directory);
     }
 
-    private async Task<string?> BucketAsync(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct)
-        => request.Option(unit.Name, AwsOptions.Bucket)
-           ?? await ResolveAsync(unit, request, AwsOptions.BucketFrom, ct);
+    private async Task<string?> BucketAsync(UnitContext context)
+        => context.Option(AwsOptions.Bucket)
+           ?? await ResolveAsync(context, AwsOptions.BucketFrom);
 
     /// <summary>
     /// Read a <c>"{unit}:{OutputKey}"</c> reference out of another stack's outputs. Null when the stack is
     /// not deployed yet — which is a legitimate answer during a plan of a deployment that does not exist.
     /// </summary>
-    private async Task<string?> ResolveAsync(
-        ProcedureUnit unit, DeploymentRequest request, string option, CancellationToken ct)
+    private async Task<string?> ResolveAsync(UnitContext context, string option)
     {
-        if (request.Option(unit.Name, option) is not { } reference) return null;
+        if (context.Option(option) is not { } reference) return null;
 
         var parts = reference.Split(':', 2);
         if (parts.Length != 2 || parts.Any(string.IsNullOrWhiteSpace))
             throw new AwsConfigurationException(
-                $"'{option}' on unit '{unit.Name}' is '{reference}'; it must be \"{{unit}}:{{OutputKey}}\".");
+                $"'{option}' on unit '{context.Name}' is '{reference}'; it must be \"{{unit}}:{{OutputKey}}\".");
 
         try
         {
-            var outputs = await stacks.OutputsAsync($"{request.Prefix}-{parts[0]}", ct);
+            var outputs = await stacks.OutputsAsync($"{context.Request.Prefix}-{parts[0]}", context.Cancellation);
             return outputs.TryGetValue(parts[1], out var value) ? value : null;
         }
         catch (Amazon.CloudFormation.AmazonCloudFormationException e)
