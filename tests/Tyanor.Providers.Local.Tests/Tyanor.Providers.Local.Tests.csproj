@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Tyanor.Providers.Local.Tests</AssemblyName>
+    <RootNamespace>Tyanor.Providers.Local.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Tyanor.Core\Tyanor.Core.csproj" />
+    <ProjectReference Include="..\..\src\Tyanor.Engine\Tyanor.Engine.csproj" />
+    <ProjectReference Include="..\..\src\Tyanor.Providers.Local\Tyanor.Providers.Local.csproj" />
+  </ItemGroup>
+</Project>

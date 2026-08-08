@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Tyanor.Providers.Local</RootNamespace>
+    <Description>Tyanor Local provider — deploy to this machine: materialize a directory from an artifact, run a long-lived process, health-check it. The provider with no server of its own, and therefore the one that proves what the engine assumes.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Tyanor.Core\Tyanor.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The phase table and the classifier are the parts worth testing directly, and they are the parts
+         that should NOT be public API. -->
+    <InternalsVisibleTo Include="Tyanor.Providers.Local.Tests" />
+  </ItemGroup>
+</Project>

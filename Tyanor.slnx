@@ -3,8 +3,10 @@
     <Project Path="src/Tyanor.Core/Tyanor.Core.csproj" />
     <Project Path="src/Tyanor.Engine/Tyanor.Engine.csproj" />
     <Project Path="src/Tyanor.Extensions.DependencyInjection/Tyanor.Extensions.DependencyInjection.csproj" />
+    <Project Path="src/Tyanor.Providers.Local/Tyanor.Providers.Local.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Tyanor.Core.Tests/Tyanor.Core.Tests.csproj" />
+    <Project Path="tests/Tyanor.Providers.Local.Tests/Tyanor.Providers.Local.Tests.csproj" />
   </Folder>
 </Solution>
