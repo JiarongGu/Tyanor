@@ -44,6 +44,9 @@ src/
   Tyanor.Core/      contracts + the reconcile decision. No I/O, no provider, no dependencies.
   Tyanor.Engine/    ProcedureRunner: ordering, reconcile, retry, classified outcomes, history + state.
   Tyanor.Extensions.DependencyInjection/   AddTyanor. Optional — the engine works without a container.
+  Tyanor.Testing/       contract suites. What an IUnitDriver / IFailureClassifier / IRunHistory /
+                        IStateStore must DO, runnable by whoever wrote one — including outside this
+                        repo. No package dependencies: no test framework is imposed (D15).
   Tyanor.Providers.Local/   this machine: a directory from an artifact, a process, a health check.
                             The worked reference — read it before writing a second provider.
   Tyanor.Providers.Aws/     CloudFormation stacks + S3/CloudFront content. Ported; NOT yet run
@@ -57,8 +60,14 @@ tests/
                                   env-gated live deploy. Never mock the SDK: it would agree too.
 ```
 
-**`Tyanor.Core` AND `Tyanor.Engine` take no package dependencies** — `doctor` checks it. If something needs
-one, it belongs in a package beside them, not in them.
+**`Tyanor.Core`, `Tyanor.Engine` and `Tyanor.Testing` take no package dependencies** — `doctor` checks it.
+If something needs one, it belongs in a package beside them, not in them.
+
+**Every seam is public and third-party-implementable (D15).** A provider or storage backend written outside
+this repository is first-class: same contracts, same registration, same contract suites, no shortcut for
+the built-in ones. When adding to a seam, ask what an out-of-repo implementer would have to copy — if the
+answer is anything, it belongs in the framework. Both shipped providers hand-wrote the kind dispatch and
+artifact-part resolution before they became `UnitKindDriver` and `RequirePart`.
 
 ## 4. Before you commit: `npm run doctor`
 

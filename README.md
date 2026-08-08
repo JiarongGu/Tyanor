@@ -115,12 +115,50 @@ with no cloud SDK installed. Synthesis happens earlier, on a machine that has th
 |---|---|
 | `Tyanor.Core` | Contracts and the reconcile decision. No I/O, no provider, **no package dependencies**. |
 | `Tyanor.Engine` | `ProcedureRunner` — ordering, reconcile, bounded retry, classified outcomes, history, state. |
+| `Tyanor.Testing` | Contract suites — runnable proof an implementation behaves as the engine assumes. **No package dependencies.** |
 | `Tyanor.Providers.Local` | This machine: a directory from an artifact, a process run out of it, a health check. |
 | `Tyanor.Providers.Aws` | CloudFormation stacks, and website files in S3 behind CloudFront. |
 | `Tyanor.Providers.*` | One per target. The only place vendor vocabulary exists. |
 
 Between them the engine has been driven by a target *with* a control plane and one with none. Neither
 needed a change to it, and there is no `if (provider == …)` in `Tyanor.Core` or `Tyanor.Engine`.
+
+## Write your own provider
+
+The built-in providers get no shortcut. Yours references `Tyanor.Core`, implements `IUnitDriver` and
+`IFailureClassifier`, and registers in your composition root in one line:
+
+```csharp
+services.AddTyanor(cfg =>
+{
+    cfg.AddTarget(new AwsTarget(credentials));       // several coexist…
+    cfg.AddTarget(new MyOwnTarget(…));               // …and are selected by Id
+});
+
+var runner = runners.For("my-own");                  // ProcedureRunners, injected
+```
+
+**Then prove it behaves.** `Tyanor.Testing` ships the contract suites the built-in providers run —
+the things the engine assumes that no signature states:
+
+```csharp
+[Fact]
+public Task My_driver_satisfies_the_contract() =>
+    new UnitDriverContract(new MyFixture()).AssertAllAsync();
+```
+
+Reading a phase must change nothing. Removing what is already gone must be fine. An update with nothing to
+change must say so. A resource must keep its identity across a refresh. A wrapped credential error must
+still classify. Each is easy to get almost right and fails quietly — as a duplicate deployment, a teardown
+that will not re-run, or a plan reporting drift that is not there.
+
+The suites take **no test framework**: they return results, so they run under xUnit, NUnit, MSTest or a
+console app. Passing them is also how a provider written elsewhere earns its way into this repository
+([D15](docs/DECISIONS.md)).
+
+There is no plugin *discovery*, deliberately — a deployment tool holds credentials and mutates
+infrastructure, so it does not load code it merely found ([D6](docs/DECISIONS.md)). Authoring one and
+loading one are different questions.
 
 ### Deploying a self-hosted server
 

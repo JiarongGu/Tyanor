@@ -27,6 +27,11 @@
 > and is gated behind `TYANOR_LIVE_AWS`, and until it runs, "ported" is the honest word. And no real
 > consumer ships on Tyanor yet.
 
+> **Pre-1.0 priority: the STRUCTURE, then providers one at a time as they are needed.** The seams are the
+> expensive thing to change later; a provider is not. So anything that would make a provider or a storage
+> backend written *outside* this repository second-class gets fixed first — see **D15**, and the standing
+> question in `CLAUDE.md`: what would an out-of-repo implementer have to copy?
+
 Open work, worked one item at a time, top first. Implement fully (rules → code → tests), update the docs
 it touches, **remove the item**, then commit. Discovered work is added here, never dropped.
 
@@ -79,6 +84,11 @@ a person will.
 `FileRunHistory` ships and is the default; the seam is `IRunHistory` and the choice is the consumer's
 (`AddTyanor(cfg => cfg.UseFileState(...))`). What is missing is everywhere else state needs to live.
 
+**Each one now has an entry ticket**: `RunHistoryContract` and `StateStoreContract` in `Tyanor.Testing`
+(D15). A backend that passes them behaves the way the engine assumes, including the two that are easy to
+miss — refusing to delete a live record, and keeping a null fingerprint null rather than helpfully turning
+it into an empty string, which would silently convert "unknown" into "unchanged" and lose the drift.
+
 One package per backend so `Tyanor.Core` stays dependency-free — the sibling libraries' shape:
 
 - **`Tyanor.Storage.Sqlite`** — a single-machine operator with more than a file's worth of history.
@@ -98,10 +108,9 @@ to visibility — the provider is still the arbiter, so infrastructure stays cor
 acceptable the moment anything automated gates on the history. S3 preconditions and a Postgres transaction
 are the cheap correct answers, and they belong in the backend, not as a new concept in the engine.
 
-- Every backend must refuse to delete a live record (`RunRecord.IsLive`) — the guard is per-implementation
-  today, and a shared test suite over `IRunHistory` would be a better home for it.
-- Acceptance: kill the process mid-run; a new process finds the live record via `LiveAsync` and resumes.
-  For a shared backend, do it from a DIFFERENT machine.
+- Acceptance: the backend passes its contract suite, AND — the thing a contract cannot check — kill the
+  process mid-run and a new process finds the live record via `LiveAsync` and resumes. For a shared backend,
+  from a DIFFERENT machine.
 
 ## 4. Decide what a "procedure" is authored as
 

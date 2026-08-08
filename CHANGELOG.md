@@ -51,8 +51,29 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   - **Not run against AWS.** The pure logic is tested; the SDK plumbing is unverified in this repo. The live
     test deploys a free single-resource stack and is gated behind `TYANOR_LIVE_AWS`.
 
+- **`Tyanor.Testing` — contract suites, so a provider or backend written anywhere can prove it behaves.**
+  `UnitDriverContract`, `FailureClassifierContract`, `RunHistoryContract`, `StateStoreContract`. They check
+  what the engine assumes and no signature states: that reading a phase changes nothing, that removing what
+  is already gone is fine, that an update with nothing to change says so, that a resource keeps its identity
+  across a refresh, that a wrapped credential error still classifies, that a live run record cannot be
+  deleted, and that a null fingerprint stays null. **No package dependencies** — they run under any test
+  framework, and `doctor` enforces that. Reasoning in `docs/DECISIONS.md` D15.
+- **`DeploymentTargets`** — several providers coexist in one application and are selected by `Id`, with
+  `ProcedureRunners` producing a runner for each over one shared history and state store.
+- **`UnitKindDriver`** — the per-unit `kind` dispatch both shipped providers had hand-written, now in the
+  framework so a third does not write it a third time.
+- **`DeploymentArtifact.RequirePart`** — resolving an artifact part, with one voice for the failure instead
+  of one per provider.
+- **`DefinitionException`** — a base type for "the procedure or request is wrong", so a consumer can tell it
+  from "the provider failed" without matching on message text.
+
 ### Changed
 
+- **Registering a second `IDeploymentTarget` no longer silently changes which one deploys** (breaking, and
+  the reason the rest of this exists). `AddTarget` registered `IDeploymentTarget` and the runner resolved it
+  by type, so the last one registered won and there was no way to ask for a particular one — undiscoverable,
+  because a plan would be computed against the wrong target too and would agree. Resolving `ProcedureRunner`
+  with several targets registered now throws and names them.
 - **`IDeploymentTarget.ValidateAsync` now takes `TargetCredentials?`** (breaking). Null means the target
   authenticates ambiently — this machine's user, an instance role, a context already selected. The
   non-nullable version asserted that every target has a key and a secret.

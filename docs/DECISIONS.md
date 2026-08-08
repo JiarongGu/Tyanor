@@ -462,7 +462,7 @@ configuration that is refused before any call is made. The SDK plumbing is a por
 Mocking the SDK would not change that. A mock answers the question by agreeing with whatever this code
 believes, which is why the gate is a real deployment or nothing.
 
-### Deferred deliberately: the domain unit
+### Deferred deliberately: the domain unit (see also D15)
 
 ACM certificate issuance plus Route 53 validation is the natural third kind, and it maps onto Tyanor's model
 suspiciously well — a certificate pending validation is `Converging`, and manual DNS is a
@@ -470,3 +470,75 @@ suspiciously well — a certificate pending validation is `Converging`, and manu
 whether waiting for a human to add a DNS record should pause the whole procedure or only that unit, and the
 answer depends on what a real consumer wants to show its operator. Guessing it is how a wrong abstraction
 gets built confidently.
+
+---
+
+## D15 — A provider written elsewhere is a first-class provider (2026-08-09)
+
+The seams are public, complete, and shipped with a **contract suite** that any implementation can run to
+prove it behaves the way the engine assumes. Writing your own provider or storage backend outside this
+repository is a supported path, and passing the contract is what makes adopting one into this repository a
+matter of evidence rather than of reading the diff.
+
+**Decided against:** treating the built-in providers as privileged — reachable seams that happen to work for
+them, with anything else expected to copy code or read source. That is where most extensible libraries end
+up, and it is not a decision anyone makes; it is what happens when the only implementations are in-tree.
+
+**This does NOT reverse D6.** Providers are still registered in the composition root and never discovered
+from disk. Authoring a plugin and *loading* one are different questions: a deployment tool holds credentials
+and mutates infrastructure, so running code it merely found is a security question nobody asked for. Write
+your own, reference it, register it in one line — like the built-in ones, which get no shortcut.
+
+### What two providers made obvious
+
+Writing the local and AWS providers back to back produced three defects that one provider could not have
+shown, and all three are the same defect: something that was fine while there was only one of a thing.
+
+- **Two targets could not coexist.** `AddTarget` registered `IDeploymentTarget`, and the runner resolved it
+  by type — so registering a second provider silently changed which one deployed, with no way to ask for a
+  particular one. The worst kind of bug: undiscoverable, because the plan would be computed against the
+  wrong target too and would therefore agree. Now `DeploymentTargets` keys them by id, refuses duplicates,
+  and refuses to guess when asked for "the" target with several registered.
+- **Both providers hand-wrote the same dispatcher** — a switch on a `kind` option and six one-line forwards.
+  Two independent arrivals at one shape means it belongs to the framework. `UnitKindDriver` is that shape;
+  a third provider written outside this repository would otherwise have written it a third time and got the
+  "you did not say what this unit is" message subtly wrong.
+- **Both hand-wrote artifact-part resolution**, down to the three separate failure messages. An operator
+  should not get a different sentence about the same mistake depending on where they deployed, so
+  `DeploymentArtifact.RequirePart` is now Core's.
+
+### The distinction that keeps errors readable
+
+`DefinitionException` is a base type for "the procedure or the request is wrong" — an artifact part that was
+never built, a unit that declares no kind, a cross-unit reference that does not parse.
+
+It exists because a consumer showing a deployment to a person has to tell two situations apart: *you have
+configured this wrongly, fix it and nothing is lost* and *AWS said no*. Those read differently, they belong
+in different places in a UI, and only one is worth a support conversation. Catching a base type is how that
+stays possible without matching on message text.
+
+Providers do not classify these. `IFailureClassifier` returning null is correct and the engine's default for
+null is `Hard`, which is exactly what a wrong definition is.
+
+### The contract suites, and why they take no test framework
+
+`Tyanor.Testing` ships `UnitDriverContract`, `FailureClassifierContract`, `RunHistoryContract` and
+`StateStoreContract`. They check the things the engine assumes that no signature states: that reading a
+phase changes nothing, that removing what is already gone is fine, that an update with nothing to change
+says so, that a resource keeps its identity across a refresh, that a wrapped credential error still
+classifies, and that a live run record cannot be deleted.
+
+Every one of those is easy to get almost right and fails quietly — as a duplicate deployment, a teardown
+that will not re-run, a resume that redoes finished work, or a plan reporting drift that is not there.
+
+They take **no package dependencies**, so they run under xUnit, NUnit, MSTest or a console app. A library
+that made you adopt its test framework in order to check your own code would have overreached, and `doctor`
+enforces the claim rather than trusting it.
+
+**The suites' first customers are the shipped implementations.** `FileRunHistory`, `InMemoryRunHistory`,
+`FileStateStore`, both local unit kinds and the AWS classifier all run them. That is deliberate: a contract
+that none of our own code has to satisfy drifts into describing something nobody built.
+
+**What a contract cannot do**, said plainly: it checks behaviour against a real target, so a provider still
+needs something real to point it at. The AWS driver contract runs only behind `TYANOR_LIVE_AWS`, for the
+same reason the live deployment test does.
