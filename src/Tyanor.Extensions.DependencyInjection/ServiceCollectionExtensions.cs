@@ -16,7 +16,8 @@ public sealed class TyanorOptions
     /// Set it to put state on a shared volume, beside a project, or anywhere an operator can find it.
     /// </summary>
     /// <remarks>
-    /// Ignored when a history is supplied directly via <see cref="TyanorBuilder.UseHistory"/> or
+    /// Ignored when a history is supplied directly via <see cref="TyanorBuilder.UseHistory(IRunHistory)"/>,
+    /// named by a descriptor via <see cref="TyanorBuilder.UseHistory(string)"/>, or replaced by
     /// <see cref="TyanorBuilder.UseInMemoryState"/>.
     /// </remarks>
     public string StatePath { get; set; } =
@@ -32,6 +33,13 @@ public sealed class TyanorOptions
 
     /// <summary>Retry policy for TRANSIENT provider errors. Credential and hard failures never retry.</summary>
     public RetryPolicy Retry { get; set; } = new();
+
+    /// <summary>The descriptor state was configured from, if one was — for showing an operator where their
+    /// state lives without them having to know how the container was wired.</summary>
+    public string? StateConnection { get; set; }
+
+    /// <summary>The descriptor the run log was configured from, if one was.</summary>
+    public string? HistoryConnection { get; set; }
 }
 
 /// <summary>
@@ -101,6 +109,49 @@ public sealed class TyanorBuilder
     }
 
     /// <summary>
+    /// Register a storage backend, so a descriptor can name it — <c>"sqlite:…"</c>, <c>"postgres:…"</c>,
+    /// <c>"s3://…"</c>.
+    /// </summary>
+    /// <param name="backend">Yours, or one from a package. <c>json</c> is registered already.</param>
+    /// <remarks>
+    /// Nothing is discovered from disk (D6). This is the one line that makes a kind available, and it is the
+    /// same line whether the backend came from this repository or from your own application (D20).
+    /// </remarks>
+    public TyanorBuilder AddStorage(IStorageBackend backend)
+    {
+        _services.AddSingleton(backend);
+        return this;
+    }
+
+    /// <summary>
+    /// Put deployment state wherever a descriptor says — <c>"{kind}:{target}"</c>, read from configuration
+    /// rather than branched on in code.
+    /// </summary>
+    /// <param name="descriptor">For example <c>"sqlite:/var/lib/myapp/tyanor.db"</c>.</param>
+    /// <remarks>
+    /// Resolved when the container builds it, not here, so a kind registered later in the same
+    /// <c>AddTyanor</c> callback still counts — the order of two lines in a composition root should not
+    /// decide whether an application starts.
+    /// </remarks>
+    public TyanorBuilder UseState(string descriptor)
+    {
+        Options.StateConnection = descriptor;
+        _services.AddSingleton<IStateStore>(sp =>
+            sp.GetRequiredService<StorageBackends>().State(descriptor));
+        return this;
+    }
+
+    /// <summary>Put the run log wherever a descriptor says.</summary>
+    /// <param name="descriptor">For example <c>"postgres:Host=db;Database=ops"</c>.</param>
+    public TyanorBuilder UseHistory(string descriptor)
+    {
+        Options.HistoryConnection = descriptor;
+        _services.AddSingleton<IRunHistory>(sp =>
+            sp.GetRequiredService<StorageBackends>().History(descriptor));
+        return this;
+    }
+
+    /// <summary>
     /// Register a deployment target this application can run procedures against. Call it once per provider —
     /// they coexist and are selected by <see cref="IDeploymentTarget.Id"/>.
     /// </summary>
@@ -159,6 +210,11 @@ public static class TyanorServiceCollectionExtensions
         // Deployment state — what Tyanor owns. Without it the engine still reconciles and resumes, but it
         // cannot say what it created or produce add/change/destroy counts, so the default supplies one.
         services.TryAddSingleton<IStateStore>(_ => new FileStateStore(options.StatePath));
+
+        // The json backend is always available: it needs no package, no server and no decision on day one.
+        // TryAddEnumerable so registering it twice — here and explicitly — does not produce two.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IStorageBackend, JsonStorageBackend>());
+        services.TryAddSingleton(sp => new StorageBackends(sp.GetServices<IStorageBackend>()));
 
         // EVERY registered target, keyed by id. Resolving IDeploymentTarget directly returns whichever was
         // registered last, which is fine at one provider and a wrong deployment at two.

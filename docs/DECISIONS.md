@@ -771,3 +771,57 @@ it turns out to be general, it moves into a provider unchanged.
 That is the intended direction of travel for everything Tyanor does not yet support: build it where you need
 it, prove it with the contracts, and upstream it if it generalizes — rather than waiting for this repository
 to guess what you needed.
+
+---
+
+## D20 — Storage is a kind and a connection (2026-08-09)
+
+Where state and run history live is named by one string — `"{kind}:{target}"` — resolved through registered
+backends. Terraform's word for this is a *backend*, and it is the same idea.
+
+```
+json:/var/lib/myapp/state.json
+sqlite:/var/lib/myapp/tyanor.db
+postgres:Host=db;Database=ops;Username=tyanor
+s3://my-bucket/tyanor/state.json
+```
+
+**Decided against** what TASKS item 3 previously described: one package per backend, each with its own
+bespoke configuration surface, chosen by an `if` in the consumer's composition root. That works and it makes
+every application write the same branch — and it makes storage a code decision when it is obviously a
+configuration one. An operations tool whose state location cannot come from `appsettings.json` is one that
+needs a rebuild to move.
+
+**The kind is required, and a bare path is refused.** Accepting one would be convenient and would have to
+guess. `"sqlite/state.db"` — a slash where a colon was meant — would read as a file called `sqlite/state.db`
+and silently write state somewhere nobody intended, which is the single worst outcome available here. One
+extra word buys not having to guess. A kind must also be at least two characters, which is what stops
+`"C:\ProgramData\state.json"` being read as the kind `C`; it is the rule URI parsers use to tell a scheme
+from a drive letter, and a Windows path is the most likely thing anyone types.
+
+**The target is not parsed further.** A connection string full of semicolons is the backend's business and
+nobody else's. Core splitting it would be Core knowing what Postgres wants, which is the D4 leak.
+
+### Only one backend ships, on purpose
+
+`json` — a file, registered by default because it is the only one that can be: no package, no server, no
+decision on day one. SQLite, Postgres and S3 are **not** implemented here, and that is the point of the seam
+rather than a gap in it.
+
+An application that needs Postgres state writes `PostgresStorageBackend` where it needs it, registers it in
+one line, and names it in configuration. `StateStoreContract` and `RunHistoryContract` already exist to hold
+it to the same behaviour the shipped one meets — including the two that are easy to miss, refusing to delete
+a live record and keeping a null fingerprint null. If it generalizes, it upstreams unchanged.
+
+That is D19's path applied to storage, and this is now the third place the same answer has been right:
+providers (D15), steps (D19), storage (D20). **Build it where you need it, prove it with the contracts,
+upstream it if it generalizes** — rather than this repository guessing which four backends anyone wanted.
+
+**Consequence for concurrent writes,** which D11 and D12 left open: the file backend still has none, and now
+there is somewhere for the answer to live. A backend that supports conditional writes checks
+`DeploymentState.Serial` and refuses a save derived from state someone else has replaced. That belongs in the
+backend, as D11 said, and until one exists the honest word remains *checking* rather than *syncing*.
+
+**Resolution is deferred, not eager.** `UseState("sqlite:…")` records the descriptor and resolves it when the
+container builds the store, so a backend registered on the next line still counts. The order of two lines in
+a composition root should not decide whether an application starts.

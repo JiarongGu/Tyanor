@@ -79,21 +79,24 @@ a person will.
 - Acceptance: one of the two ships a deployment through Tyanor, with the composition root in the
   application and no Tyanor change required to make it work.
 
-## 3. State backends beyond a local file — SQLite, Postgres, S3
+## 3. A storage backend somebody actually needs — SQLite, Postgres or S3
 
-`FileRunHistory` ships and is the default; the seam is `IRunHistory` and the choice is the consumer's
-(`AddTyanor(cfg => cfg.UseFileState(...))`). What is missing is everywhere else state needs to live.
+**The seam is done (D20); the backends are not, and that is deliberate.** Storage is named by a descriptor —
+`"sqlite:/var/lib/app.db"`, `"postgres:Host=db;…"`, `"s3://bucket/key"` — resolved through registered
+`IStorageBackend`s. `json` ships and is registered by default. Nothing else does.
 
-**Each one now has an entry ticket**: `RunHistoryContract` and `StateStoreContract` in `Tyanor.Testing`
-(D15). A backend that passes them behaves the way the engine assumes, including the two that are easy to
-miss — refusing to delete a live record, and keeping a null fingerprint null rather than helpfully turning
-it into an empty string, which would silently convert "unknown" into "unchanged" and lose the drift.
+So this item is no longer "build three packages". It is: **when a consumer needs one, write it where they
+need it** (D19/D20's path), and upstream it here if it generalizes. `StateStoreContract` and
+`RunHistoryContract` are the entry ticket — a backend that passes them behaves the way the engine assumes,
+including the two that are easy to miss: refusing to delete a live record, and keeping a null fingerprint
+null rather than helpfully turning it into an empty string, which would silently convert "unknown" into
+"unchanged" and lose the drift.
 
-One package per backend so `Tyanor.Core` stays dependency-free — the sibling libraries' shape:
+Likely order, when someone asks:
 
-- **`Tyanor.Storage.Sqlite`** — a single-machine operator with more than a file's worth of history.
-- **`Tyanor.Storage.Postgres`** — a team, or a service that already has a database.
-- **`Tyanor.Storage.S3`** — CI and multiple machines sharing one history.
+- **`sqlite`** — a single-machine operator with more than a file's worth of history.
+- **`postgres`** — a team, or a service that already has a database.
+- **`s3`** — CI and several machines sharing one store, and the first one where conditional writes matter.
 
 **Cross-machine CHECKING is supported; cross-machine SYNCING is not — D9 as scoped by D11.**
 `PlanAsync` reads the shared history, so a second machine sees `ActiveRun`, `HasStalledRun` ("a run is
@@ -102,13 +105,17 @@ recorded live but nothing is converging — it stopped, possibly on a machine th
 provider arbitrates by attachment, and the plan makes the situation visible. Do not add locking here
 without a case that attachment demonstrably cannot cover.
 
-**What each backend must decide deliberately: concurrent writes.** `FileRunHistory` is last-writer-wins
+**What each backend must decide deliberately: concurrent writes.** The `json` backend is last-writer-wins
 with no cross-process lock, so two machines writing at the same instant can lose a record. That is bounded
 to visibility — the provider is still the arbiter, so infrastructure stays correct — but it stops being
-acceptable the moment anything automated gates on the history. S3 preconditions and a Postgres transaction
-are the cheap correct answers, and they belong in the backend, not as a new concept in the engine.
+acceptable the moment anything automated gates on the history. `DeploymentState.Serial` exists for a backend
+that can check it: refuse a save derived from state someone else has since replaced. S3 preconditions and a
+Postgres transaction are the cheap correct answers, and they belong in the backend, not as a new concept in
+the engine.
 
-- Acceptance: the backend passes its contract suite, AND — the thing a contract cannot check — kill the
+Until one exists, the honest word stays *checking* rather than *syncing*.
+
+- Acceptance: the backend passes both contract suites, AND — the thing a contract cannot check — kill the
   process mid-run and a new process finds the live record via `LiveAsync` and resumes. For a shared backend,
   from a DIFFERENT machine.
 

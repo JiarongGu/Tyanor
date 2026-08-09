@@ -130,18 +130,32 @@ var plan   = await runner.PlanAsync(procedure, request);
 await runner.ApplyAsync(procedure, request);          // progress callback optional
 ```
 
-**State lives where you put it.** Two stores, deliberately separate: what Tyanor *owns* has to stay true,
-while the run log is an append-only account of attempts — different lifetimes, and a team sharing one does
-not necessarily want to share the other.
+**State lives where you put it — named, not coded.** A backend is a *kind* and a *connection*, in one string
+you can read from `appsettings.json`:
 
 ```csharp
 services.AddTyanor(cfg =>                                  // optional package, if you use a container
 {
-    cfg.UseFileState("/var/lib/myapp/state.json");         // what Tyanor owns — or your own IStateStore
-    cfg.UseFileHistory("/var/lib/myapp/runs.json");        // what was attempted — or your own IRunHistory
+    cfg.UseState("json:/var/lib/myapp/state.json");        // what Tyanor owns
+    cfg.UseHistory("json:/var/lib/myapp/runs.json");       // what was attempted
     cfg.AddTarget(new AwsTarget(credentials));
 });
 ```
+
+Two stores, deliberately separate: what Tyanor *owns* has to stay true, while the run log is an append-only
+account of attempts — different lifetimes, and a team sharing one does not necessarily want to share the
+other.
+
+`json` is registered by default because it needs no package and no decision on day one. `sqlite:…`,
+`postgres:Host=…`, `s3://bucket/key` are kinds you register — from a package, or one you write yourself:
+
+```csharp
+cfg.AddStorage(new MyPostgresBackend());                   // one line, then name it in configuration
+cfg.UseState("postgres:Host=db;Database=ops");
+```
+
+Hold it to `StateStoreContract` and `RunHistoryContract` and it behaves like the shipped one — including the
+two that are easy to miss ([D20](docs/DECISIONS.md)).
 
 Share that store and a plan can **see** runs from other machines — including one that stalled because the
 machine running it went away. Note the limit, stated rather than implied: two machines writing at the same

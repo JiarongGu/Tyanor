@@ -72,6 +72,13 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   Now they sit beside the vendor's units and get all four. `CustomUnits.Classifier` chains after the
   provider's via `FailureClassifiers.Chain`, so an application's transient failure can pause instead of
   ending a deployment that was fine. D19.
+- **Storage is a kind and a connection.** `"json:/var/lib/app/state.json"`, `"sqlite:/var/lib/app.db"`,
+  `"postgres:Host=db;…"`, `"s3://bucket/key"` — one string, resolvable from `appsettings.json` rather than
+  branched on in code. `IStorageBackend` + `StorageBackends` + `cfg.UseState(descriptor)` /
+  `cfg.UseHistory(descriptor)` / `cfg.AddStorage(backend)`. Only `json` ships, registered by default; every
+  other kind is one a consumer registers, from a package or written themselves and upstreamed if it
+  generalizes. A bare path is refused rather than guessed, and a kind must be two characters so a Windows
+  path is not read as a drive-letter kind. D20.
 - **`ValidateAsync` — check a whole procedure with no provider access at all.** No credentials, no network,
   nothing created, and every problem across every unit in one pass rather than the first one three units into
   a run that has already made things. Each provider implements it by running the same option and artifact
