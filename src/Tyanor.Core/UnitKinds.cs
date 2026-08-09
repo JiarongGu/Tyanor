@@ -54,6 +54,20 @@ public abstract class UnitKindDriver : IUnitDriver
     }
 
     /// <summary>
+    /// Add the kinds an application brings of its own. Register the provider's built-in kinds FIRST, so a
+    /// custom one cannot quietly take the name of a built-in — it collides and says so instead.
+    /// </summary>
+    /// <param name="custom">The application's units, or null.</param>
+    /// <exception cref="ArgumentException">A custom kind uses a name the provider already has.</exception>
+    protected void Register(CustomUnits? custom)
+    {
+        if (custom is null) return;
+
+        foreach (var (kind, driver) in custom)
+            Register(kind, driver);
+    }
+
+    /// <summary>
     /// The driver for one unit.
     /// </summary>
     /// <param name="context">The unit, and where its kind is declared.</param>

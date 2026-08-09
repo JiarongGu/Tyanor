@@ -66,6 +66,12 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   of one per provider.
 - **`DefinitionException`** — a base type for "the procedure or request is wrong", so a consumer can tell it
   from "the provider failed" without matching on message text.
+- **`CustomUnits` — an application registers its own step as a unit kind inside a shipped provider.** Verify a
+  migration applied, warm a cache, call a health endpoint that means something only to you: those used to live
+  outside the procedure as code that ran after it, with no phase, no plan, no resume and no classification.
+  Now they sit beside the vendor's units and get all four. `CustomUnits.Classifier` chains after the
+  provider's via `FailureClassifiers.Chain`, so an application's transient failure can pause instead of
+  ending a deployment that was fine. D19.
 - **`ValidateAsync` — check a whole procedure with no provider access at all.** No credentials, no network,
   nothing created, and every problem across every unit in one pass rather than the first one three units into
   a run that has already made things. Each provider implements it by running the same option and artifact
@@ -76,9 +82,9 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
 - Both are **default** interface members. D16's claim that `UnitContext` makes additions additive was true of
   parameters, not of methods; a default meaning *I do not do that* is what makes a new capability additive
   for implementations outside this repository.
-- **A teardown gets a plan.** `PlanAsync(procedure, request, RunKind.Remove)` reports the units in the order
+- **A teardown gets a plan.** `PlanAsync(procedure, request, RunKind.Destroy)` reports the units in the order
   they will go, which are already gone, and every resource the teardown will destroy — `Plan.Destroying`,
-  `Plan.IsDestructive`. The destructive direction was the one without a preview. `Reconcile.DecideRemoval`
+  `Plan.IsDestructive`. The destructive direction was the one without a preview. `Reconcile.DecideDestroy`
   is the pure function behind it, so the teardown shown and the teardown run come from one place.
 
 ### Changed
@@ -103,6 +109,13 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   them into one value would re-invent a serialization format inside a string, which is how an untyped map
   becomes worse than typed fields rather than better.
 
+- **Terraform's verbs, deliberately.** `ProcedureRunner.RemoveAsync` → `DestroyAsync` and `RunKind.Remove` →
+  `RunKind.Destroy` (breaking), so the whole command set reads as `validate · plan · apply · destroy ·
+  refresh · output` — the same words for the same jobs, because inventing new ones only makes a reader
+  translate. A *driver* still says `RemoveAsync`: it removes one unit rather than destroying a deployment,
+  which is the same asymmetry Terraform has between its command and a provider's per-resource delete. The
+  enum's stored value is unchanged, so existing run history still reads.
+
 ### Fixed
 
 - `README.md`, `docs/architecture/overview.md` and `Reconcile`'s XML docs still claimed there was no state
@@ -120,9 +133,3 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   `-`, `_`, `.`, no leading dot, no `..`, 255 characters. A `Procedure` also refuses duplicate unit names
   (case-insensitively — `Api` and `api` are one directory on Windows), no units at all, and a weight below
   one. `StackUnit` adds CloudFormation's stricter rule in its own words. D17.
-- **Terraform's verbs, deliberately.** `ProcedureRunner.RemoveAsync` → `DestroyAsync` and `RunKind.Remove` →
-  `RunKind.Destroy` (breaking), so the whole command set reads as `validate · plan · apply · destroy ·
-  refresh · output` — the same words for the same jobs, because inventing new ones only makes a reader
-  translate. A *driver* still says `RemoveAsync`: it removes one unit rather than destroying a deployment,
-  which is the same asymmetry Terraform has between its command and a provider's per-resource delete. The
-  enum's stored value is unchanged, so existing run history still reads.

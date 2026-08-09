@@ -215,6 +215,36 @@ There is no plugin *discovery*, deliberately — a deployment tool holds credent
 infrastructure, so it does not load code it merely found ([D6](docs/DECISIONS.md)). Authoring one and
 loading one are different questions.
 
+## Or just add one step of your own
+
+A whole provider is a lot to write when what you have is one step: verify a migration applied, warm a cache,
+call a health endpoint that means something only to you. Register it as a unit kind inside the provider you
+are already using, and it sits in the same procedure as that vendor's units:
+
+```csharp
+var target = new AwsTarget(credentials, new CustomUnits
+{
+    Classifier = new MyClassifier(),                 // so YOUR transient errors can pause rather than fail
+    ["migration"] = new VerifyMigrationUnit(http),
+});
+
+var procedure = new Procedure("site",
+[
+    new ProcedureUnit("db",  "Database"),
+    new ProcedureUnit("api", "API"),
+    new ProcedureUnit("migration", "Database changes"),   // ["migration.kind"] = "migration"
+    new ProcedureUnit("web", "Website"),
+]);
+```
+
+It is then planned, reconciled, resumed and classified like everything else. The only thing you must supply
+is the thing the engine cannot guess — a readable phase, answering *has this already happened?* A step that
+can answer that gets skipped when it is done instead of re-running on every deploy. A step that cannot is a
+script, and belongs outside the procedure.
+
+That is the intended way to use anything Tyanor does not support yet: build it where you need it, prove it
+with the contract suites, and upstream it if it generalizes ([D19](docs/DECISIONS.md)).
+
 ### Deploying a self-hosted server
 
 ```csharp

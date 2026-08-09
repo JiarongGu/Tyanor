@@ -70,8 +70,13 @@ public sealed class AwsTarget : IDeploymentTarget, IDisposable
     /// Key, secret and <see cref="TargetCredentials.Region"/>. The region is required: every AWS call needs
     /// one, and defaulting it would deploy somewhere the operator did not name.
     /// </param>
+    /// <param name="custom">
+    /// Units this application brings of its own — verify a migration applied, warm a cache, call a health
+    /// endpoint that means something only to you. They go in the same procedure as the stacks and get the same
+    /// plan, resume and classification. See <see cref="CustomUnits"/>.
+    /// </param>
     /// <exception cref="ArgumentException">No region, or one AWS does not recognise.</exception>
-    public AwsTarget(TargetCredentials credentials)
+    public AwsTarget(TargetCredentials credentials, CustomUnits? custom = null)
     {
         ArgumentNullException.ThrowIfNull(credentials);
         if (string.IsNullOrWhiteSpace(credentials.Region))
@@ -87,7 +92,8 @@ public sealed class AwsTarget : IDeploymentTarget, IDisposable
         _cloudFront = new AmazonCloudFrontClient(basic, RegionEndpoint.USEast1);
 
         _account = new AwsAccount(_sts);
-        Driver = new AwsUnitDriver(_cfn, _s3, _cloudFront, _account, Region.SystemName);
+        Driver = new AwsUnitDriver(_cfn, _s3, _cloudFront, _account, Region.SystemName, custom);
+        Classifier = FailureClassifiers.Chain(new AwsFailureClassifier(), custom?.Classifier);
     }
 
     /// <inheritdoc/>
@@ -100,7 +106,7 @@ public sealed class AwsTarget : IDeploymentTarget, IDisposable
     public IUnitDriver Driver { get; }
 
     /// <inheritdoc/>
-    public IFailureClassifier Classifier { get; } = new AwsFailureClassifier();
+    public IFailureClassifier Classifier { get; }
 
     /// <summary>
     /// Exercise the credentials and report the account and identity.

@@ -22,8 +22,11 @@ internal sealed class AwsUnitDriver : UnitKindDriver
     /// <param name="cloudFront">CloudFront, which only answers in us-east-1.</param>
     /// <param name="account">The account, asked once, because the staging bucket is named after it.</param>
     /// <param name="region">The region every non-global call goes to.</param>
+    /// <param name="custom">Units the application brings of its own — a migration check, a cache warm — which
+    /// then sit in the same procedure as the stacks and get the same plan, resume and classification.</param>
     public AwsUnitDriver(
-        IAmazonCloudFormation cfn, IAmazonS3 s3, IAmazonCloudFront cloudFront, AwsAccount account, string region)
+        IAmazonCloudFormation cfn, IAmazonS3 s3, IAmazonCloudFront cloudFront, AwsAccount account, string region,
+        CustomUnits? custom = null)
         : base(AwsOptions.Kind)
     {
         // The content unit reads the bucket name out of a stack's outputs, so it needs the stack driver. Not
@@ -31,5 +34,6 @@ internal sealed class AwsUnitDriver : UnitKindDriver
         var stacks = new StackUnit(cfn, s3, account, region);
         Register(AwsOptions.StackKind, stacks);
         Register(AwsOptions.ContentKind, new ContentUnit(s3, cloudFront, stacks));
+        Register(custom);
     }
 }

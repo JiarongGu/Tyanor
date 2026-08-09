@@ -298,7 +298,10 @@ public class ProcessPhaseTests
         var request = Request(box, healthPort: closed.Port, graceSeconds: 1);
 
         await box.Target.Driver.CreateAsync(new UnitContext(Service, request));
-        await Task.Delay(1_300);
+
+        // Twice the grace, not 1.3× it. 300ms of margin is thin on a machine running three test assemblies
+        // at once, and the extra second buys a test that does not need believing.
+        await Task.Delay(2_000);
 
         Assert.Equal(UnitPhase.Broken, await box.Target.Driver.PhaseAsync(new UnitContext(Service, request)));
     }

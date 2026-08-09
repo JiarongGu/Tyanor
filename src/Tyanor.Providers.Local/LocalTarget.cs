@@ -35,7 +35,12 @@ namespace Tyanor.Providers.Local;
 /// Where deployments live on this machine. Each one gets <c>{root}/{prefix}</c>, so one root can host
 /// several deployments of the same procedure.
 /// </param>
-public sealed class LocalTarget(string root) : IDeploymentTarget
+/// <param name="custom">
+/// Units this application brings of its own — a step that is nobody's vendor's business, registered
+/// alongside <c>directory</c> and <c>process</c> and reconciled exactly like them. See
+/// <see cref="CustomUnits"/>.
+/// </param>
+public sealed class LocalTarget(string root, CustomUnits? custom = null) : IDeploymentTarget
 {
     /// <inheritdoc/>
     public string Id => "local";
@@ -44,10 +49,11 @@ public sealed class LocalTarget(string root) : IDeploymentTarget
     public string Root { get; } = root;
 
     /// <inheritdoc/>
-    public IUnitDriver Driver { get; } = new LocalUnitDriver(root);
+    public IUnitDriver Driver { get; } = new LocalUnitDriver(root, custom);
 
     /// <inheritdoc/>
-    public IFailureClassifier Classifier { get; } = new LocalFailureClassifier();
+    public IFailureClassifier Classifier { get; } =
+        FailureClassifiers.Chain(new LocalFailureClassifier(), custom?.Classifier);
 
     /// <summary>
     /// Who this machine thinks we are, and whether we may actually write here.

@@ -716,3 +716,58 @@ arrives with a default that means *I do not do that*.
 involved: validate → plan → apply → outputs → refresh → plan → new build → plan → drift → repair → plan the
 teardown → destroy → plan again. It is the test that says the library works, as opposed to the ones that say
 a particular decision is right.
+
+---
+
+## D19 — An application's own step is a unit, not code that runs afterwards (2026-08-09)
+
+`CustomUnits` — a consuming application registers its own `IUnitDriver` implementations as unit kinds inside
+a shipped provider, so its steps sit in the same procedure as that vendor's units.
+
+```csharp
+var target = new AwsTarget(credentials, new CustomUnits { ["migration"] = new VerifyMigrationUnit(http) });
+```
+
+**The case, which was previously homeless.** A real deployment has steps that are nobody's vendor's business:
+verify a database migration actually applied, warm a cache, prerender pages, call a health endpoint that
+means something only to you. D14 left exactly these in Aurelia and called them "application policy", which
+was right about where the code belongs and wrong about where the STEP belongs.
+
+Because to add one, a consumer had to write a whole provider — and then could not mix it with that vendor's
+units anyway, since a run is bound to one target. So those steps lived outside the procedure, as code that
+ran after it, and got none of what the engine gives:
+
+- **No phase**, so the step re-ran on every deploy whether or not it needed to.
+- **No plan**, so nobody saw it coming and no operator could decline it.
+- **No classification**, so a transient failure ("the endpoint is not warm yet") ended a deployment that was
+  fine, and a credential failure could not pause and resume.
+- **No state**, so nothing recorded that it had happened.
+
+As a unit it gets all four, and the only thing it must supply is the one thing the engine cannot guess: a
+readable phase. *Has this already happened?* A step that can answer that can be reconciled; a step that
+cannot is a script, and belongs outside.
+
+### The classifier comes with it
+
+A custom unit's errors mean nothing to a provider's classifier, which correctly returns null — and the
+engine's default for null is `Hard`. Safe, but it means an application's step could never pause. So
+`CustomUnits.Classifier` is chained after the provider's, via `FailureClassifiers.Chain`.
+
+That chaining works only because "not mine" is already a real answer in this contract. A classifier
+returning null is *passing rather than voting*, so the next one gets its turn and an error nobody claims
+still lands on `Hard`. D2's null-means-unrecognised decision paid for itself here, years of design later.
+
+**Order: the provider first**, because it knows its own SDK. A collision is impossible in the other
+direction — custom kinds are registered AFTER the built-in ones, so one trying to take the name `stack` or
+`directory` is refused rather than shadowing it and silently changing what every existing procedure means.
+
+### Why this is the right shape for "develop it in your app, then ship it here"
+
+This completes what D15 started. A provider written elsewhere was already first-class; now a single STEP is
+too, at much lower cost — no new target, no new package, one dictionary entry. A step written in an
+application against `IUnitDriver`, passing the contract suites, is indistinguishable from a built-in kind. If
+it turns out to be general, it moves into a provider unchanged.
+
+That is the intended direction of travel for everything Tyanor does not yet support: build it where you need
+it, prove it with the contracts, and upstream it if it generalizes — rather than waiting for this repository
+to guess what you needed.

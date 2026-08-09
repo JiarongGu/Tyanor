@@ -16,9 +16,12 @@ internal sealed class LocalUnitDriver : UnitKindDriver
 {
     /// <summary>Build the driver for one machine.</summary>
     /// <param name="root">The machine's deployment root.</param>
-    public LocalUnitDriver(string root) : base(LocalOptions.Kind)
+    /// <param name="custom">Units the application brings of its own. Registered after the built-in kinds, so
+    /// one trying to take a built-in name collides rather than shadowing it.</param>
+    public LocalUnitDriver(string root, CustomUnits? custom = null) : base(LocalOptions.Kind)
     {
         Register(LocalOptions.DirectoryKind, new DirectoryUnit(root));
         Register(LocalOptions.ProcessKind, new ProcessUnit(root));
+        Register(custom);
     }
 }
