@@ -79,6 +79,11 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   other kind is one a consumer registers, from a package or written themselves and upstreamed if it
   generalizes. A bare path is refused rather than guessed, and a kind must be two characters so a Windows
   path is not read as a drive-letter kind. D20.
+- **`Procedure.Only(...)`** — a procedure narrowed to some of its units, in their original order. Terraform's
+  `-target`, and the answer to "just push the website again": the source deployer had a dedicated method for
+  one case of it because pushing a website takes seconds and reconciling three stacks takes minutes. Safer
+  than Terraform's, because a subset of an ordered list is still ordered — there is no graph to skip. An
+  unknown unit name is refused rather than ignored, and a narrowed run touches only its own units' state. D21.
 - **`ValidateAsync` — check a whole procedure with no provider access at all.** No credentials, no network,
   nothing created, and every problem across every unit in one pass rather than the first one three units into
   a run that has already made things. Each provider implements it by running the same option and artifact

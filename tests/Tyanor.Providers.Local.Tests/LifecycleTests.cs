@@ -120,6 +120,58 @@ public class LifecycleTests
     }
 
     [Fact]
+    public async Task Applying_ONE_unit_leaves_the_others_and_their_state_alone()
+    {
+        // The case the source deployer had a dedicated method for: push the website again without reconciling
+        // everything else. The property that makes it safe is that a narrowed run touches only its own units'
+        // state — if it rewrote the whole set, a targeted apply would quietly forget what it did not look at,
+        // and the next teardown would not know those resources existed.
+        using var box = new Sandbox();
+        box.Publish("Server.dll", "v1");
+        var request = Request(box);
+        var runner = box.Runner;
+
+        await runner.ApplyAsync(Server, request);
+        var pid = box.Pid("acme", "service");
+
+        // A new build, then narrow the run to the files only — the server is deliberately left running.
+        box.Publish("Server.dll", "v2");
+        var outcome = await runner.ApplyAsync(Server.Only("runtime"), request);
+
+        Assert.True(outcome.Ok);
+        Assert.Equal("v2", await File.ReadAllTextAsync(Path.Combine(box.Live("acme", "runtime"), "Server.dll")));
+        Assert.Equal(pid, box.Pid("acme", "service"));            // not restarted: it was not in the run
+
+        // And the service's state survived a run that never mentioned it.
+        var state = await box.State.GetAsync("server", "acme");
+        Assert.Equal(["runtime", "service"], state.Units.Select(u => u.Unit).Order());
+
+        // A plan of the narrow procedure shows one step; the full one still shows two.
+        Assert.Single((await runner.PlanAsync(Server.Only("runtime"), request)).Steps);
+        Assert.Equal(2, (await runner.PlanAsync(Server, request)).Steps.Count);
+    }
+
+    [Fact]
+    public async Task A_narrowed_DESTROY_takes_only_what_it_names()
+    {
+        // Worth pinning because it is the sharp end of narrowing. It does what it says — and the plan says it
+        // first, which is the whole reason a teardown plan exists.
+        using var box = new Sandbox();
+        box.Publish("Server.dll", "v1");
+        var request = Request(box);
+        var runner = box.Runner;
+        await runner.ApplyAsync(Server, request);
+
+        var plan = await runner.PlanAsync(Server.Only("service"), request, RunKind.Destroy);
+        Assert.Equal(["service"], plan.Steps.Select(s => s.Unit.Name));
+
+        Assert.True((await runner.DestroyAsync(Server.Only("service"), request)).Ok);
+
+        Assert.Null(box.Pid("acme", "service"));                          // gone
+        Assert.True(Directory.Exists(box.Deployed("acme", "runtime")));   // untouched
+    }
+
+    [Fact]
     public async Task Validation_finds_every_problem_at_once_and_touches_nothing()
     {
         // The point of an offline check: a whole procedure's worth of mistakes in one pass, before an account

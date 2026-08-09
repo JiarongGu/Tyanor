@@ -47,6 +47,7 @@ translate:
 | `terraform refresh` | `runner.RefreshAsync(…)` |
 | `terraform output` | `runner.OutputsAsync(…)` |
 | `terraform state show` | `IStateStore.GetAsync(…)` |
+| `-target=…` | `procedure.Only("web")` — narrower, and safer for having no graph to skip |
 
 A *driver* still says `RemoveAsync`, because it removes one unit rather than destroying a deployment — the
 same asymmetry Terraform has between its command and a provider's per-resource delete.

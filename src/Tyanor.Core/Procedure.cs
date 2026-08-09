@@ -76,6 +76,43 @@ public sealed record Procedure(string Name, IReadOnlyList<ProcedureUnit> Units)
     public int TotalWeight => Units.Sum(u => u.Weight);
 
     /// <summary>
+    /// The same procedure narrowed to some of its units, in their original order — Terraform's
+    /// <c>-target</c>, and the answer to "just push the website again".
+    /// </summary>
+    /// <param name="units">Unit names to keep. Order here is ignored; the procedure's own order is kept.</param>
+    /// <exception cref="ArgumentException">A name that is not in this procedure, or none given.</exception>
+    /// <remarks>
+    /// <para><b>Why this is a method and not left to the caller.</b> Constructing a smaller
+    /// <see cref="Procedure"/> by hand already worked, and nobody would find it — while the deployer this was
+    /// extracted from had a whole dedicated method for exactly one case of it, because redeploying a website
+    /// takes seconds and reconciling three stacks to do it takes minutes.</para>
+    /// <para><b>Safer than Terraform's version</b>, because there is no dependency graph to skip. A subset of
+    /// an ordered list is still ordered, so the units that do run are in the same relative order they always
+    /// were; the only thing narrowing can do is leave something out, which the plan then shows.</para>
+    /// <para><b>It narrows a DESTROY too</b>, and that is worth knowing before using it that way: it destroys
+    /// only what it names, in reverse of the original order. Preview it — a narrowed destroy plan lists
+    /// exactly what will go.</para>
+    /// <para>An unknown name is refused rather than ignored. A typo that quietly deploys nothing and reports
+    /// success is the worst way for this to be wrong.</para>
+    /// </remarks>
+    public Procedure Only(params string[] units)
+    {
+        ArgumentNullException.ThrowIfNull(units);
+
+        var wanted = new HashSet<string>(units, StringComparer.OrdinalIgnoreCase);
+        var unknown = units.Where(u => !Units.Any(x => wanted.Contains(x.Name) && x.Name.Equals(u, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (unknown.Count > 0)
+            throw new ArgumentException(
+                $"'{Name}' has no unit called {string.Join(" or ", unknown.Select(u => $"'{u}'"))}. " +
+                $"It has: {string.Join(", ", Units.Select(u => u.Name))}.", nameof(units));
+
+        // The procedure's order, not the caller's — narrowing must not silently reorder a deployment.
+        return this with { Units = Units.Where(u => wanted.Contains(u.Name)).ToList() };
+    }
+
+    /// <summary>
     /// Refuse a procedure that cannot mean what it says.
     /// </summary>
     /// <remarks>

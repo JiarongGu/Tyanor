@@ -825,3 +825,66 @@ backend, as D11 said, and until one exists the honest word remains *checking* ra
 **Resolution is deferred, not eager.** `UseState("sqlite:…")` records the descriptor and resolves it when the
 container builds the store, so a backend registered on the next line still counts. The order of two lines in
 a composition root should not decide whether an application starts.
+
+---
+
+## D21 — The pipeline does not need a new authoring model; it needs unit kinds (2026-08-09)
+
+TASKS item 4 asked what a "procedure" should be authored as, on the premise that the brief's pipeline —
+restore → build → test → package → publish → deploy → validate — is *broader than deployment units*. It
+said not to design it until items 1–3 were done, and warned that the temptation is a DSL.
+
+Items 1–3 are done enough to test the premise, and **the premise is mostly wrong.** Nothing new is needed to
+author a pipeline; the phases are unit kinds, and `CustomUnits` (D19) already lets a consumer add them
+without changing Tyanor at all.
+
+### Testing it phase by phase
+
+The bar for being a unit is one question: **can it answer "has this already happened?"** A step that can is
+reconcilable; a step that cannot is a script.
+
+| Phase | Phase readable from? | Reconcilable |
+|---|---|---|
+| restore | lockfile hash vs. the resolved assets | yes |
+| build | output present and newer than the inputs it was built from | yes |
+| test | a recorded pass for THIS input fingerprint | yes, if the verdict is recorded |
+| package | the package file exists for this version | yes |
+| publish | the registry already has this version — a real remote query | yes |
+| deploy | already the whole of this library | yes |
+| validate | a recorded pass against this deployment's fingerprint | yes |
+
+All seven fit. Which means a pipeline is a `Procedure` whose units happen to be builds and tests rather than
+stacks, applied in order, resumable, planned, classified — and the engine already does every part of that.
+
+**So item 4's answer is: keep authoring in C#.** No DSL, no second model, no `Pipeline` type beside
+`Procedure`. That was the answer `units-not-graphs.md` was written to protect, and the exercise of checking
+each phase is what makes it a finding rather than a preference.
+
+### The one category that does NOT fit, and it is worth naming
+
+**Publish is irreversible.** You cannot unpublish a package version. Today `IUnitDriver.RemoveAsync` must
+"remove and wait until it is gone", and `Reconcile.DecideDestroy` gives `Remove` to every phase that is not
+`Missing` — so a destroy over a publish unit would call something that must either lie or throw.
+
+Nothing is being added for it yet, on purpose: it is a real gap but not a real consumer's gap, and D3's bar
+says a shape is earned by someone needing it rather than by someone imagining it. What is recorded here is
+the diagnosis, so whoever hits it first does not have to rediscover it — and the likely answer is a unit
+declaring itself unremovable, with a destroy plan reporting it as RETAINED rather than skipping it silently.
+
+### Meanwhile, one thing the pipeline made obvious was already missing
+
+`Procedure.Only(...)` — a procedure narrowed to some of its units, in their original order.
+
+The deployer this was extracted from had a whole dedicated method for one case of it (`SyncFrontendAsync`),
+because pushing a website takes seconds and reconciling three stacks to do it takes minutes. D14 left that
+method in Aurelia as application code, which was wrong: the *method* was application-shaped, the
+*capability* is Terraform's `-target`, and dropping it meant the first consumer losing a real optimisation on
+adoption.
+
+Safer here than in Terraform, because there is no dependency graph to skip: a subset of an ordered list is
+still ordered, so the units that run keep their relative order and the only thing narrowing can do is leave
+something out — which the plan then shows. An unknown name is refused rather than ignored, because a typo
+that quietly deploys nothing and reports success is the worst way for this to be wrong.
+
+It narrows a destroy too, and a narrowed run touches only its own units' state — so a targeted apply cannot
+quietly forget what it did not look at, which would leave a later teardown unaware those resources exist.

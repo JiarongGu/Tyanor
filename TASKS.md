@@ -119,14 +119,29 @@ Until one exists, the honest word stays *checking* rather than *syncing*.
   process mid-run and a new process finds the live record via `LiveAsync` and resumes. For a shared backend,
   from a DIFFERENT machine.
 
-## 4. Decide what a "procedure" is authored as
+## 4. Build a real pipeline out of unit kinds — and find out what breaks
 
-Today a `Procedure` is constructed in C#. The brief wants restore → build → test → package → publish →
-deploy → validate, which is broader than deployment units.
+**Answered on paper, not yet in practice (D21).** This item used to ask what a procedure should be *authored*
+as, on the premise that restore → build → test → package → publish → deploy → validate is broader than
+deployment units. Checked phase by phase, it is not: all seven can answer "has this already happened?", which
+is the only thing being a unit requires. So the answer is **keep authoring in C#** — no DSL, no `Pipeline`
+type beside `Procedure` — and a pipeline is a procedure whose units happen to be builds and tests.
 
-**Do not design this until items 1–3 are done.** The engine's shape should be pulled by two real
-procedures, not pushed by a diagram — and the temptation here is to invent a DSL, which
-`units-not-graphs.md` exists to resist.
+`CustomUnits` (D19) means a consumer can do this today without a single change here. So what is left is not
+design work, it is USE:
+
+- Build one, in the application that wants it. Daoris is the obvious candidate — it needs restore/build/test
+  before it self-hosts anything.
+- Report what the contract could not express. The analysis found one gap already and there will be others;
+  the point of building it for real is the "others".
+
+**The gap already known:** publish is IRREVERSIBLE. You cannot unpublish a version, but
+`IUnitDriver.RemoveAsync` must "remove and wait until it is gone" and `Reconcile.DecideDestroy` hands `Remove`
+to every phase that is not `Missing`. Nothing has been added for it, deliberately — D3's bar is that a shape
+is earned by someone needing it, not by someone imagining it. The likely answer, when it is needed: a unit
+declaring itself unremovable and a destroy plan reporting it as RETAINED rather than skipping it in silence.
+
+- Acceptance: a real pipeline runs in a real consumer, and whatever it could not express is written down here.
 
 ---
 
