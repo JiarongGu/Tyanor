@@ -45,7 +45,7 @@ public enum ReconcileAction
     /// <summary>It is settled but unusable: remove it, then create fresh.</summary>
     Recreate,
 
-    /// <summary>Take it away. Only a teardown decides this — see <see cref="Reconcile.DecideRemoval"/>.</summary>
+    /// <summary>Take it away. Only a teardown decides this — see <see cref="Reconcile.DecideDestroy"/>.</summary>
     Remove,
 
     /// <summary>There is nothing to do to this unit. Only a teardown decides this, for a unit already gone.</summary>
@@ -101,7 +101,7 @@ public static class Reconcile
     /// can be computed for a teardown without the engine running one — which is the whole point of a plan,
     /// and was missing for the only operation that destroys anything.</para>
     /// </remarks>
-    public static ReconcileAction DecideRemoval(UnitPhase phase) =>
+    public static ReconcileAction DecideDestroy(UnitPhase phase) =>
         phase == UnitPhase.Missing ? ReconcileAction.Nothing : ReconcileAction.Remove;
 
     /// <summary>

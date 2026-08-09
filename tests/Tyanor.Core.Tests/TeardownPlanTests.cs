@@ -31,10 +31,10 @@ public class TeardownPlanTests
         // Take it away, or notice it is already gone. There is no third answer, and in particular there is
         // no Attach: a unit mid-create is a unit that will exist in a minute, and waiting for someone else's
         // creation to finish before destroying it is a longer teardown with the same ending.
-        Assert.Equal(ReconcileAction.Nothing, Reconcile.DecideRemoval(UnitPhase.Missing));
+        Assert.Equal(ReconcileAction.Nothing, Reconcile.DecideDestroy(UnitPhase.Missing));
 
         foreach (var phase in Enum.GetValues<UnitPhase>().Where(p => p != UnitPhase.Missing))
-            Assert.Equal(ReconcileAction.Remove, Reconcile.DecideRemoval(phase));
+            Assert.Equal(ReconcileAction.Remove, Reconcile.DecideDestroy(phase));
     }
 
     [Fact]
@@ -44,10 +44,10 @@ public class TeardownPlanTests
         // compute before data, so whatever imports from a unit is gone before the unit itself.
         var target = new FakeTarget { ["db"] = UnitPhase.Ready, ["api"] = UnitPhase.Ready, ["web"] = UnitPhase.Ready };
 
-        var plan = await Runner(target).PlanAsync(Site, Request(), RunKind.Remove);
+        var plan = await Runner(target).PlanAsync(Site, Request(), RunKind.Destroy);
 
         Assert.Equal(["web", "api", "db"], plan.Steps.Select(s => s.Unit.Name));
-        Assert.Equal(RunKind.Remove, plan.Kind);
+        Assert.Equal(RunKind.Destroy, plan.Kind);
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public class TeardownPlanTests
         // A re-run of an interrupted teardown, which is how teardowns usually finish.
         var target = new FakeTarget { ["db"] = UnitPhase.Ready, ["api"] = UnitPhase.Missing, ["web"] = UnitPhase.Missing };
 
-        var plan = await Runner(target).PlanAsync(Site, Request(), RunKind.Remove);
+        var plan = await Runner(target).PlanAsync(Site, Request(), RunKind.Destroy);
 
         Assert.Equal([ReconcileAction.Nothing, ReconcileAction.Nothing, ReconcileAction.Remove],
             plan.Steps.Select(s => s.Action));
@@ -71,7 +71,7 @@ public class TeardownPlanTests
         target.Resources["db"] = [new ResourceState("db-1", "T", "v1"), new ResourceState("db-2", "T", "v1")];
         target.Resources["api"] = [new ResourceState("api-1", "T", "v1")];
 
-        var plan = await Runner(target, new InMemoryStateStore()).PlanAsync(Site, Request(), RunKind.Remove);
+        var plan = await Runner(target, new InMemoryStateStore()).PlanAsync(Site, Request(), RunKind.Destroy);
 
         Assert.Equal(3, plan.ToDestroy);
         Assert.Equal("0 to add, 0 to change, 3 to destroy", plan.Summary);
@@ -91,7 +91,7 @@ public class TeardownPlanTests
         target.Resources["db"] = [new ResourceState("db-1", "T", "v1")];
 
         var plan = await Runner(target, state).PlanAsync(
-            new Procedure("site", [new ProcedureUnit("db", "Database")]), Request(), RunKind.Remove);
+            new Procedure("site", [new ProcedureUnit("db", "Database")]), Request(), RunKind.Destroy);
 
         Assert.Equal(1, plan.ToDestroy);
     }
@@ -117,7 +117,7 @@ public class TeardownPlanTests
     {
         var target = new FakeTarget { ["db"] = UnitPhase.Missing, ["api"] = UnitPhase.Missing, ["web"] = UnitPhase.Missing };
 
-        var plan = await Runner(target, new InMemoryStateStore()).PlanAsync(Site, Request(), RunKind.Remove);
+        var plan = await Runner(target, new InMemoryStateStore()).PlanAsync(Site, Request(), RunKind.Destroy);
 
         Assert.Equal(0, plan.ToDestroy);
         Assert.False(plan.IsDestructive);
@@ -136,7 +136,7 @@ public class TeardownPlanTests
         await history.UpsertAsync(new RunRecord(
             "run-A", "site", "acme", RunKind.Apply, RunStatus.Running, DateTimeOffset.UnixEpoch));
 
-        var plan = await new ProcedureRunner(target, history).PlanAsync(Site, Request(), RunKind.Remove);
+        var plan = await new ProcedureRunner(target, history).PlanAsync(Site, Request(), RunKind.Destroy);
 
         Assert.True(plan.HasWorkInFlight);
         Assert.False(plan.HasStalledRun);

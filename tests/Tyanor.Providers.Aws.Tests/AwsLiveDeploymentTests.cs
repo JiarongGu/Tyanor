@@ -100,7 +100,7 @@ public class AwsLiveDeploymentTests
         finally
         {
             // Always, even on failure: a leaked stack is a leaked bill, and this one is easy to forget.
-            await runner.RemoveAsync(procedure, request);
+            await runner.DestroyAsync(procedure, request);
             try { Directory.Delete(work, recursive: true); } catch (IOException) { /* temp */ }
         }
 

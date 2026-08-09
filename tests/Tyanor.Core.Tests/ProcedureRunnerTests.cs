@@ -120,7 +120,7 @@ public class ProcedureRunnerTests
         };
         var runner = new ProcedureRunner(new FakeTarget(driver), new FakeHistory());
 
-        var outcome = await runner.RemoveAsync(Site, Request(), _ => { });
+        var outcome = await runner.DestroyAsync(Site, Request(), _ => { });
 
         Assert.True(outcome.Ok);
         // web was already gone; edge-first order otherwise, so importers die before what they import.

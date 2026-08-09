@@ -245,7 +245,7 @@ public class SelfHostedServerTests
         await box.Runner.ApplyAsync(Server, request);
         var pid = box.Pid("acme", "service")!.Value;
 
-        var outcome = await box.Runner.RemoveAsync(Server, request);
+        var outcome = await box.Runner.DestroyAsync(Server, request);
 
         Assert.True(outcome.Ok);
         // Reverse order is what makes this safe: the process is stopped before the files it is running

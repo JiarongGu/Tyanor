@@ -120,3 +120,9 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   `-`, `_`, `.`, no leading dot, no `..`, 255 characters. A `Procedure` also refuses duplicate unit names
   (case-insensitively — `Api` and `api` are one directory on Windows), no units at all, and a weight below
   one. `StackUnit` adds CloudFormation's stricter rule in its own words. D17.
+- **Terraform's verbs, deliberately.** `ProcedureRunner.RemoveAsync` → `DestroyAsync` and `RunKind.Remove` →
+  `RunKind.Destroy` (breaking), so the whole command set reads as `validate · plan · apply · destroy ·
+  refresh · output` — the same words for the same jobs, because inventing new ones only makes a reader
+  translate. A *driver* still says `RemoveAsync`: it removes one unit rather than destroying a deployment,
+  which is the same asymmetry Terraform has between its command and a provider's per-resource delete. The
+  enum's stored value is unchanged, so existing run history still reads.

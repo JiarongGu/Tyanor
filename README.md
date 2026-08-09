@@ -33,6 +33,24 @@ Units are applied in order and removed in reverse. Each one is reconciled agains
 reports *right now*, so a unit that already finished is skipped, one still converging is attached to, and
 one that broke is remade.
 
+## If you know Terraform, you know the verbs
+
+Deliberately the same words, because they name the same jobs and inventing new ones would only make you
+translate:
+
+| Terraform | Tyanor |
+|---|---|
+| `terraform validate` | `runner.ValidateAsync(…)` — no provider access at all |
+| `terraform plan` | `runner.PlanAsync(…)` — in **either** direction |
+| `terraform apply` | `runner.ApplyAsync(…)` — which is also the resume |
+| `terraform destroy` | `runner.DestroyAsync(…)` |
+| `terraform refresh` | `runner.RefreshAsync(…)` |
+| `terraform output` | `runner.OutputsAsync(…)` |
+| `terraform state show` | `IStateStore.GetAsync(…)` |
+
+A *driver* still says `RemoveAsync`, because it removes one unit rather than destroying a deployment — the
+same asymmetry Terraform has between its command and a provider's per-resource delete.
+
 ## The idea in one table
 
 |  | *What* to deploy | *How* to deploy it |
@@ -75,7 +93,7 @@ if (plan.HasStalledRun)          /* a run is recorded live but nothing is conver
 one that most needs a gate:
 
 ```csharp
-var teardown = await runner.PlanAsync(procedure, request, RunKind.Remove);
+var teardown = await runner.PlanAsync(procedure, request, RunKind.Destroy);
 Console.WriteLine(teardown.Summary);        // "0 to add, 0 to change, 12 to destroy"
 foreach (var step in teardown.Steps) Console.WriteLine(step);   // in the order they will go
 ```

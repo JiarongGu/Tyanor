@@ -98,14 +98,14 @@ public class LifecycleTests
         Assert.False((await runner.PlanAsync(Server, request)).HasDrift);
 
         // ── plan the teardown ── the gate in front of the only irreversible direction.
-        var teardown = await runner.PlanAsync(Server, request, RunKind.Remove);
-        Assert.Equal(RunKind.Remove, teardown.Kind);
+        var teardown = await runner.PlanAsync(Server, request, RunKind.Destroy);
+        Assert.Equal(RunKind.Destroy, teardown.Kind);
         Assert.Equal(["service", "runtime"], teardown.Steps.Select(s => s.Unit.Name));   // reverse order
         Assert.True(teardown.IsDestructive);
         Assert.Equal(2, teardown.ToDestroy);
 
         // ── destroy ──
-        Assert.True((await runner.RemoveAsync(Server, request)).Ok);
+        Assert.True((await runner.DestroyAsync(Server, request)).Ok);
 
         // ── and afterwards, nothing: no files, no process, no state, no outputs.
         Assert.False(Directory.Exists(box.Deployed("acme", "runtime")));

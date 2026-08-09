@@ -22,8 +22,8 @@ public enum RunKind
     /// <summary>Converge the target on the desired state.</summary>
     Apply,
 
-    /// <summary>Remove everything the procedure created, in reverse order.</summary>
-    Remove,
+    /// <summary>Destroy everything the procedure created, in reverse order.</summary>
+    Destroy,
 }
 
 /// <summary>

@@ -65,7 +65,7 @@ that never comes back.
 ## Plan
 
 `PlanAsync` runs the same decision an apply will run, against the phase the provider reports now, and
-compares recorded state to a live refresh. It covers **both directions** — `RunKind.Remove` plans a
+compares recorded state to a live refresh. It covers **both directions** — `RunKind.Destroy` plans a
 teardown, which is the operation that destroys things and therefore the one that most needs a gate.
 
 `Plan.IsDestructive` is the line to put a confirmation behind: a create or an update is recoverable by

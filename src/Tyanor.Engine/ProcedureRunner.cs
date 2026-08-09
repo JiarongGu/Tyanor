@@ -40,7 +40,7 @@ public sealed class ProcedureRunner(
     /// <param name="procedure">The units, in apply order.</param>
     /// <param name="request">What would be deployed, and where.</param>
     /// <param name="kind">
-    /// Which direction to plan. <see cref="RunKind.Remove"/> plans a TEARDOWN — the units in reverse order,
+    /// Which direction to plan. <see cref="RunKind.Destroy"/> plans a TEARDOWN — the units in reverse order,
     /// which of them are already gone, and every resource the removal will destroy.
     /// <para>A teardown gets a plan because it is the operation that destroys things, and a safety gate that
     /// covers only the recoverable direction is not one.</para>
@@ -63,7 +63,7 @@ public sealed class ProcedureRunner(
 
             var phase = await WithRetryAsync(() => target.Driver.PhaseAsync(context), ct);
             steps.Add(new PlannedStep(unit, phase,
-                kind == RunKind.Apply ? Reconcile.Decide(phase) : Reconcile.DecideRemoval(phase)));
+                kind == RunKind.Apply ? Reconcile.Decide(phase) : Reconcile.DecideDestroy(phase)));
 
             if (recorded is null) continue;
 
@@ -205,18 +205,24 @@ public sealed class ProcedureRunner(
         => await RunAsync(procedure, procedure.Forward().ToList(), RunKind.Apply, request, report ?? Ignore, runId, ct);
 
     /// <summary>
-    /// Remove everything the procedure created, in REVERSE unit order so that whatever imports from a unit
+    /// Destroy everything the procedure created, in REVERSE unit order so that whatever imports from a unit
     /// is gone before the unit itself.
+    ///
+    /// <para>Named for the operation an operator performs, the way <c>terraform destroy</c> is — while a
+    /// DRIVER still says <see cref="IUnitDriver.RemoveAsync"/>, because it removes one unit rather than
+    /// destroying a deployment. The asymmetry is the same one Terraform has between its command and a
+    /// provider's per-resource delete, and it is worth keeping for the same reason: they are different jobs.
+    /// Preview one with <see cref="PlanAsync"/> and <see cref="RunKind.Destroy"/>.</para>
     /// </summary>
     /// <param name="procedure">The units; removed in reverse of apply order.</param>
     /// <param name="request">Which deployment to remove.</param>
     /// <param name="report">Receives live progress lines.</param>
     /// <param name="runId">Pass the id of a paused teardown to continue it.</param>
     /// <param name="ct">Cancelling leaves the run LIVE.</param>
-    public async Task<OperationOutcome> RemoveAsync(
+    public async Task<OperationOutcome> DestroyAsync(
         Procedure procedure, DeploymentRequest request, Action<ProgressReport>? report = null,
         string? runId = null, CancellationToken ct = default)
-        => await RunAsync(procedure, procedure.Reverse().ToList(), RunKind.Remove, request, report ?? Ignore, runId, ct);
+        => await RunAsync(procedure, procedure.Reverse().ToList(), RunKind.Destroy, request, report ?? Ignore, runId, ct);
 
     /// <summary>Progress is optional — a script or a test may not want it. Nothing else changes.</summary>
     private static void Ignore(ProgressReport _) { }
@@ -260,7 +266,7 @@ public sealed class ProcedureRunner(
                 // Keep state current as we go, not once at the end: a run that pauses halfway has still
                 // created things, and state that only lands on success would omit exactly the resources a
                 // resumed or abandoned run most needs to know about.
-                await RecordStateAsync(procedure, request, unit, removed: kind == RunKind.Remove, ct);
+                await RecordStateAsync(procedure, request, unit, removed: kind == RunKind.Destroy, ct);
 
                 done += unit.Weight;
                 report(new ProgressReport(unit.Name, $"{unit.Label}: done.",
@@ -369,7 +375,7 @@ public sealed class ProcedureRunner(
 
         // The same decision the teardown PLAN showed, taken again from what is true now — so what an
         // operator was shown and what happens come from one function rather than two that can disagree.
-        if (Reconcile.DecideRemoval(phase) == ReconcileAction.Nothing)
+        if (Reconcile.DecideDestroy(phase) == ReconcileAction.Nothing)
         {
             context.Progress($"{context.Label}: already removed.", status: ProgressStatus.Success);
             return;
