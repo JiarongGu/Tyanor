@@ -94,8 +94,12 @@ public sealed class ArtifactException(string message) : DefinitionException(mess
 /// <summary>
 /// One request to converge a target on a desired state.
 /// </summary>
-/// <param name="Prefix">Operator-chosen name base. Units deploy as <c>{Prefix}-{unit}</c>, which is what
-/// lets one account host several independent deployments of the same procedure.</param>
+/// <param name="Prefix">
+/// Operator-chosen name base. Units deploy as <c>{Prefix}-{unit}</c>, which is what lets one account host
+/// several independent deployments of the same procedure.
+/// <para>Checked, because it is not a label: it becomes a directory under a provider's root and a component
+/// of resource names. See <see cref="Identifiers"/> for what is refused and why.</para>
+/// </param>
 /// <param name="Artifact">What to deploy.</param>
 /// <param name="Options">Procedure- and provider-specific settings (a compute tier, a domain name, a
 /// replica count). Deliberately untyped here: the moment this becomes a fixed set of fields, it grows one
@@ -107,6 +111,15 @@ public sealed record DeploymentRequest(
     IReadOnlyDictionary<string, string>? Options = null,
     IReadOnlyDictionary<string, string>? Tags = null)
 {
+    private readonly string _prefix = Identifiers.Require(Prefix, "prefix");
+
+    /// <inheritdoc cref="Prefix"/>
+    public string Prefix
+    {
+        get => _prefix;
+        init => _prefix = Identifiers.Require(value, "prefix");
+    }
+
     /// <summary>An option value, or null.</summary>
     public string? Option(string key) => Options is not null && Options.TryGetValue(key, out var v) ? v : null;
 

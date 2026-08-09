@@ -9,20 +9,63 @@ namespace Tyanor;
 /// <c>.claude/rules/units-not-graphs.md</c> before adding edges.</para>
 /// </summary>
 /// <param name="Name">Stable identity within the procedure — also the resume key, so it must not change
-/// between runs of the same procedure.</param>
-/// <param name="Label">What to call it in front of a human ("Database", "Website").</param>
+/// between runs of the same procedure. Becomes a directory name and a provider resource name, so it is
+/// checked: see <see cref="Identifiers"/>.</param>
+/// <param name="Label">What to call it in front of a human ("Database", "Website"). Free text — this one is
+/// only ever shown.</param>
 /// <param name="Weight">Relative share of the run's progress. Equal weights are fine; give a
 /// ten-minute unit more than a ten-second one so a progress bar does not lie.</param>
-public sealed record ProcedureUnit(string Name, string Label, int Weight = 1);
+public sealed record ProcedureUnit(string Name, string Label, int Weight = 1)
+{
+    private readonly string _name = Identifiers.Require(Name, "unit name");
+    private readonly int _weight = Weight > 0
+        ? Weight
+        : throw new ArgumentOutOfRangeException(nameof(Weight), Weight,
+            "A unit's weight is its share of the progress bar and must be at least 1. Zero makes the unit " +
+            "invisible while it runs; negative makes progress go backwards.");
+
+    /// <inheritdoc cref="Name"/>
+    public string Name
+    {
+        get => _name;
+        init => _name = Identifiers.Require(value, "unit name");
+    }
+
+    /// <inheritdoc cref="Weight"/>
+    public int Weight
+    {
+        get => _weight;
+        init => _weight = value > 0
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, "A unit's weight must be at least 1.");
+    }
+}
 
 /// <summary>
 /// An ordered set of units plus the direction they are applied in. A teardown is the same procedure read
 /// backwards — edge before compute before data — so importers are gone before the thing they import from.
 /// </summary>
-/// <param name="Name">Procedure identity (also the history key).</param>
+/// <param name="Name">Procedure identity (also the history and state key).</param>
 /// <param name="Units">Applied in order; torn down in reverse.</param>
 public sealed record Procedure(string Name, IReadOnlyList<ProcedureUnit> Units)
 {
+    private readonly string _name = Identifiers.Require(Name, "procedure name");
+    private readonly IReadOnlyList<ProcedureUnit> _units = Checked(Units);
+
+    /// <inheritdoc cref="Name"/>
+    public string Name
+    {
+        get => _name;
+        init => _name = Identifiers.Require(value, "procedure name");
+    }
+
+    /// <inheritdoc cref="Units"/>
+    public IReadOnlyList<ProcedureUnit> Units
+    {
+        get => _units;
+        init => _units = Checked(value);
+    }
+
     /// <summary>The order to APPLY in.</summary>
     public IEnumerable<ProcedureUnit> Forward() => Units;
 
@@ -31,6 +74,35 @@ public sealed record Procedure(string Name, IReadOnlyList<ProcedureUnit> Units)
 
     /// <summary>Total weight, for progress arithmetic.</summary>
     public int TotalWeight => Units.Sum(u => u.Weight);
+
+    /// <summary>
+    /// Refuse a procedure that cannot mean what it says.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Duplicate names are the one worth catching.</b> A unit's name IS its address — the stack
+    /// called <c>{prefix}-{name}</c>, the directory at <c>{root}/{prefix}/{name}</c>, its entry in state.
+    /// Two units sharing one would deploy on top of each other and the second would silently overwrite the
+    /// first's state, which looks like a unit that quietly stopped existing.</para>
+    /// <para>Compared case-INSENSITIVELY, because on Windows <c>Api</c> and <c>api</c> are the same
+    /// directory even though they are different strings — so a pair that looks fine on the machine it was
+    /// written on collides on the machine it deploys to.</para>
+    /// </remarks>
+    private static IReadOnlyList<ProcedureUnit> Checked(IReadOnlyList<ProcedureUnit> units)
+    {
+        ArgumentNullException.ThrowIfNull(units);
+        if (units.Count == 0)
+            throw new ArgumentException("A procedure needs at least one unit.", nameof(units));
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var unit in units)
+            if (!seen.Add(unit.Name))
+                throw new ArgumentException(
+                    $"Two units are both called '{unit.Name}'. A unit's name is its address — the stack, the " +
+                    "directory, its entry in state — so two of them would deploy on top of each other.",
+                    nameof(units));
+
+        return units;
+    }
 }
 
 /// <summary>How loud a progress line is. Drives tone in a UI, nothing else.</summary>

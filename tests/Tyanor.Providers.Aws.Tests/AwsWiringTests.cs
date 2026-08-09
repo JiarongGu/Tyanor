@@ -149,6 +149,42 @@ public class AwsWiringTests
     }
 
     [Theory]
+    [InlineData("9lives", "web")]          // CloudFormation stack names must start with a letter
+    [InlineData("my_site", "web")]         // …and Core allows underscores, because a filesystem does
+    [InlineData("site", "web_content")]
+    public async Task A_name_CloudFormation_would_refuse_is_refused_HERE_with_a_readable_reason(
+        string prefix, string unit)
+    {
+        // The gap between Core's rule and this provider's. Core deliberately does not know CloudFormation's
+        // charset (D4), so closing the gap is this provider's job — and doing it locally turns an opaque
+        // ValidationError from AWS into a sentence naming what is wrong.
+        using var target = Target();
+        var request = new DeploymentRequest(prefix, new DeploymentArtifact(new Dictionary<string, string>()),
+            new Dictionary<string, string> { ["kind"] = AwsOptions.StackKind });
+
+        var error = await Assert.ThrowsAsync<AwsConfigurationException>(
+            () => target.Driver.PhaseAsync(new UnitContext(new ProcedureUnit(unit, "Unit"), request)));
+
+        Assert.Contains($"{prefix}-{unit}", error.Message);
+        Assert.Contains("CloudFormation", error.Message);
+    }
+
+    [Fact]
+    public async Task A_prefix_that_makes_the_stack_name_too_long_says_to_shorten_the_prefix()
+    {
+        // 128 is reached sooner than anyone expects, because the prefix is in every stack name.
+        using var target = Target();
+        var request = new DeploymentRequest(new string('a', 130),
+            new DeploymentArtifact(new Dictionary<string, string>()),
+            new Dictionary<string, string> { ["kind"] = AwsOptions.StackKind });
+
+        var error = await Assert.ThrowsAsync<AwsConfigurationException>(
+            () => target.Driver.PhaseAsync(new UnitContext(new ProcedureUnit("web", "Website"), request)));
+
+        Assert.Contains("128", error.Message);
+    }
+
+    [Theory]
     [InlineData("index.html", "text/html")]
     [InlineData("app.js", "application/javascript")]
     [InlineData("styles.css", "text/css")]

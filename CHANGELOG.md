@@ -104,3 +104,9 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
 - **`Plan.HasWorkInFlight` read the action rather than the phase**, so a teardown plan — where nothing ever
   attaches — reported an idle provider however busy it was, which made every teardown plan with a live run
   claim it had stalled and that nothing was in sync.
+- **A prefix or unit name could point outside the deployment root** (breaking for anyone relying on it, which
+  is nobody sane). Both flow into `Path.Combine(root, prefix, unit)` and, on teardown, into a recursive
+  delete — so `"../../etc"` escaped. Both are now validated on construction and on `with`: letters, digits,
+  `-`, `_`, `.`, no leading dot, no `..`, 255 characters. A `Procedure` also refuses duplicate unit names
+  (case-insensitively — `Api` and `api` are one directory on Windows), no units at all, and a weight below
+  one. `StackUnit` adds CloudFormation's stricter rule in its own words. D17.

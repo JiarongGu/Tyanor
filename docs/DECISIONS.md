@@ -603,3 +603,57 @@ credentials, then progress. Pre-1.0 is when that stops being free.
 **What it cost:** a mechanical refactor of both providers, and it dropped a cancellation token on the way
 through. The test for "an interrupted redeploy leaves the previous build serving" caught it, which is the
 argument for having written that test rather than assuming the ordering held.
+
+---
+
+## D17 — A name is checked where it stops being a label (2026-08-09)
+
+`DeploymentRequest.Prefix`, `Procedure.Name` and `ProcedureUnit.Name` are validated on construction.
+`ProcedureUnit.Label` is not, and never will be.
+
+**Why, concretely.** These are not labels. A prefix and a unit name become
+`Path.Combine(root, prefix, unit)` in a machine deployment, a CloudFormation stack name, and a component of
+a bucket name. Nothing checked them, so a prefix of `"../../etc"` made the local provider write outside its
+own root — and made its teardown, which is `Directory.Delete(path, recursive: true)`, do the same.
+
+That is not an exotic misuse. The prefix is documented as *operator-chosen*, the first consumer's operator
+is a non-technical owner typing a site name into a field, and a path fragment in a name box is an ordinary
+mistake with an extraordinary result. A deployment tool that can be aimed outside its own root by a text
+input has a defect regardless of who is expected to fill it in.
+
+**What is refused:** anything but letters, digits, `-`, `_` and `.`; a leading dot; `..` anywhere; blank; and
+longer than 255 characters. Traversal is impossible by construction rather than by sanitising, because
+sanitising a path is a thing people get wrong repeatedly and refusing one is not.
+
+Two of those deserve their reasons stated. **A leading dot** is refused because the local provider keeps its
+bookkeeping in `.tyanor` beside the units, so a unit allowed that name would deploy on top of the pid files
+supervising it. **255** is the limit most filesystems put on a single path component — a fact about
+filesystems, not about any provider.
+
+### Core checks what is universal; a provider checks its own
+
+`Identifiers` deliberately allows `_` and `.`, which CloudFormation stack names do not, and does not require
+a leading letter, which they do. Encoding CloudFormation's charset in Core is the leak D4 is about — so the
+gap is the provider's to close, and `StackUnit` closes it: a name AWS would refuse now fails locally with a
+sentence naming the problem, rather than as an opaque `ValidationError` after a round trip.
+
+That split is the general rule. Core refuses what would be wrong against every target. A provider refuses
+what would be wrong against its own, in its own words.
+
+### Two more things a procedure can no longer be
+
+- **Two units with the same name.** A unit's name is its *address*: the stack `{prefix}-{name}`, the
+  directory `{root}/{prefix}/{name}`, its entry in state. Two of them deploy on top of each other and the
+  second silently overwrites the first's state, which looks exactly like a unit that quietly stopped
+  existing. Compared case-INSENSITIVELY, because on Windows `Api` and `api` are one directory — so a pair
+  that looks fine on the machine it was written on collides on the machine it deploys to.
+- **No units at all**, and **a weight below one.** An empty procedure applies successfully, reports 100%, and
+  deploys nothing, which is the most confusing kind of success. A zero weight makes a unit invisible while it
+  runs; a negative one makes the progress bar go backwards.
+
+**Validated on `with` as well as on construction**, which needed the property's `init` accessor rather than
+just an initializer — a record's copy constructor writes backing fields directly, so an initializer alone is
+bypassed by `request with { Prefix = "../escape" }`. A check that a one-line rewrite defeats is not one.
+
+**Evidence that this was not tightening for its own sake:** all 327 existing tests passed unchanged. Nothing
+anyone had written was a name this refuses, which is what a well-aimed check looks like.

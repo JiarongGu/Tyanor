@@ -168,7 +168,35 @@ internal sealed class StackUnit(
             ?? new Dictionary<string, string>();
     }
 
-    private static string Name(UnitContext context) => $"{context.Request.Prefix}-{context.Name}";
+    /// <summary>
+    /// The stack this unit deploys as: <c>{prefix}-{unit}</c>.
+    /// </summary>
+    /// <remarks>
+    /// CloudFormation's own rule, checked here rather than in Core: a stack name must start with a letter and
+    /// hold only letters, digits and hyphens. Core allows <c>_</c> and <c>.</c> because a filesystem does and
+    /// because Core naming a vendor's constraints is the leak <c>docs/DECISIONS.md</c> D4 is about — so the
+    /// gap between the two is this provider's to close, and closing it here turns an opaque
+    /// <c>ValidationError</c> from AWS into a sentence naming what is wrong.
+    /// </remarks>
+    /// <exception cref="AwsConfigurationException">The name CloudFormation would refuse.</exception>
+    private static string Name(UnitContext context)
+    {
+        var name = $"{context.Request.Prefix}-{context.Name}";
+
+        if (!char.IsAsciiLetter(name[0]) || !name.All(c => char.IsAsciiLetterOrDigit(c) || c == '-'))
+            throw new AwsConfigurationException(
+                $"'{name}' is not a usable CloudFormation stack name. It is built from the prefix and the " +
+                "unit name, and CloudFormation requires those to start with a letter and use only letters, " +
+                "digits and hyphens.");
+
+        // 128 is CloudFormation's limit, and it is reached sooner than anyone expects because the prefix is
+        // in every stack name.
+        if (name.Length > 128)
+            throw new AwsConfigurationException(
+                $"'{name}' is {name.Length} characters; CloudFormation stops at 128. Shorten the prefix.");
+
+        return name;
+    }
 
     /// <summary>
     /// The stack's status, or null when it does not exist.

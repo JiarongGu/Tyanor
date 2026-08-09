@@ -33,6 +33,11 @@ then consumers depend on the leaked shape.
   the identity is ambient (this machine's user, an instance role, an already-selected context). The
   non-nullable version was the same defect as `CdkOutDir`, just quieter: a neutral contract asserting the
   circumstances of the only provider that existed (`docs/DECISIONS.md` D13).
+- **Core validates what is wrong against EVERY target; a provider validates its own, in its own words.**
+  `Identifiers` refuses a prefix or unit name that could be read as a path, because that is true everywhere.
+  It allows `_` and `.`, which CloudFormation stack names do not — so `StackUnit` refuses those itself and
+  says why. Putting CFN's charset in Core would be the leak this rule is about; leaving the gap open would
+  make an operator wait for a round trip to learn their name was invalid (D17).
 
 ## The authoring / executing split
 
