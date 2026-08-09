@@ -42,6 +42,23 @@ The bar has already survived one real attempt: a second provider shape produced 
 must-be-both-before-and-after constraint, and it was absorbed without edges (D13). Bring the next one to
 that standard before adding any.
 
+## The DSL, refused on evidence rather than taste
+
+The brief's pipeline — restore → build → test → package → publish → deploy → validate — looked like it
+needed a second authoring model, because it is "broader than deployment units". Checked phase by phase, it is
+not. The bar for being a unit is one question: **can it answer "has this already happened?"** A lockfile
+hash, an output newer than its inputs, a recorded pass for a fingerprint, a package file, a registry query —
+all seven can. So a pipeline is a `Procedure` whose units happen to be builds and tests, authored in C# like
+any other, and `CustomUnits` lets a consumer add them without changing this library at all (D21).
+
+A step that CANNOT answer that question is a script, not a unit, and belongs outside the procedure. That is
+the line to draw when this comes up again — not "is it a deployment?" but "can it be asked?".
+
+**`Procedure.Only(...)` is narrowing, not a graph.** A subset of an ordered list is still ordered, so the
+units that run keep their relative order; the only thing narrowing can do is leave something out, which the
+plan then shows. That is why it is safe here and a footgun in Terraform, where `-target` skips dependency
+resolution.
+
 ## Related
 
 - [`reconcile-dont-mirror.md`](reconcile-dont-mirror.md) · `docs/DECISIONS.md` D3

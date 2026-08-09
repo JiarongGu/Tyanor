@@ -35,8 +35,12 @@ recorded in `IStateStore` and re-synced from reality by `RefreshAsync`, which is
 and honest add/change/destroy counts possible.
 
 Every driver method takes a `UnitContext` — the unit, the request, progress and cancellation — so the
-contract can grow without breaking every implementation again (D16). `PlanAsync` runs the same decision the
-run will, in **either direction**: a teardown gets a plan because it is the one that destroys things.
+contract can grow without breaking every implementation again (D16).
+
+The operator-facing surface is deliberately Terraform's, because it names the same jobs: **validate** (no
+provider access at all), **plan** (either direction), **apply** (which is also the resume), **destroy**,
+**refresh**, **output**. `procedure.Only("web")` narrows any of them, which is `-target` (D21). Where state
+lives is a descriptor — `"sqlite:/var/lib/app.db"` — resolved through registered backends (D20).
 
 **Resume is not a feature; it is the absence of one.** Applying and resuming are the same call, because
 each unit is decided from what is true now rather than from what a previous run remembered.
@@ -67,11 +71,25 @@ tests/
 **`Tyanor.Core`, `Tyanor.Engine` and `Tyanor.Testing` take no package dependencies** — `doctor` checks it.
 If something needs one, it belongs in a package beside them, not in them.
 
-**Every seam is public and third-party-implementable (D15).** A provider or storage backend written outside
-this repository is first-class: same contracts, same registration, same contract suites, no shortcut for
-the built-in ones. When adding to a seam, ask what an out-of-repo implementer would have to copy — if the
-answer is anything, it belongs in the framework. Both shipped providers hand-wrote the kind dispatch and
-artifact-part resolution before they became `UnitKindDriver` and `RequirePart`.
+**Every seam is public and third-party-implementable.** When adding to a seam, ask what an out-of-repo
+implementer would have to copy — if the answer is anything, it belongs in the framework. Both shipped
+providers hand-wrote the kind dispatch and artifact-part resolution before they became `UnitKindDriver` and
+`RequirePart`.
+
+The same answer has now been right three times, so reach for it before inventing a fourth shape:
+
+| Someone needs | They write | They register | |
+|---|---|---|---|
+| a whole new target | `IDeploymentTarget` + `IUnitDriver` | `cfg.AddTarget(…)` | D15 |
+| one step of their own | `IUnitDriver` | `new AwsTarget(creds, new CustomUnits { … })` | D19 |
+| state somewhere else | `IStorageBackend` | `cfg.AddStorage(…)` | D20 |
+
+**Build it where you need it, prove it with the contract suites, upstream it if it generalizes.** Nothing is
+discovered from disk in any of the three (D6): authoring a plugin and *loading* one are different questions.
+
+**Growing `IUnitDriver` costs everyone.** Adding a parameter is free — it goes on `UnitContext` (D16). Adding
+a METHOD is not, so it arrives with a default meaning *I do not do that*, which is how `ValidateAsync` and
+`OutputsAsync` were additive (D18).
 
 ## 4. Before you commit: `npm run doctor`
 

@@ -7,6 +7,57 @@ something it did not say.
 Each entry names what was decided, what it was decided **against**, and what evidence exists. "It seemed
 cleaner" is not evidence.
 
+## Index
+
+An overtaken entry carries a banner pointing forward; `doctor` checks that both directions exist, because
+the way a log like this rots is that the entry which supersedes says so and the original says nothing.
+
+**The shape of the thing**
+
+| | | |
+|---|---|---|
+| [D3](#d3--units-are-an-ordered-list-not-a-graph-2026-08-06) | ordered list, not a graph | plus D13, D21 |
+| [D8](#d8--terraforms-how-cdks-what-2026-08-06) | Terraform's *how*, CDK's *what* | the positioning |
+| [D10](#d10--tyanor-is-a-library-not-a-service-2026-08-06) | a library, not a service | |
+| [D5](#d5--tyanor-executes-a-pre-built-artifact-it-does-not-synthesize-2026-08-06) | executes, does not synthesize | |
+| [D21](#d21--the-pipeline-does-not-need-a-new-authoring-model-it-needs-unit-kinds-2026-08-09) | a pipeline is unit kinds, not a DSL | |
+
+**The engine**
+
+| | | |
+|---|---|---|
+| [D1](#d1--reconcile-against-the-provider-keep-no-state-file-2026-08-06) | reconcile against the provider | ⚠ overtaken by D12 |
+| [D2](#d2--three-failure-classes-because-there-are-three-responses-2026-08-06) | three failure classes | |
+| [D16](#d16--the-gate-goes-in-front-of-the-destructive-direction-too-2026-08-09) | destroy gets a plan; `UnitContext` | |
+| [D18](#d18--validate-offline-and-say-what-the-deployment-produced-2026-08-09) | validate offline; outputs | |
+| [D17](#d17--a-name-is-checked-where-it-stops-being-a-label-2026-08-09) | names are checked, not sanitised | |
+
+**State**
+
+| | | |
+|---|---|---|
+| [D7](#d7--run-state-is-persisted-at-a-location-the-consumer-configures-2026-08-06--amends-d1) | run state is persisted | ⚠ overtaken by D12 |
+| [D12](#d12--there-is-one-set-of-state-local-or-remote-kept-current-and-re-syncable-2026-08-06--supersedes-d1-d7-d11) | **one set of state, re-syncable** | supersedes D1, D7, D11 |
+| [D9](#d9--cross-machine-is-a-capability-made-safe-by-visibility-rather-than-by-locking-2026-08-06) | cross-machine by visibility, not locks | ⚠ scoped by D11 |
+| [D11](#d11--we-support-state-checking-not-cross-machine-syncing-2026-08-06--scopes-d9) | checking, not syncing | ⚠ overtaken by D12 |
+| [D20](#d20--storage-is-a-kind-and-a-connection-2026-08-09) | storage is a kind and a connection | |
+
+**Extending it**
+
+| | | |
+|---|---|---|
+| [D4](#d4--core-names-no-vendor-2026-08-06) | Core names no vendor | |
+| [D6](#d6--no-plugin-discovery-2026-08-06) | no plugin *discovery* | authoring is supported — D15 |
+| [D15](#d15--a-provider-written-elsewhere-is-a-first-class-provider-2026-08-09) | a provider written elsewhere is first-class | |
+| [D19](#d19--an-applications-own-step-is-a-unit-not-code-that-runs-afterwards-2026-08-09) | an application's own step is a unit | |
+
+**What was built, and what it cost**
+
+| | | |
+|---|---|---|
+| [D13](#d13--the-abstraction-was-tested-against-a-second-shape-before-aws-was-ported-2026-08-08) | the local provider, built before AWS on purpose | |
+| [D14](#d14--the-aws-port-keeps-the-knowledge-and-leaves-the-application-behind-2026-08-08) | the AWS port — **never run against AWS** | |
+
 ---
 
 ## D1 — Reconcile against the provider; keep no state file (2026-08-06)

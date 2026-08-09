@@ -33,7 +33,7 @@ public sealed class <Name>Target : IDeploymentTarget
     public string Id => "<name>";                       // stable, lowercase
     public IUnitDriver Driver { get; }
     public IFailureClassifier Classifier { get; }
-    public Task<TargetIdentity> ValidateAsync(TargetCredentials c, CancellationToken ct);
+    public Task<TargetIdentity> ValidateAsync(TargetCredentials? c, CancellationToken ct);
 }
 ```
 
@@ -41,7 +41,14 @@ public sealed class <Name>Target : IDeploymentTarget
 validation, and showing the operator which account they are about to deploy into is the cheapest guard
 against deploying to the wrong one.
 
-### 2. `IUnitDriver` — six methods, no orchestration
+Credentials are **nullable**: null means the target authenticates ambiently — this machine's user, an instance
+role, an already-selected context. If yours needs credentials and gets none, return `TargetIdentity` with
+`Ok: false` and say so rather than throwing (D13).
+
+Take a `CustomUnits?` too, and pass it to your driver. It is two lines and it is what lets a consuming
+application add its own step to a procedure built on your provider (D19).
+
+### 2. `IUnitDriver` — six required, two optional, no orchestration
 
 Every one takes a `UnitContext`: the unit, the request, progress and cancellation.
 
@@ -53,6 +60,17 @@ Every one takes a `UnitContext`: the unit, the request, progress and cancellatio
 | `RemoveAsync` | remove and wait until gone | fail when it is already gone |
 | `AwaitSettledAsync` | poll to settled; throw if it settled badly | swallow a failure |
 | `RefreshAsync` | report what the unit OWNS, with stable ids | throw when the unit is absent — return empty |
+
+Two more have defaults, so ignoring them costs nothing and implementing them is usually worth it:
+
+| Method | Default | Implement it when |
+|---|---|---|
+| `ValidateAsync` | no problems | your unit has configuration to get wrong — **make no network calls** |
+| `OutputsAsync` | nothing | your unit produces something a caller needs: a URL, an endpoint, a generated name |
+
+`ValidateAsync` should run the same option and artifact resolution `CreateAsync` runs and collect the
+`DefinitionException`s, rather than repeating the rules. Two copies of a rule is two rules, and they diverge
+the first time one is edited (D18).
 
 **Report progress from wherever the work actually is.** If your provider has no control plane, the work is
 in `CreateAsync` and `RemoveAsync`, not in the wait — `context.Progress("copied 412 of 900 files…", 46)`.

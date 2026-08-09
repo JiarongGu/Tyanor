@@ -31,7 +31,11 @@ and **the original says nothing**. A reader arrives at D1 and follows advice tha
 That is not hypothetical — it happened here on day one, when D1 was superseded twice within hours. So the
 check requires supersession to point **both ways**, and it caught five missing forward pointers the first
 time it ran. It also verifies every decision has a date and that every `D<n>` cited anywhere in the repo
-actually exists.
+actually exists — which caught a source comment citing D20 before D20 had been written.
+
+Once the log grew past twenty entries it got an index of hand-written anchors, so the check also verifies
+every in-page link resolves to a heading that exists. A reworded title otherwise leaves the index pointing
+nowhere, which is worse than having no index because it still looks like navigation.
 
 ### `rules`
 

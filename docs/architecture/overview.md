@@ -62,14 +62,24 @@ never started reports `Missing` and is created. Three different histories, one c
 The same property handles a second operator running the same procedure, a closed laptop, and a machine
 that never comes back.
 
-## Plan
+## The six things an operator does
 
-`PlanAsync` runs the same decision an apply will run, against the phase the provider reports now, and
-compares recorded state to a live refresh. It covers **both directions** — `RunKind.Destroy` plans a
-teardown, which is the operation that destroys things and therefore the one that most needs a gate.
+Deliberately Terraform's verbs, because they name the same jobs (D16):
+
+| | Touches the provider? | |
+|---|---|---|
+| `ValidateAsync` | **no** | every problem in the definition, in one pass, before an account exists |
+| `PlanAsync` | read-only | what a run would do, in **either** direction |
+| `ApplyAsync` | yes | which is also the resume — there is no separate one |
+| `DestroyAsync` | yes | reverse order, so importers go before what they import from |
+| `RefreshAsync` | read-only | re-sync state from reality; repairs a stale mirror |
+| `OutputsAsync` | read-only | what the deployment produced — the URL somebody asks for |
 
 `Plan.IsDestructive` is the line to put a confirmation behind: a create or an update is recoverable by
 running it again, and a destroy is not.
+
+`procedure.Only("web")` narrows any of them to some units — Terraform's `-target`, and safer for having no
+dependency graph to skip: a subset of an ordered list is still ordered (D21).
 
 ## Failure
 
@@ -109,6 +119,38 @@ concrete leak that motivated the vendor-neutrality rule, and D10 for why every s
 runner for one over the history and state store the application configured. Resolving "the" runner with
 several registered throws and names them rather than picking — registering a second provider must not
 silently change where a deployment goes (D15).
+
+## Where state lives
+
+Named, not coded: `"{kind}:{target}"` resolved through registered `IStorageBackend`s — Terraform's *backend*,
+and the same idea (D20).
+
+```
+json:/var/lib/myapp/state.json      sqlite:/var/lib/myapp/tyanor.db
+postgres:Host=db;Database=ops       s3://my-bucket/tyanor/state.json
+```
+
+Two stores, deliberately separate. What Tyanor **owns** (`IStateStore`) has to stay true; the run **log**
+(`IRunHistory`) is an append-only account of attempts. Different lifetimes, and a team sharing one does not
+necessarily want to share the other.
+
+Only `json` ships, registered by default because it is the only kind that needs no package, no server and no
+decision on day one. A bare path is refused rather than guessed: `"sqlite/state.db"` would otherwise read as a
+file called `sqlite/state.db` and write state somewhere nobody meant.
+
+## Three seams, one answer
+
+The same shape resolved three separate questions, which is why it is the thing to reach for next time:
+
+| I need | Write | Register |
+|---|---|---|
+| a whole new target | `IDeploymentTarget` + `IUnitDriver` (D15) | `cfg.AddTarget(…)` |
+| one step of my own | `IUnitDriver` (D19) | `new AwsTarget(creds, new CustomUnits { … })` |
+| state somewhere else | `IStorageBackend` (D20) | `cfg.AddStorage(…)` |
+
+**Build it where you need it, prove it with the contract suites in `Tyanor.Testing`, upstream it if it
+generalizes.** Nothing is discovered from disk in any of the three (D6) — a deployment tool holds credentials,
+so it does not run code it merely found. Authoring a plugin and loading one are different questions.
 
 ## What is deliberately absent
 

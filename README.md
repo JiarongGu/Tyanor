@@ -79,6 +79,29 @@ it — because a provider working with raw resources cannot tell you what Tyanor
 teardown cannot distinguish it from what was already there. `RefreshAsync` re-reads reality and rewrites
 state to match ([D12](docs/DECISIONS.md)).
 
+**Every stop is classified.** An expired credential and a malformed template both end a run, but only one
+means the work so far was wasted. Credentials and transient errors *pause* — resumable, progress kept. Only a
+genuinely hard failure is terminal.
+
+**Ordered units, not a dependency graph.** Data before compute before edge covers the overwhelming majority
+of real deployments, and reverse-order teardown then falls out for free. The graph is where tools like this
+become large; see [`docs/DECISIONS.md`](docs/DECISIONS.md) D3.
+
+**It executes, it does not synthesize.** Tyanor consumes a pre-built artifact, so an operator can deploy with
+no cloud SDK installed. Synthesis happens earlier, on a machine that has the toolchain.
+
+**A library, not a service.** `Tyanor.Core`, `Tyanor.Engine` and `Tyanor.Testing` take **no package
+dependencies**. There is no daemon, no CLI, no ambient state and no background thread. DI is a separate,
+optional package — the minimal path is three lines with no container:
+
+```csharp
+var runner = new ProcedureRunner(target, new FileRunHistory("runs.json"));
+var plan   = await runner.PlanAsync(procedure, request);
+await runner.ApplyAsync(procedure, request);          // progress callback optional
+```
+
+## Using it
+
 **Plans are a safety gate on your infrastructure.** `PlanAsync` asks the target what each unit's phase is
 and runs the same decision the apply will run, then compares recorded state against a live refresh:
 
@@ -121,18 +144,14 @@ var outputs = await runner.OutputsAsync(procedure, request);
 Console.WriteLine(outputs["web.url"]);               // read from the provider, never from state
 ```
 
-**A library, not a service.** `Tyanor.Core`, `Tyanor.Engine` and `Tyanor.Testing` take **no package
-dependencies**. There is no daemon, no CLI, no ambient state and no background thread. DI is a separate,
-optional package — the minimal path is three lines with no container:
+**Redeploy just one part.** `procedure.Only("web")` narrows any of the above to some units, in their original
+order — Terraform's `-target`. A narrowed run touches only its own units' state, so it cannot quietly forget
+what it did not look at.
 
-```csharp
-var runner = new ProcedureRunner(target, new FileRunHistory("runs.json"));
-var plan   = await runner.PlanAsync(procedure, request);
-await runner.ApplyAsync(procedure, request);          // progress callback optional
-```
+## Where state lives
 
-**State lives where you put it — named, not coded.** A backend is a *kind* and a *connection*, in one string
-you can read from `appsettings.json`:
+**Named, not coded.** A backend is a *kind* and a *connection*, in one string you can read from
+`appsettings.json`:
 
 ```csharp
 services.AddTyanor(cfg =>                                  // optional package, if you use a container
@@ -163,17 +182,6 @@ machine running it went away. Note the limit, stated rather than implied: two ma
 instant are not coordinated, so divergence is shown rather than resolved. Resolving it is yours, because
 the right answer depends on facts Tyanor does not have ([D12](docs/DECISIONS.md)).
 
-**Every stop is classified.** An expired credential and a malformed template both end a run, but only one
-means the work so far was wasted. Credentials and transient errors *pause* — resumable, progress kept.
-Only a genuinely hard failure is terminal.
-
-**Ordered units, not a dependency graph.** Data before compute before edge covers the overwhelming
-majority of real deployments, and reverse-order teardown then falls out for free. The graph is where tools
-like this become large; see [`docs/DECISIONS.md`](docs/DECISIONS.md) D3.
-
-**It executes, it does not synthesize.** Tyanor consumes a pre-built artifact, so an operator can deploy
-with no cloud SDK installed. Synthesis happens earlier, on a machine that has the toolchain.
-
 ## Layout
 
 | | |
@@ -189,10 +197,27 @@ with no cloud SDK installed. Synthesis happens earlier, on a machine that has th
 Between them the engine has been driven by a target *with* a control plane and one with none. Neither
 needed a change to it, and there is no `if (provider == …)` in `Tyanor.Core` or `Tyanor.Engine`.
 
-## Write your own provider
+## Extending it — three seams, one answer
 
-The built-in providers get no shortcut. Yours references `Tyanor.Core`, implements `IUnitDriver` and
-`IFailureClassifier`, and registers in your composition root in one line:
+The same answer resolved three separate questions, so it is the one to reach for:
+
+| You need | You write | You register |
+|---|---|---|
+| a whole new target | `IDeploymentTarget` + `IUnitDriver` | `cfg.AddTarget(…)` |
+| one step of your own | `IUnitDriver` | `new AwsTarget(creds, new CustomUnits { … })` |
+| state somewhere else | `IStorageBackend` | `cfg.AddStorage(…)` |
+
+**Build it where you need it, prove it with the contract suites, upstream it if it generalizes.** The built-in
+ones get no shortcut — same contracts, same registration, same suites.
+
+There is no plugin *discovery*, deliberately: a deployment tool holds credentials and mutates infrastructure,
+so it does not load code it merely found ([D6](docs/DECISIONS.md)). Authoring one and loading one are
+different questions.
+
+### A whole new provider
+
+Yours references `Tyanor.Core`, implements `IUnitDriver` and `IFailureClassifier`, and registers in your
+composition root in one line:
 
 ```csharp
 services.AddTyanor(cfg =>
@@ -226,11 +251,7 @@ The suites take **no test framework**: they return results, so they run under xU
 console app. Passing them is also how a provider written elsewhere earns its way into this repository
 ([D15](docs/DECISIONS.md)).
 
-There is no plugin *discovery*, deliberately — a deployment tool holds credentials and mutates
-infrastructure, so it does not load code it merely found ([D6](docs/DECISIONS.md)). Authoring one and
-loading one are different questions.
-
-## Or just add one step of your own
+### Or just one step of your own
 
 A whole provider is a lot to write when what you have is one step: verify a migration applied, warm a cache,
 call a health endpoint that means something only to you. Register it as a unit kind inside the provider you
@@ -260,7 +281,7 @@ script, and belongs outside the procedure.
 That is the intended way to use anything Tyanor does not support yet: build it where you need it, prove it
 with the contract suites, and upstream it if it generalizes ([D19](docs/DECISIONS.md)).
 
-### Deploying a self-hosted server
+## Deploying a self-hosted server
 
 ```csharp
 var procedure = new Procedure("server",

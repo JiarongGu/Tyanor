@@ -90,6 +90,24 @@ for (const file of walk(root).filter((f) => /\.(md|cs)$/.test(f))) {
 for (const [id, where] of cited)
   if (!seen.has(id)) problems.push(`${where}: cites ${id}, which is not in ${cfg.decisions}`);
 
+// ── every in-page link resolves to a heading that exists ─────────────────────────────────────────
+// The index at the top is hand-written anchors, which rot the moment a title is reworded — and a broken
+// anchor is worse than no index, because it looks like navigation and silently goes nowhere.
+const anchor = (heading) =>
+  heading
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '')   // GitHub drops punctuation…
+    .replace(/\s/g, '-');       // …and turns each remaining space into a hyphen
+
+const anchors = new Set(
+  [...text.matchAll(/^#{2,3} (.+)$/gm)].map((m) => anchor(m[1].trim())));
+
+for (const m of text.matchAll(/\]\(#([^)]+)\)/g))
+  if (!anchors.has(m[1]))
+    problems.push(
+      `${cfg.decisions}: links to #${m[1]}, which is not a heading in this file — ` +
+      'a reworded title leaves the index pointing nowhere');
+
 // ── report ───────────────────────────────────────────────────────────────────────────────────────
 if (problems.length === 0) {
   console.log(`decisions: ${headings.length} decisions, all dated, referenced and cross-linked.`);
