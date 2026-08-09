@@ -657,3 +657,62 @@ bypassed by `request with { Prefix = "../escape" }`. A check that a one-line rew
 
 **Evidence that this was not tightening for its own sake:** all 327 existing tests passed unchanged. Nothing
 anyone had written was a name this refuses, which is what a well-aimed check looks like.
+
+---
+
+## D18 — Validate offline, and say what the deployment produced (2026-08-09)
+
+Two capabilities that a Terraform-shaped tool has and Tyanor did not: `ValidateAsync` and `OutputsAsync`, on
+`IUnitDriver` and surfaced on `ProcedureRunner`.
+
+### Validate touches nothing, on purpose
+
+`ProcedureRunner.ValidateAsync` checks a whole procedure and request with **no provider access at all** — no
+credentials, no network, nothing created — and returns EVERY problem across every unit in one pass.
+
+**What it replaces.** A misconfigured unit used to be discovered by an apply that had already created two
+other units, one problem per attempt. Each fix cost another partial deployment. Checking the definition is a
+different question from checking the world, and only one of them needs an account to exist.
+
+**Providers must not reach for their API here**, and the reason is the whole value: a consumer can check an
+AWS procedure before an AWS account exists. A provider that quietly makes one call turns an offline gate into
+an online one and takes that away from everybody.
+
+**The checks are not written twice.** Each provider's `ValidateAsync` runs the same option and artifact
+resolution its `CreateAsync` runs and collects the `DefinitionException`s. Two copies of a rule is two rules,
+and they diverge the first time one is edited. This is what `DefinitionException` turned out to be for beyond
+readable errors — it is the thing that makes an offline check and the real thing provably the same check.
+
+**What it cannot do**, said rather than implied: it does not know whether a template is valid
+CloudFormation, whether a bucket name is taken, or whether a quota is reached. Those need the provider. A
+valid procedure can still fail to deploy, and pretending otherwise is how a check stops being read.
+
+### Outputs answer "where is my site?"
+
+Nothing did. The AWS provider already read CloudFormation outputs internally — that is how a content unit
+finds the bucket a stack made — but no consumer could ask, so an application deploying through Tyanor could
+not learn the URL it had just created. The first consumer's entire job is to tell a non-technical owner that
+address.
+
+**Read from the provider, not from state.** What a deployment currently exposes is a fact about the
+deployment, exactly like a phase. A stored copy is one more thing that can be stale, and the honest answer
+to "where is my site" is the one the provider gives now.
+
+**Absent is empty, not an error.** Asking a procedure that is not deployed yet what it produced is a
+reasonable question, and a UI that renders "your site is at …" once should not have to guard the call.
+
+### Both are DEFAULT interface members, and that distinction matters
+
+D16 said `UnitContext` makes additions to the driver contract additive. That was true of **parameters** and
+not of methods: adding `ValidateAsync` to `IUnitDriver` would have broken every implementation, including the
+out-of-repo ones D15 promised were first-class.
+
+Default implementations returning "nothing to validate" and "no outputs" are what made these additive — and
+they are correct answers rather than placeholders, because a provider genuinely may have no configuration to
+get wrong and nothing to expose. That is the pattern for growing this contract from here: a new capability
+arrives with a default that means *I do not do that*.
+
+**Evidence.** A lifecycle test walks the whole operator workflow against the local provider with no cloud
+involved: validate → plan → apply → outputs → refresh → plan → new build → plan → drift → repair → plan the
+teardown → destroy → plan again. It is the test that says the library works, as opposed to the ones that say
+a particular decision is right.

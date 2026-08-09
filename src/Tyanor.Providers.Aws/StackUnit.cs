@@ -157,6 +157,49 @@ internal sealed class StackUnit(
             .ToList();
     }
 
+    /// <summary>
+    /// Resolve everything a create would resolve, and report each failure rather than the first — WITHOUT
+    /// calling AWS, so a whole site's configuration can be checked before an account exists.
+    /// </summary>
+    /// <remarks>
+    /// Every check here is the apply's own: the same <see cref="Part"/> resolution, the same stack-name rule.
+    /// The one thing it cannot check is whether the template itself is valid CloudFormation — that needs
+    /// CloudFormation, and pretending otherwise would be the sort of half-answer that stops being read.
+    /// </remarks>
+    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
+    {
+        var problems = new List<string>();
+
+        foreach (var check in (Action[])[
+            () => Name(context),
+            () => Part(context, AwsOptions.Template, ArtifactPart.File),
+            () => { if (context.Option(AwsOptions.Assets) is not null) Part(context, AwsOptions.Assets, ArtifactPart.Directory); },
+            () => Capabilities(context)])
+        {
+            try { check(); }
+            catch (DefinitionException e) { problems.Add(e.Message); }
+        }
+
+        return Task.FromResult<IReadOnlyList<string>>(problems);
+    }
+
+    /// <summary>
+    /// The stack's CloudFormation outputs — the URLs and endpoints it was written to expose.
+    /// </summary>
+    /// <remarks>
+    /// This is the answer to "where is my site?", which is the question an operator has the second an apply
+    /// finishes, and which nothing surfaced before. A stack that is not deployed produces nothing rather than
+    /// an error: asking is reasonable at any time.
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext context)
+    {
+        var name = Name(context);
+        if (await StatusAsync(name, context.Cancellation) is null)
+            return new Dictionary<string, string>();
+
+        return await OutputsAsync(name, context.Cancellation);
+    }
+
     /// <summary>The CloudFormation outputs of a settled stack — how a content unit finds the bucket a stack
     /// created without either of them naming the other in code.</summary>
     internal async Task<IReadOnlyDictionary<string, string>> OutputsAsync(string stackName, CancellationToken ct)

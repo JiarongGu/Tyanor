@@ -183,7 +183,9 @@ public class SelfHostedServerTests
         // processes racing for one port, and look like a slow deploy.
         using var box = new Sandbox();
         box.Publish("Server.dll", "v1");
-        var port = Sandbox.FreePort();
+        // Reserved so nothing else can take it while the server is meant to look like it is still booting.
+        var reserved = Sandbox.ReservePort();
+        var port = reserved.Port;
         var request = Request(box, healthPort: port);
 
         // Started out of band: another operator, a pipeline, or a run whose process has since gone away.
@@ -195,8 +197,14 @@ public class SelfHostedServerTests
         Assert.Equal(ReconcileAction.Attach, plan.Steps.Single(s => s.Unit.Name == "service").Action);
         Assert.True(plan.HasWorkInFlight);
 
-        // The server finishes booting while the second run is watching it.
-        var booting = Task.Run(async () => { await Task.Delay(300); return Sandbox.Listen(port); });
+        // The server finishes booting while the second run is watching it: the reservation is handed over to
+        // a real listener on the same port.
+        var booting = Task.Run(async () =>
+        {
+            await Task.Delay(300);
+            reserved.Dispose();
+            return Sandbox.Listen(port);
+        });
         var outcome = await box.Runner.ApplyAsync(Server, request);
         (await booting).Stop();
 
@@ -211,7 +219,8 @@ public class SelfHostedServerTests
         // read can tell which. Pausing keeps the run live and keeps everything already deployed.
         using var box = new Sandbox();
         box.Publish("Server.dll", "v1");
-        var request = Request(box, healthPort: Sandbox.FreePort(), graceSeconds: 2);
+        using var closed = Sandbox.ReservePort();
+        var request = Request(box, healthPort: closed.Port, graceSeconds: 2);
 
         var outcome = await box.Runner.ApplyAsync(Server, request);
 

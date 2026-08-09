@@ -78,16 +78,32 @@ internal sealed class Sandbox : IDisposable
         : ("/bin/sh", "-c \"sleep 120\"");
 
     /// <summary>
-    /// A port nothing is listening on. Found by binding and releasing, which is as close to a guarantee as
-    /// a port gets.
+    /// A port that is guaranteed to REFUSE connections for as long as the holder is alive.
     /// </summary>
-    public static int FreePort()
+    /// <remarks>
+    /// <para>Bound but never listening. A socket in that state answers a connection attempt with a reset, so
+    /// a health check against it fails exactly as it would against a server that is not up — while the bind
+    /// stops any other process taking the port in the meantime.</para>
+    /// <para>The previous version bound port 0, read the number, released it, and hoped. That held right up
+    /// until the three test assemblies started running in parallel under one <c>dotnet test</c>, at which
+    /// point something else occasionally grabbed the released port and a test expecting
+    /// <see cref="UnitPhase.Converging"/> got <see cref="UnitPhase.Ready"/>. A suite that fails once in
+    /// twenty runs is a suite people stop believing, so this reserves rather than hopes.</para>
+    /// </remarks>
+    public static PortReservation ReservePort() => new();
+
+    /// <summary>A reserved port that refuses connections until disposed.</summary>
+    public sealed class PortReservation : IDisposable
     {
-        var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        return port;
+        private readonly Socket _reservation = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+        internal PortReservation() => _reservation.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+
+        /// <summary>The reserved port.</summary>
+        public int Port => ((IPEndPoint)_reservation.LocalEndPoint!).Port;
+
+        /// <summary>Release it — so a test can then open a real listener on the same port.</summary>
+        public void Dispose() => _reservation.Dispose();
     }
 
     /// <summary>Open <paramref name="port"/> — the test playing the part of the server's own socket.</summary>

@@ -96,6 +96,25 @@ public abstract class UnitKindDriver : IUnitDriver
     /// <inheritdoc/>
     public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context) => For(context).RefreshAsync(context);
 
+    /// <summary>
+    /// The kind's own validation — plus the one problem this dispatcher can find that no kind can: a unit
+    /// that does not say what it is, or says something this provider does not have.
+    /// </summary>
+    /// <param name="context">The unit and the request.</param>
+    /// <remarks>
+    /// Reported rather than thrown, because a validation pass exists to return the whole list. Throwing here
+    /// would stop at the first unconfigured unit, which is exactly the behaviour validation replaces.
+    /// </remarks>
+    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
+    {
+        try { return For(context).ValidateAsync(context); }
+        catch (UnitKindException e) { return Task.FromResult<IReadOnlyList<string>>([e.Message]); }
+    }
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext context) =>
+        For(context).OutputsAsync(context);
+
     private string Available() =>
         _kinds.Count == 0 ? "none — this provider registered no kinds" : string.Join(", ", _kinds.Keys.Order());
 }

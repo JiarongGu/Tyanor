@@ -66,6 +66,16 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   of one per provider.
 - **`DefinitionException`** — a base type for "the procedure or request is wrong", so a consumer can tell it
   from "the provider failed" without matching on message text.
+- **`ValidateAsync` — check a whole procedure with no provider access at all.** No credentials, no network,
+  nothing created, and every problem across every unit in one pass rather than the first one three units into
+  a run that has already made things. Each provider implements it by running the same option and artifact
+  resolution its `CreateAsync` runs, so the offline check and the real thing cannot diverge. D18.
+- **`OutputsAsync` — what the deployment produced.** A URL, an endpoint, a generated name. Nothing surfaced
+  these before, so an application deploying through Tyanor could not learn the address it had just created —
+  which is the first consumer's entire job. Read from the provider, never from state.
+- Both are **default** interface members. D16's claim that `UnitContext` makes additions additive was true of
+  parameters, not of methods; a default meaning *I do not do that* is what makes a new capability additive
+  for implementations outside this repository.
 - **A teardown gets a plan.** `PlanAsync(procedure, request, RunKind.Remove)` reports the units in the order
   they will go, which are already gone, and every resource the teardown will destroy — `Plan.Destroying`,
   `Plan.IsDestructive`. The destructive direction was the one without a preview. `Reconcile.DecideRemoval`

@@ -82,6 +82,26 @@ foreach (var step in teardown.Steps) Console.WriteLine(step);   // in the order 
 
 A plan is a forecast and says which two things it honestly cannot know.
 
+**Check the definition before an account exists.** `ValidateAsync` reads every unit's configuration and
+resolves every artifact part with **no provider access at all** — no credentials, no network, nothing
+created — and returns every problem in one pass rather than the first one, three units in, after a run has
+already made things:
+
+```csharp
+var validation = await runner.ValidateAsync(procedure, request);
+if (!validation.Ok) Console.WriteLine(validation);   // one problem per line, all of them
+```
+
+It says nothing about the world: a valid procedure can still fail to deploy because a name is taken. That is
+what the plan and the run are for.
+
+**Ask what the deployment produced.**
+
+```csharp
+var outputs = await runner.OutputsAsync(procedure, request);
+Console.WriteLine(outputs["web.url"]);               // read from the provider, never from state
+```
+
 **A library, not a service.** `Tyanor.Core`, `Tyanor.Engine` and `Tyanor.Testing` take **no package
 dependencies**. There is no daemon, no CLI, no ambient state and no background thread. DI is a separate,
 optional package — the minimal path is three lines with no container:

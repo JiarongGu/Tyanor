@@ -99,6 +99,37 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
             : [new ResourceState(LocalPaths.Unit(root, context), "local/directory", content)]);
     }
 
+    /// <summary>
+    /// Resolve exactly what a create would resolve, and report what fails instead of throwing it.
+    /// </summary>
+    /// <remarks>
+    /// The checks are not written twice: this runs the same <see cref="Source"/> the apply runs and collects
+    /// the refusal. Two copies of a rule is two rules, and they diverge the first time one is edited.
+    /// </remarks>
+    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
+    {
+        try
+        {
+            Source(context);
+            return Task.FromResult<IReadOnlyList<string>>([]);
+        }
+        catch (DefinitionException e)
+        {
+            return Task.FromResult<IReadOnlyList<string>>([e.Message]);
+        }
+    }
+
+    /// <summary>Where the files ended up, so a consumer can point something at them.</summary>
+    public Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext context)
+    {
+        var release = LocalPaths.CurrentRelease(root, context);
+        var outputs = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        if (release is not null && Directory.Exists(release)) outputs[$"{context.Name}.path"] = release;
+
+        return Task.FromResult<IReadOnlyDictionary<string, string>>(outputs);
+    }
+
     private void Materialize(UnitContext context)
     {
         var source = Source(context);

@@ -97,6 +97,69 @@ public sealed class ProcedureRunner(
     }
 
     /// <summary>
+    /// Check the whole procedure and request WITHOUT touching the target at all — no credentials, no
+    /// network, nothing created.
+    ///
+    /// <para>The cheapest gate there is, and the only one that works before an account exists. Without it,
+    /// a misconfigured unit is discovered by an apply that has already made two other units, and discovered
+    /// one problem at a time; this returns every problem across every unit in one pass.</para>
+    /// </summary>
+    /// <param name="procedure">The units to check.</param>
+    /// <param name="request">What would be deployed, and where.</param>
+    /// <param name="ct">Cancellation.</param>
+    /// <remarks>
+    /// Says nothing about the world. A procedure can be perfectly valid and still fail to deploy because a
+    /// bucket name is taken or a quota is reached — that is what <see cref="PlanAsync"/> and the run are for.
+    /// </remarks>
+    public async Task<Validation> ValidateAsync(
+        Procedure procedure, DeploymentRequest request, CancellationToken ct = default)
+    {
+        var problems = new List<ValidationProblem>();
+
+        foreach (var unit in procedure.Forward())
+        {
+            ct.ThrowIfCancellationRequested();
+            // No retry: there is nothing transient about a definition, and nothing here should be reaching a
+            // provider to fail transiently in the first place.
+            var found = await target.Driver.ValidateAsync(new UnitContext(unit, request, Ignore, ct));
+            problems.AddRange(found.Select(p => new ValidationProblem(unit.Name, p)));
+        }
+
+        return new Validation(problems);
+    }
+
+    /// <summary>
+    /// What the deployment PRODUCED — a URL, an endpoint, a generated name — gathered from every unit.
+    ///
+    /// <para>The answer to "where is my site?", which is the question an operator has the moment an apply
+    /// finishes. Read from the provider rather than from state, for the same reason phases are: what a
+    /// deployment currently exposes is a fact about the deployment, and a stored copy is one more thing that
+    /// can be wrong.</para>
+    /// </summary>
+    /// <param name="procedure">The units to ask.</param>
+    /// <param name="request">Which deployment.</param>
+    /// <param name="ct">Cancellation.</param>
+    /// <remarks>
+    /// Later units win a name collision, because they are the ones closer to the operator: an edge unit's
+    /// <c>url</c> is the one someone visits, not the database's.
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<string, string>> OutputsAsync(
+        Procedure procedure, DeploymentRequest request, CancellationToken ct = default)
+    {
+        var outputs = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var unit in procedure.Forward())
+        {
+            ct.ThrowIfCancellationRequested();
+            var context = new UnitContext(unit, request, Ignore, ct);
+            foreach (var (key, value) in await WithRetryAsync(() => target.Driver.OutputsAsync(context), ct))
+                outputs[key] = value;
+        }
+
+        return outputs;
+    }
+
+    /// <summary>
     /// Re-sync state from the real deployment: ask the provider what exists for every unit and rewrite
     /// state to match, WITHOUT changing any infrastructure.
     ///

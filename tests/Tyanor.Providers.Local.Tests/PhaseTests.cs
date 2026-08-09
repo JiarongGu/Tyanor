@@ -265,7 +265,8 @@ public class ProcessPhaseTests
         // The phase that makes Attach possible, and the one a machine gives away for free to nobody: it
         // has to be inferred from "the process is up" plus "the port is not".
         using var box = new Sandbox();
-        var request = Request(box, healthPort: Sandbox.FreePort(), graceSeconds: 60);
+        using var closed = Sandbox.ReservePort();
+        var request = Request(box, healthPort: closed.Port, graceSeconds: 60);
 
         await box.Target.Driver.CreateAsync(new UnitContext(Service, request));
 
@@ -276,7 +277,9 @@ public class ProcessPhaseTests
     public async Task Answering_on_its_port_is_READY()
     {
         using var box = new Sandbox();
-        var port = Sandbox.FreePort();
+        using var reserved = Sandbox.ReservePort();
+        var port = reserved.Port;
+        reserved.Dispose();                                // hand the reservation straight to a real listener
         using var server = Sandbox.Listen(port);          // stands in for the server's own socket
         var request = Request(box, healthPort: port, graceSeconds: 60);
 
@@ -291,7 +294,8 @@ public class ProcessPhaseTests
         // Not Converging forever. A server that is never going to boot must stop looking like one that is
         // about to, or the run hangs instead of telling anyone.
         using var box = new Sandbox();
-        var request = Request(box, healthPort: Sandbox.FreePort(), graceSeconds: 1);
+        using var closed = Sandbox.ReservePort();
+        var request = Request(box, healthPort: closed.Port, graceSeconds: 1);
 
         await box.Target.Driver.CreateAsync(new UnitContext(Service, request));
         await Task.Delay(1_300);

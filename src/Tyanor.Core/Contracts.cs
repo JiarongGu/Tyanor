@@ -230,6 +230,40 @@ public interface IUnitDriver
     /// elsewhere; a plan then reports what it cannot know rather than inventing certainty.
     /// </remarks>
     Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context);
+
+    /// <summary>
+    /// Everything wrong with this unit's CONFIGURATION, found without touching the target.
+    /// </summary>
+    /// <param name="context">The unit and the request. Progress and cancellation are available but unused by
+    /// most providers — there is nothing slow to narrate.</param>
+    /// <returns>One entry per problem; empty when the unit is configured correctly.</returns>
+    /// <remarks>
+    /// <para><b>Make no network calls here.</b> The value of this is that a whole procedure can be checked
+    /// before an account exists, before credentials are entered, and before anything is created. A provider
+    /// that reaches for its API turns an offline check into an online one and takes that away.</para>
+    /// <para><b>Reuse the resolution the apply does</b> rather than writing the checks twice — resolve the
+    /// options and artifact parts exactly as <see cref="CreateAsync"/> would and collect the
+    /// <see cref="DefinitionException"/>s. Two copies of a rule is two rules, and they diverge.</para>
+    /// <para>Returning nothing is a legitimate answer for a provider with no configuration to get wrong,
+    /// which is why this has a default and adding it broke nobody.</para>
+    /// </remarks>
+    Task<IReadOnlyList<string>> ValidateAsync(UnitContext context) =>
+        Task.FromResult<IReadOnlyList<string>>([]);
+
+    /// <summary>
+    /// What this unit PRODUCED that someone outside might need — a URL, an endpoint, a generated name.
+    /// </summary>
+    /// <param name="context">The unit and the request.</param>
+    /// <returns>Name → value; empty when the unit produces nothing, or is not deployed.</returns>
+    /// <remarks>
+    /// <para>Read from the target rather than from state, for the same reason phases are: what a deployment
+    /// currently exposes is a fact about the deployment. A stored copy would be one more thing that can be
+    /// stale, and the honest answer to "what is my site's address" is the one the provider gives now.</para>
+    /// <para>Absent is empty, not an exception — asking a procedure that is not deployed yet what it produced
+    /// is a reasonable question with the answer "nothing".</para>
+    /// </remarks>
+    Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext context) =>
+        Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
 }
 
 /// <summary>A deployment target: credentials, identity, and a driver for its units.</summary>

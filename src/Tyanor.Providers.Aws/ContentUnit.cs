@@ -112,6 +112,35 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
             $"{deployed.Count} objects, {deployed.Values.Sum()} bytes")];
     }
 
+    /// <summary>
+    /// Resolve what a sync would resolve, without calling AWS. The bucket reference is checked for SHAPE
+    /// only — whether the stack it names has actually been deployed is a question for a plan.
+    /// </summary>
+    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
+    {
+        var problems = new List<string>();
+
+        try { Source(context); }
+        catch (DefinitionException e) { problems.Add(e.Message); }
+
+        if (context.Option(AwsOptions.Bucket) is null && context.Option(AwsOptions.BucketFrom) is null)
+            problems.Add(
+                $"Names no destination bucket. Set '{AwsOptions.Bucket}', or '{AwsOptions.BucketFrom}' to " +
+                "\"{unit}:{OutputKey}\" naming a stack that exports one.");
+
+        foreach (var option in (string[])[AwsOptions.BucketFrom, AwsOptions.InvalidateFrom])
+            if (context.Option(option) is { } reference && !IsReference(reference))
+                problems.Add($"'{option}' is '{reference}'; it must be \"{{unit}}:{{OutputKey}}\".");
+
+        return Task.FromResult<IReadOnlyList<string>>(problems);
+    }
+
+    private static bool IsReference(string reference)
+    {
+        var parts = reference.Split(':', 2);
+        return parts.Length == 2 && !parts.Any(string.IsNullOrWhiteSpace);
+    }
+
     private async Task SyncAsync(UnitContext context)
     {
         var bucket = await BucketAsync(context)

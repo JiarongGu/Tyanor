@@ -230,6 +230,48 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
         catch (SocketException) { return false; }            // refused: not up yet, which is an answer
     }
 
+    /// <summary>
+    /// Resolve everything a create would resolve, and report every failure rather than the first.
+    /// </summary>
+    /// <remarks>
+    /// Each is resolved separately on purpose: an operator with both a missing command and an unparseable
+    /// port should be told both, not told one and then the other on the next attempt.
+    /// </remarks>
+    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
+    {
+        var problems = new List<string>();
+
+        foreach (var check in (Action[])[
+            () => Command(context),
+            () => Port(context),
+            () => Grace(context)])
+        {
+            try { check(); }
+            catch (DefinitionException e) { problems.Add(e.Message); }
+        }
+
+        return Task.FromResult<IReadOnlyList<string>>(problems);
+    }
+
+    /// <summary>Where the server is answering, when it was given a port to answer on.</summary>
+    public Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext context)
+    {
+        var outputs = new Dictionary<string, string>(StringComparer.Ordinal);
+        var record = Records.Read<ProcessRecord>(PidPath(context));
+
+        if (record is not null)
+        {
+            using var process = Running(record);
+            if (process is not null)
+            {
+                outputs[$"{context.Name}.pid"] = record.Pid.ToString();
+                if (Port(context) is { } port) outputs[$"{context.Name}.url"] = $"http://localhost:{port}";
+            }
+        }
+
+        return Task.FromResult<IReadOnlyDictionary<string, string>>(outputs);
+    }
+
     private string PidPath(UnitContext context) =>
         Path.Combine(LocalPaths.Bookkeeping(root, context), $"{context.Name}.pid.json");
 
