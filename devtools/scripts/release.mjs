@@ -97,6 +97,38 @@ if (bookkeeping.length > 0)
 const commit = sh('git', ['rev-parse', 'HEAD']).stdout.trim();
 notes.push(`version ${version}, commit ${commit.slice(0, 10)}`);
 
+/**
+ * Whether a project's Release PDB carries a SourceLink document map.
+ *
+ * A symbol package without one is a false affordance, and a silent one. The package advertises a repository
+ * URL and an exact commit, ships a .snupkg, and then leads a debugger to an absolute path that existed only on
+ * the machine that built it. Nobody notices, because everything succeeded.
+ *
+ * It is checked HERE rather than in `doctor` because it is only true of a Release build, and it only matters
+ * to something being published. The commonest cause of it being absent is a repository with no `origin`
+ * remote: SourceLink derives its URL from the remote, not from the `RepositoryUrl` property that the nuspec
+ * uses — so the two can disagree, and the nuspec is the one that looks fine.
+ *
+ * The map is stored in the portable PDB as a UTF-8 JSON blob, so finding it does not need a PDB reader.
+ */
+const sourceLinkProblems = (project, id) => {
+  // Whatever framework it built for; the pack that produced the .snupkg wrote this.
+  const output = join(root, dirname(project), 'bin', 'Release');
+  if (!existsSync(output)) return [];        // packed somewhere else entirely; not this check's business
+
+  const pdb = readdirSync(output, { recursive: true })
+    .map((entry) => join(output, entry.toString()))
+    .find((file) => file.endsWith(`${id}.pdb`));
+
+  if (!pdb) return [];
+
+  return readFileSync(pdb).includes('{"documents":')
+    ? []
+    : [`${id}: symbols carry no SourceLink map, so a consumer cannot step into the source they point at. ` +
+       'Usually means the repository has no `origin` remote — SourceLink reads the remote, while the ' +
+       'nuspec\'s repository URL comes from the RepositoryUrl property, so the package still looks correct.'];
+};
+
 // ── the packages themselves ──────────────────────────────────────────────────────────────────────
 const out = mkdtempSync(join(tmpdir(), 'tyanor-release-'));
 try {
@@ -129,7 +161,9 @@ try {
         problems.push(`${id}: no README inside the package — that is the page nuget.org shows`);
       if (!inside.some((n) => n.endsWith(`${id}.xml`)))
         problems.push(`${id}: no XML documentation — most of this library's value is in the why`);
+
       if (!symbols.includes(`${id}.${version}.snupkg`)) problems.push(`${id}: no symbol package`);
+      else problems.push(...sourceLinkProblems(project, id));
     }
 
     notes.push(`${produced.length} packages + ${symbols.length} symbol packages build`);

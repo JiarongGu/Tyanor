@@ -23,6 +23,18 @@
     <!-- Symbols, so a consumer stepping into a paused deployment can see why it paused. -->
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
+    <!-- …and SourceLink, so those symbols can FETCH the source they point at. Without it a .snupkg leads a
+         debugger to an absolute path that existed only on the machine that built the package, which is most
+         of the way to useless — and this library's value is largely in the comments explaining WHY a line is
+         there, which a consumer only reaches by stepping into it. Built into the SDK since .NET 8, so this
+         costs no PackageReference and leaves the dependency budget alone. -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+
+    <!-- Deterministic source paths, on CI only. It rewrites paths to placeholders, which is exactly right for
+         a published package and exactly wrong while debugging locally. GitHub Actions sets CI=true. -->
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
   <ItemGroup>
