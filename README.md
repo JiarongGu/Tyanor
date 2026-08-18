@@ -20,6 +20,10 @@ dotnet add package Tyanor                        # the engine, the state stores,
 dotnet add package Tyanor.Providers.Local        # …and at least one provider
 ```
 
+**Requires .NET 10.** Said up front because the alternative is finding out from a restore error: a project on
+net8 cannot reference these at all. Nothing in the source needs anything newer than .NET 8, so this is a
+deliberate floor rather than a technical one — see [D28](docs/DECISIONS.md).
+
 **New here? [`docs/guide.md`](docs/guide.md)** walks from nothing to a deployment you can resume.
 
 ## What it is

@@ -21,6 +21,7 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D10](#d10--tyanor-is-a-library-not-a-service-2026-08-06) | a library, not a service | ⚠ packages merged by D26 |
 | [D26](#d26--one-library-package-three-in-total-2026-08-19--amends-d10) | one library package, three in total | amends D10 |
 | [D5](#d5--tyanor-executes-a-pre-built-artifact-it-does-not-synthesize-2026-08-06) | executes, does not synthesize | |
+| [D28](#d28--net-10-only-and-it-is-a-floor-rather-than-a-limit-2026-08-19) | .NET 10 only, deliberately | revisit for a PERSON, not a survey |
 | [D21](#d21--the-pipeline-does-not-need-a-new-authoring-model-it-needs-unit-kinds-2026-08-09) | a pipeline is unit kinds, not a DSL | |
 
 **The engine**
@@ -1259,3 +1260,33 @@ be exhaustive is worse than one known to have holes.
 
 **Per assembly, not per repository**, so a provider's API change fails the provider's own test project — and
 so a provider written outside this repo can copy `tests/Shared/ApiSurface.cs` and get the same thing (D15).
+
+---
+
+## D28 — .NET 10 only, and it is a floor rather than a limit (2026-08-19)
+
+The packages target `net10.0` and nothing else.
+
+**Not because they need it.** The newest APIs anywhere in the source are `.Order()` (net7) and
+`ArgumentException.ThrowIfNullOrWhiteSpace` (net8). Adding `net8.0` to the target list is a one-line change
+with no conditional compilation — this was checked before deciding, so the decision is about what to support
+rather than about what is possible.
+
+**Decided for: one framework, while there is one consumer.** Tyanor's first adopters are the applications it
+was extracted for, and they are on .NET 10. Multi-targeting costs a doubled build matrix, two `lib/` folders
+per package, and — the part that actually bites — two behaviours to reason about the first time a framework
+difference matters. Paying that for a consumer who does not exist is the same mistake as building a storage
+backend nobody asked for (item 3 in `TASKS.md`).
+
+**What it costs, honestly.** `net8.0` is LTS until November 2026 and is where most production .NET sits, so
+this excludes a third party who wants to write a provider against `IUnitDriver` — which is a real cost against
+D15, not a hypothetical one. It is accepted for now because the D15 claim is currently proved by providers
+inside this repository, and no outside implementer has been turned away.
+
+**Revisit when the first person is.** The trigger is specific: someone wanting to write a provider or a
+storage backend who cannot reference the package. Not a survey of framework adoption — a person. The change is
+a line in `Directory.Build.props` plus a build matrix, and the API baselines (D27) are what would catch a
+surface that accidentally differed between the two.
+
+**Said out loud in the README and the guide**, because the alternative is an adopter discovering it from a
+restore error.

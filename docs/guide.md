@@ -37,7 +37,8 @@ dotnet add package Tyanor.Providers.Local                 # …and at least one 
 | `Tyanor.Providers.Local` | deploy to a machine: files, a process, a health check |
 | `Tyanor.Providers.Aws` | CloudFormation stacks, S3/CloudFront content |
 
-That is the whole list. Three packages, shipping in lockstep at one version.
+That is the whole list. Three packages, shipping in lockstep at one version, and they need **.NET 10** — a
+project on net8 cannot reference them, which is worth knowing before the restore tells you.
 
 There are four namespaces inside `Tyanor` — `Tyanor` for the contracts, `Tyanor.Engine` for the runner,
 `Tyanor.Engine.State` for the stores, `Tyanor.Testing` for the contract suites — but you install one thing
