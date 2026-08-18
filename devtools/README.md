@@ -106,14 +106,22 @@ Reports **every** test project's summary, not the first. With one test project t
 with two, reading only the first means a provider suite failing hides behind a core suite passing — and the
 verdict line would still say which check failed, but the detail under it would name the wrong assembly.
 
-### `dependency-free core` and `version is single-sourced` (inside `doctor`)
+### `dependency budget` and `version is single-sourced` (inside `doctor`)
 
-Two claims the README makes out loud: that `Tyanor.Core`, `Tyanor.Engine` and `Tyanor.Testing` take **no
-package dependencies**, and that the version ships from one place. A claim nobody verifies is one that
-quietly stops being true — usually via a convenient `PackageReference` that seemed harmless. `Tyanor.Testing`
-is in the list for a second reason: the contract suites are meant to run under whatever test framework the
-implementer already has, and one convenient `xunit` reference would silently make that untrue for everyone
-using NUnit.
+Two claims the README makes out loud: exactly which packages the library depends on, and that the version
+ships from one place. A claim nobody verifies is one that quietly stops being true — usually via a convenient
+`PackageReference` that seemed harmless.
+
+The budget is an allowlist per project, and it is checked in **both** directions: a reference that is not
+budgeted means the README now overstates how little is needed, and a budgeted reference that has gone means
+the budget describes a dependency nobody has. Every claim this repository has caught rotting was one checked
+at a single end, so a new one arrives checked at both.
+
+It replaced a `dependencyFree` list of three projects that took nothing at all. Merging the DI wiring into the
+library (D26) gave it one real dependency, and an allowlist was the honest response — what mattered was never
+zero, it was that nothing arrives unnoticed. Note what the budget still excludes: any test framework. The
+contract suites are meant to run under whatever the implementer already has, and one convenient `xunit`
+reference would silently make that untrue for everyone using NUnit.
 
 The version check has two halves, and it used to have one. It compares the changelog headline against
 `VersionPrefix` — *and* it refuses any project file other than the configured one that declares a

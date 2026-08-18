@@ -4,7 +4,7 @@
     <Description>Tyanor AWS provider — CloudFormation stacks and S3/CloudFront website content, driven by the SDK with no CLI and no bootstrap. Templates are already synthesized; this executes them.</Description>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Tyanor.Core\Tyanor.Core.csproj" />
+    <ProjectReference Include="..\Tyanor\Tyanor.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AWSSDK.CloudFormation" Version="4.0.9.7" />

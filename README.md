@@ -16,7 +16,7 @@ providers; resume it after anything goes wrong.
 ## Install
 
 ```
-dotnet add package Tyanor.Engine                 # the runner; brings Tyanor.Core
+dotnet add package Tyanor                        # the engine, the state stores, the contract suites
 dotnet add package Tyanor.Providers.Local        # …and at least one provider
 ```
 
@@ -101,9 +101,11 @@ become large; see [`docs/DECISIONS.md`](docs/DECISIONS.md) D3.
 **It executes, it does not synthesize.** Tyanor consumes a pre-built artifact, so an operator can deploy with
 no cloud SDK installed. Synthesis happens earlier, on a machine that has the toolchain.
 
-**A library, not a service.** `Tyanor.Core`, `Tyanor.Engine` and `Tyanor.Testing` take **no package
-dependencies**. There is no daemon, no CLI, no ambient state and no background thread. DI is a separate,
-optional package — the minimal path is three lines with no container:
+**A library, not a service.** `Tyanor` takes **one package dependency** —
+`Microsoft.Extensions.DependencyInjection.Abstractions`, because there is no other way to write
+`AddTyanor(this IServiceCollection)`. `doctor` checks that list is exactly that, in both directions
+([D26](docs/DECISIONS.md)). There is no daemon, no CLI, no ambient state, no background thread, and no test
+framework — and the minimal path is three lines with no container at all:
 
 ```csharp
 var runner = new ProcedureRunner(target, new FileRunHistory("runs.json"));
@@ -198,16 +200,27 @@ the right answer depends on facts Tyanor does not have ([D12](docs/DECISIONS.md)
 
 | | |
 |---|---|
-| `Tyanor.Core` | Contracts and the reconcile decision. No I/O, no provider, **no package dependencies**. |
-| `Tyanor.Engine` | `ProcedureRunner` — ordering, reconcile, bounded retry, classified outcomes, history, state. |
-| `Tyanor.Testing` | Contract suites, and `MemoryTarget` for testing your own code without a cloud. **No package dependencies.** |
-| `Tyanor.Extensions.DependencyInjection` | `AddTyanor`. Optional — the engine works without a container. |
+**Three packages** ([D26](docs/DECISIONS.md)):
+
+| | |
+|---|---|
+| `Tyanor` | Everything that is not a provider. |
 | `Tyanor.Providers.Local` | This machine: a directory from an artifact, a process run out of it, a health check. |
 | `Tyanor.Providers.Aws` | CloudFormation stacks, and website files in S3 behind CloudFront. |
 | `Tyanor.Providers.*` | One per target. The only place vendor vocabulary exists. |
 
+Inside `Tyanor`, the namespaces are the layering — and `src/Tyanor/` mirrors them, so where a type lives on
+disk is where it lives in a `using`:
+
+| | |
+|---|---|
+| `Tyanor` | Contracts and the reconcile decision. No I/O, no provider, and it names no vendor. |
+| `Tyanor.Engine` | `ProcedureRunner` — ordering, reconcile, bounded retry, classified outcomes. And `AddTyanor`. |
+| `Tyanor.Engine.State` | The file and in-memory run history and deployment state, and the storage backends. |
+| `Tyanor.Testing` | Contract suites, and `MemoryTarget` for testing your own code without a cloud. |
+
 Between them the engine has been driven by a target *with* a control plane and one with none. Neither
-needed a change to it, and there is no `if (provider == …)` in `Tyanor.Core` or `Tyanor.Engine`.
+needed a change to it, and there is no `if (provider == …)` anywhere outside a provider.
 
 ## Documentation
 
@@ -238,7 +251,7 @@ different questions.
 
 ### A whole new provider
 
-Yours references `Tyanor.Core`, implements `IUnitDriver` and `IFailureClassifier`, and registers in your
+Yours references `Tyanor`, implements `IUnitDriver` and `IFailureClassifier`, and registers in your
 composition root in one line:
 
 ```csharp
@@ -255,7 +268,8 @@ public MyDeployer(ProcedureRunners runners) => _runner = runners.For("my-own");
 Asking for "the" runner with several registered throws and names them rather than picking one — registering
 a second provider must not quietly change where a deployment goes.
 
-**Then prove it behaves.** `Tyanor.Testing` ships the contract suites the built-in providers run —
+**Then prove it behaves.** The `Tyanor.Testing` namespace has the contract suites the built-in providers
+run — already there, because you referenced `Tyanor` to implement the driver —
 the things the engine assumes that no signature states:
 
 ```csharp

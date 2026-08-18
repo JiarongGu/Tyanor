@@ -14,27 +14,27 @@ export default {
 
   /** Packable projects, in dependency order. `pack` builds these; `doctor` checks their shape. */
   packages: [
-    'src/Tyanor.Core/Tyanor.Core.csproj',
-    'src/Tyanor.Engine/Tyanor.Engine.csproj',
-    'src/Tyanor.Extensions.DependencyInjection/Tyanor.Extensions.DependencyInjection.csproj',
-    'src/Tyanor.Testing/Tyanor.Testing.csproj',
+    'src/Tyanor/Tyanor.csproj',
     'src/Tyanor.Providers.Local/Tyanor.Providers.Local.csproj',
     'src/Tyanor.Providers.Aws/Tyanor.Providers.Aws.csproj',
   ],
 
   /**
-   * Projects that must take NO PackageReference at all. These are real architectural claims the README
-   * makes, and a claim nobody checks is one that quietly stops being true — so it is a test, not a hope.
+   * The dependency BUDGET for the library: every PackageReference it is allowed to take, and no other.
+   * A real architectural claim the README makes, and a claim nobody checks is one that quietly stops being
+   * true — so it is a test, not a hope. An empty list means genuinely nothing.
    *
-   * Tyanor.Testing is here for a second reason: the contract suites are meant to be run by whoever wrote an
-   * implementation, under whatever test framework they already use. One convenient `xunit` reference would
-   * quietly make that untrue for everyone who uses NUnit.
+   * This was `dependencyFree` with an empty list, back when four packages shipped and the DI wiring lived
+   * in its own so the other three could take nothing (D26 merged them). An ALLOWLIST rather than a deleted
+   * check, because what mattered was never the number zero — it was that no dependency arrives unnoticed.
+   *
+   * Note what is still absent: any test framework. The contract suites are meant to be run by whoever wrote
+   * an implementation, under whichever framework they already have, and one convenient `xunit` reference
+   * here would quietly make that untrue for everyone who uses NUnit.
    */
-  dependencyFree: [
-    'src/Tyanor.Core/Tyanor.Core.csproj',
-    'src/Tyanor.Engine/Tyanor.Engine.csproj',
-    'src/Tyanor.Testing/Tyanor.Testing.csproj',
-  ],
+  dependencyBudget: {
+    'src/Tyanor/Tyanor.csproj': ['Microsoft.Extensions.DependencyInjection.Abstractions'],
+  },
 
   /**
    * THE single source of the version, mirrored into the changelog headline. `doctor` also refuses any other

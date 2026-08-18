@@ -7,7 +7,7 @@
 //
 // Beyond build + test it checks two architectural CLAIMS the README makes out loud, because a claim
 // nobody verifies is one that quietly stops being true:
-//   - Tyanor.Core, Tyanor.Engine and Tyanor.Testing take no package dependencies
+//   - the library depends on exactly the packages its budget names, and no others
 //   - the version ships from ONE place, and the changelog headline agrees with it
 //
 // …then the knowledge layer: the decisions log, the rules, the documentation's cross-references, and a
@@ -70,13 +70,22 @@ step('test', () => {
 });
 
 // ── the architectural claims ─────────────────────────────────────────────────────────────────────
-step('dependency-free core', () =>
-  cfg.dependencyFree.flatMap((proj) => {
+// Checked in BOTH directions, because every claim this repository has caught going stale was one that was
+// only ever checked at one end: an unbudgeted reference means the README now overstates how little the
+// library needs, and a budgeted one that is gone means the budget is describing a dependency nobody has.
+step('dependency budget', () =>
+  Object.entries(cfg.dependencyBudget).flatMap(([proj, allowed]) => {
     const path = join(root, proj);
     if (!existsSync(path)) return [`${proj}: missing`];
     const refs = [...readFileSync(path, 'utf8').matchAll(/<PackageReference\s+Include="([^"]+)"/g)].map((m) => m[1]);
-    // The README says these take none. If that changes deliberately, change the claim too.
-    return refs.map((r) => `${proj} now depends on ${r} — the README says it depends on nothing`);
+    return [
+      ...refs
+        .filter((r) => !allowed.includes(r))
+        .map((r) => `${proj} now depends on ${r}, which is not in its budget — the README names what it needs`),
+      ...allowed
+        .filter((a) => !refs.includes(a))
+        .map((a) => `${proj} no longer depends on ${a}; drop it from the budget so the claim stays exact`),
+    ];
   }));
 
 step('version is single-sourced', () => {

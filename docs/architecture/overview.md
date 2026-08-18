@@ -8,7 +8,7 @@ choice was made, [`../DECISIONS.md`](../DECISIONS.md).
 ```
 Procedure            an ordered list of units          ← you write this
    │
-ProcedureRunner      for each unit, in order:          ← Tyanor.Engine
+ProcedureRunner      for each unit, in order:          ← Tyanor.Engine (namespace)
    │                     phase   = driver.PhaseAsync(context)
    │                     action  = Reconcile.Decide(phase)
    │                     carry out that one action
@@ -111,16 +111,25 @@ no" without matching on message text.
 
 ## What lives where
 
+Three packages: `Tyanor`, and one per provider (D26). Inside `Tyanor` the layering is expressed by namespace,
+and `src/Tyanor/` mirrors it — a folder per namespace, so a type's `using` tells you its path.
+
 | | |
 |---|---|
-| `Tyanor.Core` | Contracts and the pure decisions. **No package dependencies**, and it names no vendor. |
-| `Tyanor.Engine` | Ordering, reconcile, retry, history, state, and the operator-facing wording. **No package dependencies.** |
-| `Tyanor.Testing` | Contract suites an implementation runs to prove itself, and `MemoryTarget` — a provider that deploys to a dictionary, for testing an application's own code. **No package dependencies.** |
-| `Tyanor.Extensions.DependencyInjection` | `AddTyanor`. Optional; the engine works without a container. |
-| `Tyanor.Providers.*` | Everything vendor-shaped: status vocabulary, API calls, waiting, classification. |
+| `Tyanor` | Contracts and the pure decisions. No I/O, and it names no vendor. |
+| `Tyanor.Engine` | Ordering, reconcile, retry, the operator-facing wording, and `AddTyanor`. |
+| `Tyanor.Engine.State` | Run history and deployment state — file and in-memory — and the storage backends. |
+| `Tyanor.Testing` | Contract suites an implementation runs to prove itself, and `MemoryTarget` — a provider that deploys to a dictionary, for testing an application's own code. |
+| `Tyanor.Providers.*` | A package each. Everything vendor-shaped: status vocabulary, API calls, waiting, classification. |
 
-If a type in Core needs a package, it is not Core. See [`../DECISIONS.md`](../DECISIONS.md) D4 for the
-concrete leak that motivated the vendor-neutrality rule, and D10 for why every seam is optional.
+The package takes exactly one dependency — `Microsoft.Extensions.DependencyInjection.Abstractions`, for
+`AddTyanor` — and `doctor` holds it to that list in both directions. **No test framework**, which is what
+lets the contract suites run under whichever one the implementer already has.
+
+The namespace boundary is not enforced by the compiler any more, so it is enforced by review: if a type in
+the `Tyanor` namespace needs a package or names a vendor, it is in the wrong namespace. See
+[`../DECISIONS.md`](../DECISIONS.md) D4 for the concrete leak that motivated vendor-neutrality, D10 for why
+every seam is optional, and D26 for why one package rather than four.
 
 ## More than one provider at a time
 
@@ -213,5 +222,6 @@ the live test, gated behind `TYANOR_LIVE_AWS`, is for. Fakes for our control flo
 semantics (D23).
 
 Adding a provider: [`../../.claude/skills/add-provider/SKILL.md`](../../.claude/skills/add-provider/SKILL.md).
-Run the contract suites in `Tyanor.Testing` against it — they are what the built-in providers run, and
+Run the contract suites in `Tyanor.Testing` against it — they are in the package it already references,
+they are what the built-in providers run, and
 passing them is how a provider written elsewhere earns its way in.

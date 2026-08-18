@@ -47,23 +47,29 @@ each unit is decided from what is true now rather than from what a previous run 
 
 ## 3. Layout
 
+**Three packages** — `Tyanor`, and one per provider (D26). Folders under `src/Tyanor/` mirror namespaces, so
+a type's `using` is its path.
+
 ```
 src/
-  Tyanor.Core/      contracts + the reconcile decision. No I/O, no provider, no dependencies.
-  Tyanor.Engine/    ProcedureRunner: ordering, reconcile, retry, classified outcomes, history + state.
-  Tyanor.Extensions.DependencyInjection/   AddTyanor. Optional — the engine works without a container.
-  Tyanor.Testing/       contract suites — what an IUnitDriver / IFailureClassifier / IRunHistory /
-                        IStateStore must DO, runnable by whoever wrote one, including outside this
-                        repo (D15). Plus MemoryTarget: a real provider that deploys to a dictionary,
-                        so a CONSUMER can test its own code. It passes the suites (D24).
-                        No package dependencies: no test framework is imposed.
+  Tyanor/           ONE package, four namespaces.
+    *.cs                  namespace Tyanor — contracts + the reconcile decision. No I/O, no provider.
+    Engine/               namespace Tyanor.Engine — ProcedureRunner: ordering, reconcile, retry,
+                          classified outcomes. Plus AddTyanor, the one thing that needs a dependency.
+    Engine/State/         namespace Tyanor.Engine.State — run history + deployment state, file and
+                          in-memory, and the storage backends.
+    Testing/              namespace Tyanor.Testing — contract suites: what an IUnitDriver /
+                          IFailureClassifier / IRunHistory / IStateStore must DO, runnable by whoever
+                          wrote one, including outside this repo (D15). Plus MemoryTarget: a real
+                          provider that deploys to a dictionary, so a CONSUMER can test its own code.
+                          It passes the suites (D24).
   Tyanor.Providers.Local/   this machine: a directory from an artifact, a process, a health check.
                             The worked reference — read it before writing a second provider.
   Tyanor.Providers.Aws/     CloudFormation stacks + S3/CloudFront content. Ported; NOT yet run
                             against AWS — the live test is gated behind TYANOR_LIVE_AWS (D14).
   Tyanor.Providers.*/   one per target. The ONLY place vendor vocabulary exists.
 tests/
-  Tyanor.Core.Tests/    pure tests for the decision logic. Always-on, no cloud, no mocks of an SDK.
+  Tyanor.Tests/         pure tests for the decision logic. Always-on, no cloud, no mocks of an SDK.
   Tyanor.Docs.Tests/    every C# sample in docs/guide.md, compiled. `doctor` refuses a fence in the
                         guide that is not in here — so the two cannot drift.
   Shared/               compiled into EVERY test project by tests/Directory.Build.props, with a global
@@ -76,8 +82,15 @@ tests/
                                   A fake REPLAYS real strings, it never invents one (D23).
 ```
 
-**`Tyanor.Core`, `Tyanor.Engine` and `Tyanor.Testing` take no package dependencies** — `doctor` checks it.
-If something needs one, it belongs in a package beside them, not in them.
+**`Tyanor` has a dependency BUDGET, and `doctor` enforces it in both directions:** exactly
+`Microsoft.Extensions.DependencyInjection.Abstractions`, because `AddTyanor` is an extension method on
+`IServiceCollection` and there is no other way to write one. Adding a second reference fails the build; so
+does removing that one without updating the budget. Notably absent, and it must stay absent: **any test
+framework** — the contract suites must run under whichever one the reader already has.
+
+**The namespace boundary is no longer a compiler boundary, so it is a review boundary.** A type in the
+`Tyanor` namespace that names a vendor or needs a package is in the wrong namespace; nothing but reading will
+catch it now. Before D26 this was four assemblies and the compiler said so.
 
 **Build settings live in the root `Directory.Build.props`, and the version lives there alone.** `src/` adds
 package metadata; `tests/` adds `IsPackable=false`. `doctor` refuses a second `<VersionPrefix>` anywhere,
@@ -119,9 +132,11 @@ node devtools/dev.mjs providers   every provider AND every unit kind is held to 
 node devtools/dev.mjs sensitive   credential scan
 ```
 
-Two of doctor's checks verify **claims the README makes out loud** — that `Tyanor.Core`, `Tyanor.Engine`
-and `Tyanor.Testing` take no package dependencies, and that the version ships from one place. If one fails
-because the claim changed deliberately, change the claim. Do not silence the check.
+Two of doctor's checks verify **claims the README makes out loud** — that the library depends on exactly the
+packages its budget names and no others, and that the version ships from one place. If one fails because the
+claim changed deliberately, change the claim. Do not silence the check. (D26 is what that looks like done
+properly: the dependency-free claim genuinely stopped being true, so the check became a narrower one that
+still fails, rather than a check that was deleted.)
 
 **The guide's samples are compiled.** Every C# fence in `docs/guide.md` must appear verbatim in
 `tests/Tyanor.Docs.Tests`, which builds — so a renamed method breaks the build rather than rotting quietly in

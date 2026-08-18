@@ -11,9 +11,6 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Tyanor.Core\Tyanor.Core.csproj" />
-    <ProjectReference Include="..\..\src\Tyanor.Engine\Tyanor.Engine.csproj" />
-    <ProjectReference Include="..\..\src\Tyanor.Testing\Tyanor.Testing.csproj" />
-    <ProjectReference Include="..\..\src\Tyanor.Extensions.DependencyInjection\Tyanor.Extensions.DependencyInjection.csproj" />
+    <ProjectReference Include="..\..\src\Tyanor\Tyanor.csproj" />
   </ItemGroup>
 </Project>

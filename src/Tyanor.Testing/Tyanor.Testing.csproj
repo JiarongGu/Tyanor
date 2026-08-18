@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <RootNamespace>Tyanor.Testing</RootNamespace>
-    <Description>Testing support for Tyanor — contract suites that prove an IUnitDriver, IFailureClassifier, IRunHistory or IStateStore behaves the way the engine assumes, plus MemoryTarget, a real provider that deploys to a dictionary so an application can test its own deployment code without a cloud. No test framework required.</Description>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\Tyanor.Core\Tyanor.Core.csproj" />
-  </ItemGroup>
-</Project>

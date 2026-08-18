@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <RootNamespace>Tyanor.Engine</RootNamespace>
-    <Description>Tyanor Engine — runs a procedure against a target: ordered units, per-unit reconcile, bounded retry, classified pause/fail. Resume is a re-run.</Description>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\Tyanor.Core\Tyanor.Core.csproj" />
-  </ItemGroup>
-</Project>

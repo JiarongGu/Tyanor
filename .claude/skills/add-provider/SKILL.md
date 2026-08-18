@@ -10,14 +10,14 @@ description: Add a Tyanor deployment provider (AWS, Kubernetes, SSH, local…) �
 ## Purpose
 
 A provider is the ONLY place vendor vocabulary lives. Everything else — ordering, reconcile, retry,
-pause/fail, run history — already exists in `Tyanor.Engine` and must not be reimplemented. This skill
+pause/fail, run history — already exists in the `Tyanor.Engine` namespace and must not be reimplemented. This skill
 exists because the tempting mistake is to write a second engine inside a provider.
 
 Read [`../../rules/provider-boundary.md`](../../rules/provider-boundary.md) and
 [`../../rules/error-classification.md`](../../rules/error-classification.md) first.
 
 **This works the same outside this repository.** A provider in your own solution references
-`Tyanor.Core`, registers in your composition root, and runs the same contract suites (D15). Nothing here is
+`Tyanor`, registers in your composition root, and runs the same contract suites (D15). Nothing here is
 privileged to the built-in ones. If yours passes the contracts and a consumer needs it, that is also the
 path for adopting it into this repository.
 
@@ -118,7 +118,8 @@ provider failed" without matching on message text. Do not classify these; return
 
 ## Tests that must exist before the provider is trusted
 
-**Start with the contract suites** (`Tyanor.Testing`). They check what the engine assumes and no signature
+**Start with the contract suites** (`Tyanor.Testing`, in the package you already reference). They check
+what the engine assumes and no signature
 states, they are the same suites the built-in providers run, and `npm run doctor` refuses a provider in this
 repository that does not run them — because the one kind that skipped them turned out to be failing four:
 
@@ -169,8 +170,9 @@ touches a cloud or spends money. Gate the driver contract there too if it needs 
 
 ## Steps
 
-1. `dotnet new classlib -o src/Tyanor.Providers.<Name>` and reference `Tyanor.Core`. (Outside this
-   repository: reference the `Tyanor.Core` package. Everything below is identical.)
+1. `dotnet new classlib -o src/Tyanor.Providers.<Name>` and reference `src/Tyanor/Tyanor.csproj`. (Outside
+   this repository: `dotnet add package Tyanor`. Everything below is identical — including the contract
+   suites, which arrive with it.)
 2. Write the classifier and its tests first — it is pure, it is where the subtle bugs are, and it needs no
    provider. Run `FailureClassifierContract` against it.
 3. Write the driver. Keep every method boring; if one starts branching on run state, that logic belongs in

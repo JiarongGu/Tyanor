@@ -1,6 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <RootNamespace>Tyanor</RootNamespace>
-    <Description>Tyanor Core — the operational contracts: units, reconcile, failure classes, run state. No provider, no I/O.</Description>
-  </PropertyGroup>
-</Project>

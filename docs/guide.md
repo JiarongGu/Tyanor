@@ -27,21 +27,24 @@ a deployment you can resume.
 ## Install
 
 ```
-dotnet add package Tyanor.Engine                          # the runner; brings Tyanor.Core
+dotnet add package Tyanor                                 # everything that is not a provider
 dotnet add package Tyanor.Providers.Local                 # …and at least one provider
 ```
 
 | Package | When you need it |
 |---|---|
-| `Tyanor.Core` | contracts only — what a provider written elsewhere references |
-| `Tyanor.Engine` | `ProcedureRunner`, the file stores. **The one to start with.** |
+| `Tyanor` | **Always.** The engine, the state stores, DI wiring, the contract suites. |
 | `Tyanor.Providers.Local` | deploy to a machine: files, a process, a health check |
 | `Tyanor.Providers.Aws` | CloudFormation stacks, S3/CloudFront content |
-| `Tyanor.Extensions.DependencyInjection` | `AddTyanor`. Optional — everything works without a container |
-| `Tyanor.Testing` | contract suites for your own provider, and `MemoryTarget` for testing your own code |
 
-All ship in lockstep at one version. `Tyanor.Core`, `Tyanor.Engine` and `Tyanor.Testing` take no package
-dependencies at all.
+That is the whole list. Three packages, shipping in lockstep at one version.
+
+There are four namespaces inside `Tyanor` — `Tyanor` for the contracts, `Tyanor.Engine` for the runner,
+`Tyanor.Engine.State` for the stores, `Tyanor.Testing` for the contract suites — but you install one thing
+and everything is there. `Tyanor` takes exactly one dependency,
+`Microsoft.Extensions.DependencyInjection.Abstractions`, because `AddTyanor` is an extension method on
+`IServiceCollection` and there is no other way to write one. Notably it takes **no test framework**: the
+contract suites run under whichever one you already have.
 
 ## 1. Describe the deployment
 
@@ -337,11 +340,11 @@ not load code it merely found — you register yours in one line, exactly like t
 
 Your application has its own logic around Tyanor: does the UI offer a Resume button when a run pauses, does
 the pipeline stop when validation fails, does the operator see the right thing when a deployment has drifted.
-Reaching those states against a real target means credentials, money and minutes — so `Tyanor.Testing` ships
-a target that deploys to a dictionary.
+Reaching those states against a real target means credentials, money and minutes — so `Tyanor.Testing` gives
+you a target that deploys to a dictionary. Nothing to install: it is in the package you already have.
 
-```
-dotnet add package Tyanor.Testing
+```csharp
+using Tyanor.Testing;
 ```
 
 The ordinary case is a target that just works, so the test can be about something else:

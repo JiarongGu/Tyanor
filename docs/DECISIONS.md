@@ -18,7 +18,8 @@ the way a log like this rots is that the entry which supersedes says so and the 
 |---|---|---|
 | [D3](#d3--units-are-an-ordered-list-not-a-graph-2026-08-06) | ordered list, not a graph | plus D13, D21 |
 | [D8](#d8--terraforms-how-cdks-what-2026-08-06) | Terraform's *how*, CDK's *what* | the positioning |
-| [D10](#d10--tyanor-is-a-library-not-a-service-2026-08-06) | a library, not a service | |
+| [D10](#d10--tyanor-is-a-library-not-a-service-2026-08-06) | a library, not a service | ⚠ packages merged by D26 |
+| [D26](#d26--one-library-package-three-in-total-2026-08-19--amends-d10) | one library package, three in total | amends D10 |
 | [D5](#d5--tyanor-executes-a-pre-built-artifact-it-does-not-synthesize-2026-08-06) | executes, does not synthesize | |
 | [D21](#d21--the-pipeline-does-not-need-a-new-authoring-model-it-needs-unit-kinds-2026-08-09) | a pipeline is unit kinds, not a DSL | |
 
@@ -275,6 +276,12 @@ does not own an application's lifecycle.
 - **Every seam is optional and every dependency is opt-in.** `Tyanor.Core` and `Tyanor.Engine` take **no
   package dependencies at all**. `AddTyanor` lives in a separate package (`Tyanor.Extensions.DependencyInjection`),
   so a console tool or a desktop app that has no container is not made to acquire one.
+
+  > ⚠ **Repackaged since, by [D26](#d26--one-library-package-three-in-total-2026-08-19--amends-d10).** The four
+  > library packages are one, `Tyanor`, which references `Microsoft.Extensions.DependencyInjection.Abstractions`
+  > — the only way to write an extension method on `IServiceCollection`. "No dependencies at all" became a
+  > checked BUDGET of exactly that one. Everything else in D10 stands: nothing is ambient, the minimal path is
+  > still three lines with no container, and a consumer who never calls `AddTyanor` still configures nothing.
 - **The minimal path is three lines**, with no container, no configuration file and no host:
 
   ```csharp
@@ -1158,3 +1165,53 @@ version, and a refusal to half-read a file written by a newer Tyanor.
 **What this does NOT change.** State still records identity and never a resource model. The provider is
 still the arbiter of what is happening now. `Refresh` still repairs a stale mirror by re-reading rather than
 by surgery. D12 stands; this fills in what it left unbuilt.
+
+---
+
+## D26 — One library package, three in total (2026-08-19) — amends D10
+
+`Tyanor.Core`, `Tyanor.Engine`, `Tyanor.Extensions.DependencyInjection` and `Tyanor.Testing` are one package,
+`Tyanor`. With the two providers that is three packages, down from six.
+
+Namespaces are unchanged: `Tyanor`, `Tyanor.Engine`, `Tyanor.Engine.State`, `Tyanor.Testing` all still exist,
+and folders under `src/Tyanor/` mirror them. Not one line of source or of any sample changed, which is the
+first evidence that the split was never doing work — an assembly boundary that can be dissolved without
+touching a `using` was not separating anything.
+
+**Why the split existed, and why each reason failed:**
+
+- **Layering.** Core was contracts and pure decisions; Engine did I/O. A real distinction, but not one a
+  package can enforce and not one anybody could act on: nothing runs with Core alone, and no third thing
+  consumed it. The namespaces still express it, which is where it belonged.
+- **Optionality.** Six packages let a consumer take only what they need — except they always needed the same
+  four, and got them anyway through transitive references. The choice was theoretical.
+- **Zero dependencies.** This one was real, and it is the one thing that changed: merging `AddTyanor` in means
+  the library now references `Microsoft.Extensions.DependencyInjection.Abstractions`.
+
+**Decided against: keeping the DI package separate to preserve "no dependencies at all".** It is the only
+honest argument for a fourth package, and the property is genuinely nice — Tyanor is embedded in desktop
+applications that have no host and no container. But there is no other way to write an extension method on
+`IServiceCollection`; the alternatives are reflection over `object`, which throws away the type safety that
+is the entire point, or deleting `AddTyanor` and having every consumer hand-write four `AddSingleton` calls.
+On `net10.0` the package is a leaf with no dependencies of its own, so a consumer who never calls `AddTyanor`
+pays one small assembly. That is a smaller cost than a package whose whole purpose is to hold one file.
+
+**What replaces the claim.** Not nothing — a **budget**. `doctor` now checks that `Tyanor` references exactly
+`Microsoft.Extensions.DependencyInjection.Abstractions`, and fails in **both** directions: an unbudgeted
+reference means the README overstates how little is needed, and a budgeted reference that is gone means the
+budget describes a dependency nobody has. What mattered was never the number zero; it was that no dependency
+arrives unnoticed, and that is now checked more precisely than "none" ever was.
+
+**Still absent, deliberately: any test framework.** The contract suites ship in `Tyanor` and must run under
+whichever framework the reader already has. One convenient `xunit` reference would quietly break that for
+everyone using NUnit — so the budget names it by its absence (D15, D24).
+
+**What this cost.** `Tyanor.Testing` no longer being separately installable means an application ships
+`MemoryTarget` and the contract suites it may never call. That is a few kilobytes, and it buys the thing the
+suites most needed: a provider author references `Tyanor` to implement `IUnitDriver`, and the suites proving
+they got it right are *already there*. A second `dotnet add package` is exactly the friction that stops
+contract suites being run at all.
+
+**Revisit if** a real consumer is blocked by the `M.E.DI.Abstractions` reference — which would mean a
+platform where it is unavailable, not merely unwanted. Splitting it back out is a mechanical change to one
+`ItemGroup`; nothing else would move, because the namespaces never did.

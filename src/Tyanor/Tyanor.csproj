@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Tyanor</RootNamespace>
+    <Description>Tyanor — define a procedure once in C# and execute it against pluggable providers: ordered units, per-unit reconcile against live provider state, bounded retry, classified pause/fail. Resume is a re-run, not a separate code path. Includes the engine, JSON-backed run history and deployment state, optional DI wiring, and the contract suites an out-of-repo provider is proved against.</Description>
+  </PropertyGroup>
+
+  <!-- The ONE dependency, and it is here because there is no other way to write an extension method on
+       IServiceCollection. It is a leaf package on this target framework, so a consumer who never calls
+       AddTyanor still pays only one small assembly. Nothing else may be added: `doctor` allows exactly this
+       reference and refuses a second (docs/DECISIONS.md D26). -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+  </ItemGroup>
+</Project>

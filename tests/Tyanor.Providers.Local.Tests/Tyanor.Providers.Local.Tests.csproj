@@ -9,9 +9,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Tyanor.Core\Tyanor.Core.csproj" />
-    <ProjectReference Include="..\..\src\Tyanor.Engine\Tyanor.Engine.csproj" />
+    <ProjectReference Include="..\..\src\Tyanor\Tyanor.csproj" />
     <ProjectReference Include="..\..\src\Tyanor.Providers.Local\Tyanor.Providers.Local.csproj" />
-    <ProjectReference Include="..\..\src\Tyanor.Testing\Tyanor.Testing.csproj" />
   </ItemGroup>
 </Project>

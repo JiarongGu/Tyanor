@@ -1,8 +1,14 @@
 # Nothing Provider-Shaped Crosses Into Core
 
-**`Tyanor.Core` must never name a vendor, a tool, or a product. If a type in Core mentions CDK,
+**The `Tyanor` namespace must never name a vendor, a tool, or a product. If a type there mentions CDK,
 CloudFormation, kubectl, an S3 bucket or a Lambda, the abstraction has already failed — whether or not a
 second provider exists yet.**
+
+> Since **D26** this is a namespace, not a separate assembly: `Tyanor` and `Tyanor.Providers.*` ship as
+> separate packages, but the neutral core and the engine are one package. **The compiler no longer stops a
+> leak.** It never really did — the defect below compiled fine — but the reference graph used to make one
+> obvious, and now only reading does. Treat every addition to the `Tyanor` namespace as needing this check by
+> hand.
 
 ## Why
 

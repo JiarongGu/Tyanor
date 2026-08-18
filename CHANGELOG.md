@@ -14,16 +14,31 @@ cleanups that no user ever met, because there was no previous version to meet th
 separate, because the reasoning is the point: most of those mistakes are ones a provider or storage backend
 written outside this repository can still make.
 
-Test counts quoted against a particular piece are what it brought with it. The suite as a whole is **623
+Test counts quoted against a particular piece are what it brought with it. The suite as a whole is **642
 tests**, none of which touch a cloud.
 
 ### What ships
 
+#### Three packages
+
+```
+dotnet add package Tyanor                     # everything that is not a provider
+dotnet add package Tyanor.Providers.Local     # …and at least one provider
+```
+
+`Tyanor`, `Tyanor.Providers.Local`, `Tyanor.Providers.Aws`. Inside the first, four namespaces do the
+layering — `Tyanor` (contracts and the reconcile decision), `Tyanor.Engine` (the runner and `AddTyanor`),
+`Tyanor.Engine.State` (the stores), `Tyanor.Testing` (the contract suites and `MemoryTarget`) — and you install
+one thing. One dependency in total: `Microsoft.Extensions.DependencyInjection.Abstractions`, because
+`AddTyanor` is an extension method on `IServiceCollection`. No test framework, so the contract suites run
+under whichever one you already have. `doctor` holds that list to exactly those, in both directions.
+Reasoning in `docs/DECISIONS.md` D26.
+
 #### The engine
 
-- **`Tyanor.Core`** — units, the reconcile decision, failure classes, run state, the provider contracts.
-  **`Tyanor.Engine`** — `ProcedureRunner`: ordered units, per-unit reconcile, bounded retry on transient
-  errors only, classified pause/fail, run history and state.
+- **`ProcedureRunner`** — units, the reconcile decision, failure classes, run state, the provider contracts;
+  ordered units, per-unit reconcile, bounded retry on transient errors only, classified pause/fail, run
+  history and state.
 - **The doctrine, extracted rather than invented**: ported from a deployer that ran real infrastructure,
   survived a crash and rebuild mid-deploy, and resumed to completion. Reasoning in `docs/DECISIONS.md`.
 
@@ -104,13 +119,14 @@ tests**, none of which touch a cloud.
   outputs; that outputs do not survive a remove; and that `ValidateAsync` reports rather than throws.
   `IUnitDriverFixture.ExpectedOutputs` came with them — a default member, so nothing broke — because without
   it the outputs checks could not fail at all and were decoration.
-- **`Tyanor.Testing` — contract suites, so a provider or backend written anywhere can prove it behaves.**
+- **Contract suites, so a provider or backend written anywhere can prove it behaves** (`Tyanor.Testing`).
   `UnitDriverContract`, `FailureClassifierContract`, `RunHistoryContract`, `StateStoreContract`. They check
   what the engine assumes and no signature states: that reading a phase changes nothing, that removing what
   is already gone is fine, that an update with nothing to change says so, that a resource keeps its identity
   across a refresh, that a wrapped credential error still classifies, that a live run record cannot be
-  deleted, and that a null fingerprint stays null. **No package dependencies** — they run under any test
-  framework, and `doctor` enforces that. Reasoning in `docs/DECISIONS.md` D15.
+  deleted, and that a null fingerprint stays null. **No test framework dependency** — they run under any
+  framework, and `doctor` enforces that. Nothing extra to install: they are in the package you referenced to
+  implement the driver. Reasoning in `docs/DECISIONS.md` D15 and D26.
 - **`DeploymentTargets`** — several providers coexist in one application and are selected by `Id`, with
   `ProcedureRunners` producing a runner for each over one shared history and state store.
 - **`UnitKindDriver`** — the per-unit `kind` dispatch both shipped providers had hand-written, now in the
