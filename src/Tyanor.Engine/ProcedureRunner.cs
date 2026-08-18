@@ -50,7 +50,12 @@ public sealed class ProcedureRunner(
         Procedure procedure, DeploymentRequest request,
         RunKind kind = RunKind.Apply, CancellationToken ct = default)
     {
+        // Read once, for BOTH directions. Only an apply compares against state for drift — a teardown counts
+        // what the provider actually has — but both need it to spot a unit state records and the procedure
+        // no longer declares, and a destroy needs that most: it is the run after which the stranded thing is
+        // all that is left.
         var recorded = state is null ? null : await state.GetAsync(procedure.Name, request.Prefix, ct);
+
         var steps = new List<PlannedStep>();
         var drift = new List<Drift>();
         var destroying = new List<Drift>();
@@ -65,7 +70,11 @@ public sealed class ProcedureRunner(
             steps.Add(new PlannedStep(unit, phase,
                 kind == RunKind.Apply ? Reconcile.Decide(phase) : Reconcile.DecideDestroy(phase)));
 
-            if (recorded is null) continue;
+            // Drift is state-versus-reality, so it needs a state store. What a TEARDOWN will destroy is not:
+            // it is read entirely from the provider, and gating it on a state store made a destroy plan of a
+            // runner configured without one report "0 to destroy" and IsDestructive false — which is the
+            // confirmation gate the README tells operators to put in front of the irreversible direction.
+            if (kind == RunKind.Apply && recorded is null) continue;
 
             // REFRESH: re-read what actually exists and compare it to what state records. This is what
             // makes the add/change/destroy counts real rather than a guess from configuration — and it is
@@ -74,7 +83,7 @@ public sealed class ProcedureRunner(
 
             if (kind == RunKind.Apply)
             {
-                drift.AddRange(StateDiff.ForUnit(unit.Name, recorded.For(unit.Name), actual));
+                drift.AddRange(StateDiff.ForUnit(unit.Name, recorded!.For(unit.Name), actual));
                 continue;
             }
 
@@ -93,6 +102,7 @@ public sealed class ProcedureRunner(
             Kind = kind,
             Drift = drift,
             Destroying = destroying,
+            Orphaned = Orphaned(procedure, recorded),
         };
     }
 
@@ -227,10 +237,37 @@ public sealed class ProcedureRunner(
     /// <summary>Progress is optional — a script or a test may not want it. Nothing else changes.</summary>
     private static void Ignore(ProgressReport _) { }
 
+    /// <summary>
+    /// Units state records that the procedure no longer declares.
+    /// </summary>
+    /// <remarks>
+    /// A pure comparison of CONFIG against STATE, which is the one pairing the rest of the engine never
+    /// makes — every other pass walks the procedure's units and therefore cannot see a unit that is not in
+    /// it. Compared case-insensitively, for the reason <see cref="Procedure"/> refuses two names differing
+    /// only by case: on Windows they were always the same directory.
+    /// </remarks>
+    private static IReadOnlyList<UnitState> Orphaned(Procedure procedure, DeploymentState? recorded)
+    {
+        // A NARROWED procedure is a partial view by request, so every unit it leaves out would look
+        // stranded. Asking a targeted run about units it was told to skip would make the signal noise, and
+        // noise is how a real orphan gets ignored. Ask the whole procedure instead.
+        if (recorded is null || procedure.IsNarrowed) return [];
+
+        var declared = procedure.Units.Select(u => u.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return [.. recorded.Units.Where(u => !declared.Contains(u.Unit))];
+    }
+
     private async Task<OperationOutcome> RunAsync(
         Procedure procedure, IReadOnlyList<ProcedureUnit> units, RunKind kind,
         DeploymentRequest request, Action<ProgressReport> report, string? runId, CancellationToken ct)
     {
+        // A token already cancelled means the run never starts, and leaves NO trace. Without this the
+        // behaviour depended on which side of the opening history write the cancellation landed: a
+        // microsecond earlier and the write itself threw and recorded nothing, a microsecond later and the
+        // history held a paused run that had touched nothing and would be adopted by the next apply.
+        // Nothing happened, so nothing is recorded — deterministically.
+        ct.ThrowIfCancellationRequested();
+
         // One id for the whole attempt INCLUDING its resumes — a resume continues a run rather than
         // starting one, or the history would show five failures where one interrupted job happened.
         //
@@ -239,10 +276,13 @@ public sealed class ProcedureRunner(
         // or continuing. With a shared history the live run may belong to another machine, and adopting it
         // is still right — the alternative is two competing records of one deployment, which is precisely
         // the out-of-sync state the plan exists to reveal.
-        var id = runId
-            ?? (await history.LiveAsync(procedure.Name, request.Prefix, ct))?.Id
-            ?? Guid.NewGuid().ToString("N");
-        var started = DateTimeOffset.UtcNow;
+        var live = await history.LiveAsync(procedure.Name, request.Prefix, ct);
+        var id = runId ?? live?.Id ?? Guid.NewGuid().ToString("N");
+
+        // Continuing a run keeps the moment it BEGAN. Stamping "now" over it would make one interrupted
+        // three-hour job report as however long its last resume took, which is the same defect as giving a
+        // resume a new id — the record stops describing the attempt and starts describing the retry.
+        var started = live?.Id == id ? live.StartedAt : DateTimeOffset.UtcNow;
         var record = new RunRecord(id, procedure.Name, request.Prefix, kind, RunStatus.Running, started);
         await history.UpsertAsync(record, ct);
 
@@ -273,29 +313,42 @@ public sealed class ProcedureRunner(
                     Percent(done, procedure.TotalWeight), ProgressStatus.Success));
             }
 
-            await history.UpsertAsync(record with { Status = RunStatus.Succeeded, FinishedAt = DateTimeOffset.UtcNow }, ct);
+            await Finish(record with { Status = RunStatus.Succeeded, FinishedAt = DateTimeOffset.UtcNow });
             return OperationOutcome.Success();
         }
         catch (OperationCanceledException)
         {
             // Cancellation leaves the run LIVE on purpose. Whatever the provider had started is still
             // converging out there; marking this failed would hide work that is genuinely in flight.
-            await history.UpsertAsync(record with { Status = RunStatus.Paused, Reason = PauseReason.External }, ct);
+            await Finish(record with { Status = RunStatus.Paused, Reason = PauseReason.External });
             throw;
         }
         catch (Exception ex)
         {
             var outcome = OperationOutcome.From(target.Classifier.Classify(ex) ?? FailureClass.Hard, ex.Message);
             report(new ProgressReport(procedure.Name, Explain(outcome), -1, ProgressStatus.Error));
-            await history.UpsertAsync(record with
+            await Finish(record with
             {
                 Status = outcome.Resumable ? RunStatus.Paused : RunStatus.Failed,
                 FinishedAt = outcome.Resumable ? null : DateTimeOffset.UtcNow,
                 Reason = outcome.Reason,
                 Error = ex.Message,
-            }, ct);
+            });
             return outcome;
         }
+
+        // How a run ENDS is recorded with no cancellation token, deliberately, and this is the one place in
+        // the engine where ignoring the caller's token is right.
+        //
+        // It used to pass `ct`. On the cancellation path that is the token that has just been cancelled, so
+        // any history honouring it — including the shipped file one, whose gate takes the token — threw
+        // instead of writing, and the run stayed recorded as `Running` with no reason. The operator could
+        // not tell a deliberate cancel from a process that died, and `PauseReason.External` never reached a
+        // record at all. On the failure path it was worse: a token cancelled around the same time as a
+        // failure lost the outcome entirely and left the run open for ever.
+        //
+        // Being told to stop is not a reason to stop saying WHY you stopped.
+        Task Finish(RunRecord ending) => history.UpsertAsync(ending, CancellationToken.None);
     }
 
     /// <summary>
@@ -430,12 +483,34 @@ public sealed class ProcedureRunner(
         };
     }
 
-    /// <summary>What to tell the operator. A pause says the work is kept, because it is.</summary>
-    private static string Explain(OperationOutcome outcome) => outcome.Reason?.Value switch
+    /// <summary>
+    /// What to tell the operator. A pause says the work is kept, because it is.
+    /// </summary>
+    /// <remarks>
+    /// <para>Matched against the <see cref="PauseReason"/> values rather than against copies of their text.
+    /// The literals were the same "two copies of a rule" defect as everywhere else: renaming a reason would
+    /// have silently dropped it through to the failure wording, which is the one sentence that must not be
+    /// wrong here.</para>
+    /// <para><b>Any pause the table does not know still reads as a pause.</b>
+    /// <see cref="PauseReason"/> is open on purpose — a provider or procedure may add one (DNS validation
+    /// pending, a manual approval gate) — so the fallback has to keep the promise the class makes rather
+    /// than telling an operator their intact deployment failed.</para>
+    /// </remarks>
+    private static string Explain(OperationOutcome outcome)
     {
-        "credentials" => "The provider rejected your credentials — they may have expired. Re-enter them and resume; the progress so far is kept.",
-        "transient" => "A temporary provider error interrupted the run. You can resume — the progress so far is kept.",
-        "external" => "The run is waiting on something outside the provider. You can resume once it is ready.",
-        _ => "The run failed: " + (outcome.Error ?? "unknown error"),
-    };
+        if (outcome.Reason is not { } reason)
+            return "The run failed: " + (outcome.Error ?? "unknown error");
+
+        if (reason == PauseReason.Credentials)
+            return "The provider rejected your credentials — they may have expired. Re-enter them and " +
+                   "resume; the progress so far is kept.";
+
+        if (reason == PauseReason.Transient)
+            return "A temporary provider error interrupted the run. You can resume — the progress so far is kept.";
+
+        if (reason == PauseReason.External)
+            return "The run is waiting on something outside the provider. You can resume once it is ready.";
+
+        return $"The run is paused ({reason.Value}). You can resume — the progress so far is kept.";
+    }
 }

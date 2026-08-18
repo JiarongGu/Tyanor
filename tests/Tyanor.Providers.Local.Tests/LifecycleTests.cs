@@ -224,4 +224,64 @@ public class LifecycleTests
 
         Assert.Empty(await box.Runner.OutputsAsync(Server, Request(box)));
     }
+
+    [Fact]
+    public async Task A_procedure_wide_path_does_NOT_collapse_every_unit_into_one_directory()
+    {
+        // `path` is the unit's ADDRESS, so unlike every other setting here it does not inherit the unscoped
+        // value. It used to: `["path"] = …` put both directory units in the same folder, where the second to
+        // deploy pruned the first's releases and removing either removed both — silent data loss, and the
+        // same collision `Procedure` refuses when two units share a name, reached through a different door.
+        using var box = new Sandbox();
+        box.Publish("Server.dll", "v1");
+
+        var two = new Procedure("server",
+            [new ProcedureUnit("runtime", "Application files"), new ProcedureUnit("assets", "Static files")]);
+
+        var request = new DeploymentRequest("acme",
+            new DeploymentArtifact(new Dictionary<string, string> { ["app"] = box.Artifact }),
+            new Dictionary<string, string>
+            {
+                ["kind"] = LocalOptions.DirectoryKind,
+                ["source"] = "app",
+                ["path"] = Path.Combine(box.Root, "shared"),      // meant for one unit; must not bind to both
+            });
+
+        Assert.True((await box.Runner.ApplyAsync(two, request)).Ok);
+
+        // Each unit kept its own default directory, and the stray shared one was never used.
+        Assert.True(Directory.Exists(box.Deployed("acme", "runtime")));
+        Assert.True(Directory.Exists(box.Deployed("acme", "assets")));
+        Assert.False(Directory.Exists(Path.Combine(box.Root, "shared")));
+
+        // …so removing one leaves the other standing, which is the property that was actually at risk.
+        Assert.True((await box.Runner.DestroyAsync(two.Only("assets"), request)).Ok);
+        Assert.False(Directory.Exists(box.Deployed("acme", "assets")));
+        Assert.True(Directory.Exists(box.Deployed("acme", "runtime")));
+    }
+
+    [Fact]
+    public async Task A_unit_scoped_path_is_still_honoured()
+    {
+        // The capability itself is not being taken away — only the inheritance.
+        using var box = new Sandbox();
+        box.Publish("Server.dll", "v1");
+
+        var one = new Procedure("server", [new ProcedureUnit("runtime", "Application files")]);
+        var elsewhere = Path.Combine(box.Root, "somewhere-else");
+
+        var request = new DeploymentRequest("acme",
+            new DeploymentArtifact(new Dictionary<string, string> { ["app"] = box.Artifact }),
+            new Dictionary<string, string>
+            {
+                ["runtime.kind"] = LocalOptions.DirectoryKind,
+                ["runtime.source"] = "app",
+                ["runtime.path"] = elsewhere,
+            });
+
+        Assert.True((await box.Runner.ApplyAsync(one, request)).Ok);
+
+        Assert.True(Directory.Exists(Path.Combine(elsewhere, "releases")));
+        Assert.False(Directory.Exists(box.Deployed("acme", "runtime")));
+    }
 }

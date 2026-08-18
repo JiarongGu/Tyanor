@@ -201,15 +201,51 @@ public sealed class StateStoreContract(Func<IStateStore> create) : ContractSuite
             return fingerprint is null ? null : $"a null fingerprint came back as '{fingerprint}'";
         }),
 
-        ("The serial survives", async ct =>
+        ("The serial advances on every save", async ct =>
         {
-            // It is how a store with conditional writes refuses to clobber state someone else replaced.
+            // The STORE owns the serial: a caller hands back the version it read, and the store persists at
+            // one past it. That is what lets a backend with conditional writes refuse a save derived from
+            // state someone else has replaced.
+            //
+            // This used to assert the opposite — that the serial a caller wrote came back unchanged — which
+            // is satisfiable by a store that never advances it at all, and which paired with a `With` that
+            // incremented meant a conditional store implemented as documented would refuse EVERY save.
             var store = create();
-            var written = DeploymentState.Empty("site", "acme").With("db", [new ResourceState("db-1", "T", "v1")]);
-            await store.SaveAsync(written, ct);
 
-            var serial = (await store.GetAsync("site", "acme", ct)).Serial;
-            return serial == written.Serial ? null : $"wrote serial {written.Serial}, read {serial}";
+            var first = DeploymentState.Empty("site", "acme").With("db", [new ResourceState("db-1", "T", "v1")]);
+            await store.SaveAsync(first, ct);
+
+            var afterFirst = await store.GetAsync("site", "acme", ct);
+            if (afterFirst.Serial <= first.Serial)
+                return $"saved state read at serial {first.Serial}, and it came back at " +
+                       $"{afterFirst.Serial} — a save has to advance it or nothing can detect a clobber";
+
+            // Round trip: hand back exactly what was read, and it advances again.
+            await store.SaveAsync(afterFirst.With("db", [new ResourceState("db-1", "T", "v2")]), ct);
+
+            var afterSecond = (await store.GetAsync("site", "acme", ct)).Serial;
+            return afterSecond > afterFirst.Serial
+                ? null
+                : $"a second save left the serial at {afterSecond}, having read {afterFirst.Serial}";
+        }),
+
+        ("Editing state does not advance the serial by itself", async ct =>
+        {
+            // `With` is an edit of the version that was READ, so it must not move the number the store
+            // compares against — otherwise a Refresh, which edits every unit before saving once, would hand
+            // back a serial ahead by the unit count and no comparison could work.
+            var store = create();
+            await store.SaveAsync(DeploymentState.Empty("site", "acme")
+                .With("db", [new ResourceState("db-1", "T", "v1")]), ct);
+
+            var read = await store.GetAsync("site", "acme", ct);
+            var edited = read
+                .With("db", [new ResourceState("db-1", "T", "v2")])
+                .With("api", [new ResourceState("api-1", "T", "v1")]);
+
+            return edited.Serial == read.Serial
+                ? null
+                : $"two edits moved the serial from {read.Serial} to {edited.Serial}";
         }),
 
         ("Saving replaces rather than merges", async ct =>

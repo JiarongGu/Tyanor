@@ -7,17 +7,28 @@
 //
 // Beyond build + test it checks two architectural CLAIMS the README makes out loud, because a claim
 // nobody verifies is one that quietly stops being true:
-//   - Tyanor.Core and Tyanor.Engine take no package dependencies
-//   - the version in the changelog headline matches the one that will actually ship
+//   - Tyanor.Core, Tyanor.Engine and Tyanor.Testing take no package dependencies
+//   - the version ships from ONE place, and the changelog headline agrees with it
+//
+// …then the knowledge layer: the decisions log, the rules, the documentation's cross-references, and a
+// credential scan. See devtools/README.md for what goes wrong without each.
 
 import { spawnSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const { default: cfg } = await import('../project.config.mjs');
+
+const walk = (dir) => readdirSync(dir).flatMap((e) => {
+  if (cfg.ignore.includes(e)) return [];
+  const p = join(dir, e);
+  return statSync(p).isDirectory() ? walk(p) : [p];
+});
+
+const rel = (file) => file.slice(root.length + 1).replace(/\\/g, '/');
 
 const results = [];
 const step = (name, fn) => {
@@ -72,18 +83,30 @@ step('version is single-sourced', () => {
   const props = readFileSync(join(root, cfg.versionProps), 'utf8');
   const version = props.match(/<VersionPrefix>([^<]+)<\/VersionPrefix>/)?.[1];
   if (!version) return [`${cfg.versionProps}: no <VersionPrefix>`];
+
+  // "Single-sourced" was only ever checked at one end: that the changelog agreed. Nothing checked that
+  // there was ONE source, and there were two — src/ and tests/ each declared the version, identically,
+  // free to drift apart with nobody watching. A claim is only as good as the half of it that is tested.
+  const problems = walk(root)
+    .filter((f) => /\.(props|targets|csproj)$/i.test(f))
+    .filter((f) => f !== join(root, cfg.versionProps))
+    .filter((f) => /<VersionPrefix>/.test(readFileSync(f, 'utf8')))
+    .map((f) => `${rel(f)} also declares <VersionPrefix>; ${cfg.versionProps} is meant to be the only one`);
+
   const changelog = join(root, 'CHANGELOG.md');
-  if (!existsSync(changelog)) return [];
+  if (!existsSync(changelog)) return problems;
   const head = readFileSync(changelog, 'utf8').split('\n').slice(0, 40).join('\n');
   // Unreleased is fine — it means nothing has been cut yet. A DIFFERENT released version is not.
   const released = head.match(/^## (\d+\.\d+\.\d+)/m)?.[1];
-  return released && released !== version
-    ? [`CHANGELOG heads at ${released} but ${cfg.versionProps} says ${version}`]
-    : [];
+  if (released && released !== version)
+    problems.push(`CHANGELOG heads at ${released} but ${cfg.versionProps} says ${version}`);
+  return problems;
 });
 
 // ── the knowledge layer ──────────────────────────────────────────────────────────────────────────
-for (const [name, script] of [['decisions', 'decisions.mjs'], ['rules', 'rules.mjs'], ['sensitive', 'check-sensitive.mjs']])
+for (const [name, script] of [
+  ['decisions', 'decisions.mjs'], ['rules', 'rules.mjs'], ['docs', 'docs.mjs'], ['providers', 'providers.mjs'], ['sensitive', 'check-sensitive.mjs'],
+])
   step(name, () => {
     const r = spawnSync('node', [join(here, script)], { encoding: 'utf8' });
     return r.status === 0 ? [] : (r.stdout + r.stderr).trim().split('\n').slice(0, 12);

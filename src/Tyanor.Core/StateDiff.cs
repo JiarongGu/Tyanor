@@ -17,7 +17,12 @@ public static class StateDiff
     public static IReadOnlyList<Drift> ForUnit(string unit, IReadOnlyList<ResourceState> recorded, IReadOnlyList<ResourceState> actual)
     {
         var drift = new List<Drift>();
-        var byId = actual.ToDictionary(r => r.Id);
+
+        // Last wins on a duplicate id rather than throwing. A driver reporting one resource twice is a bug
+        // in that driver — UnitDriverContract has a check for it — but a plan is the thing an operator runs
+        // to FIND OUT what is wrong, so it must not be the thing that cannot run.
+        var byId = new Dictionary<string, ResourceState>(StringComparer.Ordinal);
+        foreach (var r in actual) byId[r.Id] = r;
 
         foreach (var was in recorded)
         {
@@ -27,10 +32,9 @@ public static class StateDiff
                 drift.Add(new Drift(unit, was, ResourceChange.Destroy));
                 continue;
             }
-            // A null fingerprint on EITHER side means the provider cannot tell whether it changed. Report
-            // it as a change rather than assuming equality — an unnoticed change is worse than a
-            // conservative one, and the operator can see the fingerprint is unknown.
-            if (was.Fingerprint is null || now.Fingerprint is null || was.Fingerprint != now.Fingerprint)
+            // Asked rather than repeated: "unknown is not equal" is the load-bearing rule here, and writing
+            // it in both places is how the two come to disagree.
+            if (!Unchanged(was.Fingerprint, now.Fingerprint))
                 drift.Add(new Drift(unit, now, ResourceChange.Change));
         }
 
@@ -43,9 +47,14 @@ public static class StateDiff
     }
 
     /// <summary>
-    /// Whether two fingerprints represent the same thing. Separate from <see cref="ForUnit"/> because
-    /// "unknown is not equal" is the load-bearing rule and deserves to be nameable in a test.
+    /// Whether two fingerprints represent the same thing — the rule <see cref="ForUnit"/> compares on,
+    /// named so it can be tested directly.
     /// </summary>
+    /// <remarks>
+    /// A null fingerprint on EITHER side means the provider cannot tell whether the resource changed, and
+    /// that is deliberately NOT "unchanged". An unnoticed change is worse than a conservative one, and the
+    /// operator can see the fingerprint is unknown.
+    /// </remarks>
     public static bool Unchanged(string? recorded, string? actual) =>
         recorded is not null && actual is not null && recorded == actual;
 }

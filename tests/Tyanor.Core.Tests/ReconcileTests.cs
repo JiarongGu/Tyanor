@@ -110,11 +110,8 @@ public class RunRecordTests
     [InlineData(RunStatus.Running)]
     [InlineData(RunStatus.Paused)]
     public void Running_and_paused_are_both_live(RunStatus status)
-    {
         // Paused is live because the provider may still be converging — the pause is OUR stop, not its.
-        Assert.True(Run(status).IsLive);
-        Assert.True(Run(status).Resumable);
-    }
+        => Assert.True(Run(status).IsLive);
 
     [Theory]
     [InlineData(RunStatus.Succeeded)]

@@ -7,16 +7,20 @@ the step people forget is the step that breaks.
 
 ```
 node devtools/dev.mjs doctor      build + test + every check below, one verdict
+                      release     are we shippable RIGHT NOW? (see below)
                       build       build the solution
                       test        run the tests
                       pack [dir]  produce the NuGet packages locally (default: artifacts/)
                       decisions   validate docs/DECISIONS.md
                       rules       validate .claude/rules
+                      docs        validate every .md — links, anchors, required documents
+                      providers   every shipped provider is held to the contract suites
                       sensitive   scan for credentials
 ```
 
-Nothing under `scripts/` names Tyanor. Project values live in **`project.config.mjs`** — to reuse this
-toolkit in another .NET library repo, copy `devtools/` and edit that one file.
+Nothing under `scripts/` names Tyanor — including the marker that silences a `sensitive` finding, which is
+`allowSecret` in the config for exactly that reason. Project values live in **`project.config.mjs`**: to
+reuse this toolkit in another .NET library repo, copy `devtools/` and edit that one file.
 
 ## What each check is for
 
@@ -44,6 +48,50 @@ file nobody will ever apply. A rule with a broken link is worse: authoritative-l
 reader nowhere. Also checks that each rule opens with a bold one-line statement of what it enforces, so a
 reader can decide in seconds whether it applies to them.
 
+### `docs`
+
+`decisions` already checked that one file's hand-written index resolved, because that index rotted the first
+time a title was reworded. Nothing checked the other thirteen documents — so a moved page left the README
+pointing nowhere and the guide's table of contents pointing at headings that had been renamed, and both went
+on looking like navigation.
+
+A broken link is worse than a missing one: it is authoritative-looking, and the reader only finds out after
+they have trusted it. So this resolves every relative link across every `.md`, every in-page anchor against
+that file's own headings, and the documents `requiredDocs` says must exist — which is how `LICENSE` was found
+absent while the README and every package claimed MIT.
+
+It also refuses a C# sample in `docs/guide.md` that is not present, verbatim, in `tests/Tyanor.Docs.Tests`.
+A fenced code block is the part of a document nothing can invalidate — rename a method and the prose keeps
+confidently teaching the old one — so the guide's samples are the same text as a project that builds. They
+were being compiled by hand, which is another way of saying they were going to stop being compiled.
+
+Two details it was nearly shipped without, both of the same species. It matches `
+?
+`, because the first
+version required a bare newline and a guide saved with Windows line endings matched ZERO fences and reported
+success having examined nothing. And it fails when a configured document has no samples at all, for the same
+reason: a check that passes when it cannot read its input is worse than no check, because it is believed.
+
+### `providers`
+
+The add-provider skill lists the tests that must exist "before the provider is trusted", and the first of
+them is the contract suites. Nothing verified that, and the gap was real: the AWS provider has two unit kinds
+and only ONE was ever run through `UnitDriverContract`. When the other finally was, it failed four checks —
+all the same defect, and the worst of them meant a destroyed unit still reported itself deployed.
+
+It looks for the suites being CONSTRUCTED, not mentioned. The first version matched the bare name and passed
+on a comment that said "UnitDriverContract found it", which is a check satisfiable by talking about the thing
+instead of doing it.
+
+It checks every unit KIND too, which is where the real gap was. `UnitDriverContract` tests ONE unit, so a
+provider with two kinds needs two fixtures — and the kind nobody wrote one for is the kind that turned out to
+be broken. A kind is a `public const string XxxKind` beside the provider, and the constant must appear in a
+file that also builds the driver contract; named anywhere else it does not count.
+
+The pattern is `\w+Kind`, not `\w*Kind`: the latter also matched the option name `Kind` itself, which then
+passed because `Kind` is a substring of `DirectoryKind`. It reported six kinds where there are four, which is
+how you notice a check is not reading what it thinks it is.
+
 ### `sensitive`
 
 Tyanor holds cloud credentials by nature, so a test fixture or a debugging paste is one `git add` from
@@ -60,12 +108,44 @@ verdict line would still say which check failed, but the detail under it would n
 
 ### `dependency-free core` and `version is single-sourced` (inside `doctor`)
 
-Two claims the README makes out loud: that `Tyanor.Core` and `Tyanor.Engine` take **no package
-dependencies**, and that the version ships from one place. A claim nobody verifies is one that quietly
-stops being true — usually via a convenient `PackageReference` that seemed harmless.
+Two claims the README makes out loud: that `Tyanor.Core`, `Tyanor.Engine` and `Tyanor.Testing` take **no
+package dependencies**, and that the version ships from one place. A claim nobody verifies is one that
+quietly stops being true — usually via a convenient `PackageReference` that seemed harmless. `Tyanor.Testing`
+is in the list for a second reason: the contract suites are meant to run under whatever test framework the
+implementer already has, and one convenient `xunit` reference would silently make that untrue for everyone
+using NUnit.
+
+The version check has two halves, and it used to have one. It compares the changelog headline against
+`VersionPrefix` — *and* it refuses any project file other than the configured one that declares a
+`VersionPrefix` at all. Without the second half, "single-sourced" was a claim about a thing that was
+declared twice: `src/` and `tests/` each carried a copy, identical and free to drift, with nothing watching.
 
 If one of these is failing because the claim CHANGED deliberately, change the claim: update the README and
 `project.config.mjs`. Do not silence the check.
+
+## Cutting a release
+
+```
+npm run doctor                     # is the repo healthy?
+node devtools/dev.mjs release      # is it shippable right now?
+node devtools/dev.mjs pack         # → artifacts/
+dotnet nuget push "artifacts/*.nupkg" --source nuget.org --api-key …
+```
+
+`release` is the second question, and it is a different one. It checks what `doctor` does not:
+
+- **The working tree is clean.** `dotnet pack` stamps the CURRENT commit into every `.nuspec`, so packing
+  with uncommitted changes ships packages whose recorded source is not the source inside them — SourceLink
+  then sends a debugger to code that never built the binary. This was found by opening a `.nupkg` for the
+  first time, which nobody had done.
+- **The changelog names the version being cut**, and is not still headed "Unreleased".
+- **Every configured package builds and contains what a consumer needs** — the README that becomes its page
+  on nuget.org, and the XML documentation that is most of this library's value.
+
+Its own first version shelled out to `tar` to read a `.nupkg`, which cannot read a zip on every platform, so
+it reported all six packages as missing their README and docs when every one of them had both. It reads the
+zip's entry names directly now, and says so loudly if it cannot read a package at all rather than concluding
+the files are absent. A check that cannot read its input must not report an answer.
 
 ## Adding a tool
 

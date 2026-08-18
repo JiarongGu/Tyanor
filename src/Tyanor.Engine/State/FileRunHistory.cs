@@ -20,52 +20,49 @@ namespace Tyanor.Engine.State;
 /// to survive is the process dying — and dying midway through rewriting the file that records what was
 /// happening would be a poor way to learn that lesson.</para>
 /// </summary>
-/// <param name="path">Where the file lives. Created, with its directory, on first write.</param>
-public sealed class FileRunHistory(string path) : IRunHistory
+public sealed class FileRunHistory : IRunHistory
 {
-    private readonly SemaphoreSlim _gate = new(1, 1);
-
     private static readonly JsonSerializerOptions Json = new()
     {
         WriteIndented = true,                                        // a human may need to read this
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
+    private readonly JsonFile<Dto> _file;
+
+    /// <summary>Keep the run log in a JSON file.</summary>
+    /// <param name="path">Where the file lives. Created, with its directory, on first write.</param>
+    public FileRunHistory(string path)
+    {
+        Path = path;
+        // A truncated or hand-mangled file must not make the tool unusable — but it must also not be
+        // silently overwritten, because it may be the only record of something still running.
+        _file = new JsonFile<Dto>(path, Json, where =>
+            $"The run history at '{where}' is not readable JSON. Move it aside to start a fresh history.");
+    }
+
     /// <summary>Where this history is stored.</summary>
-    public string Path { get; } = path;
+    public string Path { get; }
 
     /// <inheritdoc/>
-    public async Task UpsertAsync(RunRecord record, CancellationToken ct = default)
-    {
-        await _gate.WaitAsync(ct);
-        try
+    public Task UpsertAsync(RunRecord record, CancellationToken ct = default) =>
+        // Last writer wins, per RUN, not per file: the read-modify-write re-reads what is on disk, so two
+        // processes recording DIFFERENT runs do not lose each other's.
+        _file.MutateAsync(all =>
         {
-            // Re-read rather than trusting an in-memory copy: another process may own the same file, and a
-            // local-first tool has no lock server to arbitrate. Last writer wins, per RUN, not per file.
-            var all = await ReadAsync(ct);
             var i = all.FindIndex(r => r.Id == record.Id);
             if (i >= 0) all[i] = Dto.From(record); else all.Add(Dto.From(record));
-            await WriteAsync(all, ct);
-        }
-        finally { _gate.Release(); }
-    }
+            return true;
+        }, ct);
 
     /// <inheritdoc/>
-    public async Task<RunRecord?> LiveAsync(string procedure, string prefix, CancellationToken ct = default)
-    {
-        var all = await ReadAsync(ct);
+    public async Task<RunRecord?> LiveAsync(string procedure, string prefix, CancellationToken ct = default) =>
         // Newest first: if more than one is somehow live, the latest attempt is the one to resume.
-        return all.AsEnumerable().Reverse()
-            .Select(d => d.ToRecord())
-            .FirstOrDefault(r => r.Procedure == procedure && r.Prefix == prefix && r.IsLive);
-    }
+        (await Newest(ct)).FirstOrDefault(r => r.Procedure == procedure && r.Prefix == prefix && r.IsLive);
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<RunRecord>> RecentAsync(int limit = 50, CancellationToken ct = default)
-    {
-        var all = await ReadAsync(ct);
-        return all.AsEnumerable().Reverse().Take(limit).Select(d => d.ToRecord()).ToList();
-    }
+    public async Task<IReadOnlyList<RunRecord>> RecentAsync(int limit = 50, CancellationToken ct = default) =>
+        (await Newest(ct)).Take(limit).ToList();
 
     /// <summary>
     /// Delete a finished run. REFUSES a live one: it is the operator's only handle on work that may still
@@ -73,54 +70,21 @@ public sealed class FileRunHistory(string path) : IRunHistory
     /// happening. See <c>.claude/rules/reconcile-dont-mirror.md</c>.
     /// </summary>
     /// <exception cref="InvalidOperationException">The run is running or paused.</exception>
-    public async Task DeleteAsync(string id, CancellationToken ct = default)
-    {
-        await _gate.WaitAsync(ct);
-        try
+    public Task DeleteAsync(string id, CancellationToken ct = default) =>
+        _file.MutateAsync(all =>
         {
-            var all = await ReadAsync(ct);
             var found = all.FirstOrDefault(d => d.Id == id);
-            if (found is null) return;                               // already gone — deleting is idempotent
+            if (found is null) return false;                         // already gone — deleting is idempotent
             if (found.ToRecord().IsLive)
                 throw new InvalidOperationException(
                     $"Run '{id}' is {found.Status} and may still be converging in the provider. " +
                     "Finish or resume it before deleting the record.");
             all.Remove(found);
-            await WriteAsync(all, ct);
-        }
-        finally { _gate.Release(); }
-    }
+            return true;
+        }, ct);
 
-    private async Task<List<Dto>> ReadAsync(CancellationToken ct)
-    {
-        if (!File.Exists(Path)) return [];
-        try
-        {
-            await using var stream = File.OpenRead(Path);
-            return await JsonSerializer.DeserializeAsync<List<Dto>>(stream, Json, ct) ?? [];
-        }
-        catch (JsonException)
-        {
-            // A truncated or hand-mangled file must not make the tool unusable — but it must also not be
-            // silently overwritten, because it may be the only record of something still running.
-            throw new InvalidOperationException(
-                $"The run history at '{Path}' is not readable JSON. Move it aside to start a fresh history.");
-        }
-    }
-
-    private async Task WriteAsync(List<Dto> all, CancellationToken ct)
-    {
-        var dir = System.IO.Path.GetDirectoryName(Path);
-        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-
-        // Write-then-replace. A crash leaves either the old file or the new one, never half of either.
-        var temp = Path + ".tmp";
-        await using (var stream = File.Create(temp))
-            await JsonSerializer.SerializeAsync(stream, all, Json, ct);
-
-        if (File.Exists(Path)) File.Replace(temp, Path, null);
-        else File.Move(temp, Path);
-    }
+    private async Task<IEnumerable<RunRecord>> Newest(CancellationToken ct) =>
+        (await _file.ReadAsync(ct)).AsEnumerable().Reverse().Select(d => d.ToRecord());
 
     /// <summary>
     /// The persisted shape, kept separate from <see cref="RunRecord"/> on purpose: the domain type is free
@@ -137,11 +101,24 @@ public sealed class FileRunHistory(string path) : IRunHistory
 
         public RunRecord ToRecord() => new(
             Id, Procedure, Prefix,
-            Enum.TryParse<RunKind>(Kind, out var k) ? k : RunKind.Apply,
+            Read(Kind, RunKind.Apply),
             // An unrecognised status is treated as LIVE, deliberately: the safe error is to protect a
             // record we cannot classify, not to let it be deleted.
-            Enum.TryParse<RunStatus>(Status, out var s) ? s : RunStatus.Paused,
+            Read(Status, RunStatus.Paused),
             StartedAt, FinishedAt,
             Reason is null ? null : new PauseReason(Reason), Error);
+
+        /// <summary>
+        /// Parse an enum written as its NAME, falling back when it is anything else.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="Enum.TryParse{T}(string, out T)"/> alone is not enough, and the gap defeats the
+        /// guarantee above: it happily accepts a NUMBER, so a status of <c>"9"</c> parses to an undefined
+        /// <see cref="RunStatus"/> that is neither Running nor Paused — and therefore reads as not live, and
+        /// becomes deletable. A hand-edited file is exactly the case the fallback exists for, so it has to
+        /// hold for a hand-edited file.
+        /// </remarks>
+        private static T Read<T>(string? stored, T fallback) where T : struct, Enum =>
+            Enum.TryParse<T>(stored, out var value) && Enum.IsDefined(value) ? value : fallback;
     }
 }

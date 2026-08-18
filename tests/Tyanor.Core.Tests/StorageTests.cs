@@ -76,7 +76,7 @@ public class StorageBackendsTests
         var backends = new StorageBackends(new JsonStorageBackend(), new FakeBackend("sqlite"));
 
         Assert.IsType<FileStateStore>(backends.State("json:state.json"));
-        Assert.IsType<FakeBackend.Store>(backends.State("sqlite:/var/lib/tyanor.db"));
+        Assert.IsType<InMemoryStateStore>(backends.State("sqlite:/var/lib/tyanor.db"));
     }
 
     [Fact]
@@ -115,25 +115,18 @@ public class StorageBackendsTests
         Assert.Throws<NotSupportedException>(() => backends.History("stateonly:x"));
     }
 
+    /// <summary>A backend of any kind you like, over the shipped in-memory stores.</summary>
     internal sealed class FakeBackend(string kind) : IStorageBackend
     {
         public string Kind => kind;
-        public IStateStore OpenState(StorageConnection connection) => new Store();
+        public IStateStore OpenState(StorageConnection connection) => new InMemoryStateStore();
         public IRunHistory OpenHistory(StorageConnection connection) => new InMemoryRunHistory();
-
-        internal sealed class Store : IStateStore
-        {
-            public Task<DeploymentState> GetAsync(string procedure, string prefix, CancellationToken ct = default) =>
-                Task.FromResult(DeploymentState.Empty(procedure, prefix));
-            public Task SaveAsync(DeploymentState state, CancellationToken ct = default) => Task.CompletedTask;
-            public Task DeleteAsync(string procedure, string prefix, CancellationToken ct = default) => Task.CompletedTask;
-        }
     }
 
     private sealed class StateOnlyBackend : IStorageBackend
     {
         public string Kind => "stateonly";
-        public IStateStore OpenState(StorageConnection connection) => new FakeBackend.Store();
+        public IStateStore OpenState(StorageConnection connection) => new InMemoryStateStore();
         public IRunHistory OpenHistory(StorageConnection connection) =>
             throw new NotSupportedException("This backend holds state only; put the run log somewhere else.");
     }
@@ -147,10 +140,10 @@ public class JsonStorageBackendTests : IDisposable
     private StorageConnection Connection() => StorageConnection.Parse($"json:{_scratch.Path("via-descriptor")}");
 
     public static TheoryData<string> StateChecks() =>
-        FileRunHistoryContractTests.Names(new StateStoreContract(() => null!));
+        Suites.Names(new StateStoreContract(() => null!));
 
     public static TheoryData<string> HistoryChecks() =>
-        FileRunHistoryContractTests.Names(new RunHistoryContract(() => null!));
+        Suites.Names(new RunHistoryContract(() => null!));
 
     [Theory]
     [MemberData(nameof(StateChecks))]
@@ -203,7 +196,7 @@ public class StorageCompositionTests
 
         using var provider = services.BuildServiceProvider();
 
-        Assert.IsType<StorageBackendsTests.FakeBackend.Store>(provider.GetRequiredService<IStateStore>());
+        Assert.IsType<InMemoryStateStore>(provider.GetRequiredService<IStateStore>());
     }
 
     [Fact]
@@ -224,4 +217,44 @@ public class StorageCompositionTests
         var error = Assert.Throws<ArgumentException>(provider.GetRequiredService<IStateStore>);
         Assert.Contains("postgres", error.Message);
     }
+
+    [Fact]
+    public void Pointing_BOTH_stores_at_one_location_is_refused()
+    {
+        // They hold different shapes, so sharing a file does not fail loudly — each store reads the other's
+        // contents as its own type, gets records with every field defaulted, and writes that back. The two
+        // quietly destroy each other, deployment state first, which is the one that decides what a teardown
+        // is allowed to remove. Refused rather than discovered, for the same reason D20 refuses a bare path.
+        var error = Assert.Throws<ArgumentException>(() => new ServiceCollection().AddTyanor(cfg => cfg
+            .UseState("json:/var/lib/app/tyanor.json")
+            .UseHistory("json:/var/lib/app/tyanor.json")));
+
+        Assert.Contains("tyanor.json", error.Message);
+        Assert.Contains("overwrite each other", error.Message);
+    }
+
+    [Fact]
+    public void Pointing_both_FILE_stores_at_one_path_is_refused_too()
+        => Assert.Throws<ArgumentException>(() => new ServiceCollection().AddTyanor(cfg => cfg
+            .UseFileState("/var/lib/app/tyanor.json")
+            .UseFileHistory("/var/lib/app/tyanor.json")));
+
+    [Fact]
+    public void Two_locations_that_merely_look_alike_are_fine()
+    {
+        // The guard must not fire on the ordinary case, which is two files in one directory.
+        var services = new ServiceCollection();
+        services.AddTyanor(cfg => cfg.UseState("json:/var/lib/app/state.json").UseHistory("json:/var/lib/app/runs.json"));
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.NotNull(provider.GetRequiredService<IStateStore>());
+        Assert.NotNull(provider.GetRequiredService<IRunHistory>());
+    }
+
+    [Fact]
+    public void The_DEFAULT_locations_are_not_the_same_place()
+        // They are `tyanor/state.json` and `tyanor/runs.json`, and if a careless edit ever made them one the
+        // guard would turn every AddTyanor() into a throw. Worth one line to find that out here.
+        => Assert.NotNull(new ServiceCollection().AddTyanor().BuildServiceProvider().GetRequiredService<IStateStore>());
 }

@@ -1,5 +1,6 @@
 using Tyanor.Engine;
 using Tyanor.Engine.State;
+using Tyanor.Testing;
 using Xunit;
 
 namespace Tyanor.Tests;
@@ -36,8 +37,7 @@ public sealed class CrossMachineTests : IDisposable
     }
 
     /// <summary>A second machine's view: its own runner, over the SAME history file.</summary>
-    private ProcedureRunner Machine(FakeUnits units) =>
-        new(new FakeTarget(units), new FileRunHistory(SharedState));
+    private ProcedureRunner Machine(MemoryTarget target) => new(target, new FileRunHistory(SharedState));
 
     [Fact]
     public async Task A_plan_sees_a_run_another_machine_started()
@@ -47,7 +47,7 @@ public sealed class CrossMachineTests : IDisposable
             new RunRecord("run-A", "site", "acme", RunKind.Apply, RunStatus.Running, DateTimeOffset.UnixEpoch));
 
         // Machine B plans. The provider looks idle, so without shared state B would see an empty field.
-        var plan = await Machine(new FakeUnits()).PlanAsync(Site, Request());
+        var plan = await Machine(new MemoryTarget()).PlanAsync(Site, Request());
 
         Assert.NotNull(plan.ActiveRun);
         Assert.Equal("run-A", plan.ActiveRun.Id);
@@ -64,7 +64,7 @@ public sealed class CrossMachineTests : IDisposable
             new RunRecord("run-A", "site", "acme", RunKind.Apply, RunStatus.Paused, DateTimeOffset.UnixEpoch,
                 Reason: PauseReason.Credentials));
 
-        await Machine(new FakeUnits()).ApplyAsync(Site, Request(), _ => { });
+        await Machine(new MemoryTarget()).ApplyAsync(Site, Request(), _ => { });
 
         var all = await new FileRunHistory(SharedState).RecentAsync();
         Assert.Single(all);
@@ -80,7 +80,7 @@ public sealed class CrossMachineTests : IDisposable
         await new FileRunHistory(SharedState).UpsertAsync(
             new RunRecord("run-A", "site", "acme", RunKind.Apply, RunStatus.Running, DateTimeOffset.UnixEpoch));
 
-        var plan = await Machine(new FakeUnits { ["api"] = UnitPhase.Converging }).PlanAsync(Site, Request());
+        var plan = await Machine(new MemoryTarget { Phases = { ["api"] = UnitPhase.Converging } }).PlanAsync(Site, Request());
 
         Assert.True(plan.HasWorkInFlight);
         Assert.True(plan.InSync);                 // record and provider agree: something IS happening
@@ -90,7 +90,7 @@ public sealed class CrossMachineTests : IDisposable
     [Fact]
     public async Task With_nobody_else_here_a_settled_deployment_plans_as_no_op()
     {
-        var plan = await Machine(new FakeUnits { ["db"] = UnitPhase.Ready, ["api"] = UnitPhase.Ready })
+        var plan = await Machine(new MemoryTarget().AlreadyDeployed("db", "api"))
             .PlanAsync(Site, Request());
 
         Assert.Null(plan.ActiveRun);
@@ -103,29 +103,8 @@ public sealed class CrossMachineTests : IDisposable
     public async Task Planning_never_writes_a_run_record()
     {
         // A plan that left a trace would itself create the out-of-sync state it exists to detect.
-        await Machine(new FakeUnits()).PlanAsync(Site, Request());
+        await Machine(new MemoryTarget()).PlanAsync(Site, Request());
 
         Assert.Empty(await new FileRunHistory(SharedState).RecentAsync());
-    }
-
-    // ── fakes ────────────────────────────────────────────────────────────────────────────────────
-    private sealed class FakeUnits : Dictionary<string, UnitPhase>;
-
-    private sealed class FakeTarget(FakeUnits phases) : IDeploymentTarget, IUnitDriver, IFailureClassifier
-    {
-        public string Id => "fake";
-        public IUnitDriver Driver => this;
-        public IFailureClassifier Classifier => this;
-        public FailureClass? Classify(Exception error) => null;
-        public Task<TargetIdentity> ValidateAsync(TargetCredentials? c, CancellationToken ct) => Task.FromResult(new TargetIdentity(true));
-
-        public Task<UnitPhase> PhaseAsync(UnitContext c) =>
-            Task.FromResult(phases.GetValueOrDefault(c.Name, UnitPhase.Missing));
-        public Task CreateAsync(UnitContext c) => Task.CompletedTask;
-        public Task<bool> UpdateAsync(UnitContext c) => Task.FromResult(true);
-        public Task RemoveAsync(UnitContext c) => Task.CompletedTask;
-        public Task AwaitSettledAsync(UnitContext c) => Task.CompletedTask;
-        public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext c)
-            => Task.FromResult<IReadOnlyList<ResourceState>>([]);
     }
 }

@@ -55,10 +55,13 @@ public sealed record RunRecord(
     /// so it is protected: never delete it, and never start a second run of the same procedure while one
     /// exists. See <c>.claude/rules/reconcile-dont-mirror.md</c>.
     /// </summary>
+    /// <remarks>
+    /// Live is also RESUMABLE: re-entering a live run is the resume, and there is no second property saying
+    /// so. Two names for one value on a public record is surface that has to be supported forever, and this
+    /// one collided with <see cref="OperationOutcome.Resumable"/>, which means something else — whether a
+    /// stop can be re-entered at all, rather than whether a record is still open.
+    /// </remarks>
     public bool IsLive => Status is RunStatus.Running or RunStatus.Paused;
-
-    /// <summary>A live run can be re-entered; that IS the resume.</summary>
-    public bool Resumable => IsLive;
 }
 
 /// <summary>

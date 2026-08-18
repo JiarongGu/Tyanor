@@ -7,9 +7,20 @@ providers; resume it after anything goes wrong.
 
 > **Status: early.** The engine is built and tested, and two providers ship: `Tyanor.Providers.Local`
 > (a self-hosted server on a machine) and `Tyanor.Providers.Aws` (CloudFormation and S3/CloudFront, ported
-> from a deployer that has run real infrastructure). The AWS provider's pure logic is tested against the
-> real status and error strings; **its SDK calls have not yet been run against AWS** — the live test is
-> gated behind `TYANOR_LIVE_AWS`. See [`TASKS.md`](TASKS.md) and [D14](docs/DECISIONS.md).
+> from a deployer that has run real infrastructure). The AWS provider's logic is covered offline — the phase
+> table and classifier against the real strings, the driver's own control flow against recording fakes —
+> but **no request has yet reached AWS**: whether the SDK accepts what we build is what the live test,
+> gated behind `TYANOR_LIVE_AWS`, exists to find out. See [`TASKS.md`](TASKS.md), [D14](docs/DECISIONS.md)
+> and [D23](docs/DECISIONS.md).
+
+## Install
+
+```
+dotnet add package Tyanor.Engine                 # the runner; brings Tyanor.Core
+dotnet add package Tyanor.Providers.Local        # …and at least one provider
+```
+
+**New here? [`docs/guide.md`](docs/guide.md)** walks from nothing to a deployment you can resume.
 
 ## What it is
 
@@ -108,9 +119,10 @@ and runs the same decision the apply will run, then compares recorded state agai
 ```csharp
 var plan = await runner.PlanAsync(procedure, request);
 Console.WriteLine(plan.Summary);   // "3 to add, 1 to change, 0 to destroy"
-if (plan.IsDestructive)          /* ask before taking something away */;
-if (plan.HasWorkInFlight)        /* someone else is mid-deploy — applying will attach to it */;
-if (plan.HasStalledRun)          /* a run is recorded live but nothing is converging */;
+
+if (plan.IsDestructive)   await AskBeforeTakingSomethingAway(plan);
+if (plan.HasWorkInFlight) Warn("someone else is mid-deploy — applying will attach to it");
+if (plan.HasStalledRun)   Warn("a run is recorded live but nothing is converging");
 ```
 
 **A teardown gets one too** — it is the direction that is not recoverable by running it again, so it is the
@@ -188,7 +200,7 @@ the right answer depends on facts Tyanor does not have ([D12](docs/DECISIONS.md)
 |---|---|
 | `Tyanor.Core` | Contracts and the reconcile decision. No I/O, no provider, **no package dependencies**. |
 | `Tyanor.Engine` | `ProcedureRunner` — ordering, reconcile, bounded retry, classified outcomes, history, state. |
-| `Tyanor.Testing` | Contract suites — runnable proof an implementation behaves as the engine assumes. **No package dependencies.** |
+| `Tyanor.Testing` | Contract suites, and `MemoryTarget` for testing your own code without a cloud. **No package dependencies.** |
 | `Tyanor.Extensions.DependencyInjection` | `AddTyanor`. Optional — the engine works without a container. |
 | `Tyanor.Providers.Local` | This machine: a directory from an artifact, a process run out of it, a health check. |
 | `Tyanor.Providers.Aws` | CloudFormation stacks, and website files in S3 behind CloudFront. |
@@ -196,6 +208,16 @@ the right answer depends on facts Tyanor does not have ([D12](docs/DECISIONS.md)
 
 Between them the engine has been driven by a target *with* a control plane and one with none. Neither
 needed a change to it, and there is no `if (provider == …)` in `Tyanor.Core` or `Tyanor.Engine`.
+
+## Documentation
+
+| | |
+|---|---|
+| [`docs/guide.md`](docs/guide.md) | **Start here** — install to a resumable deployment, in order |
+| [`docs/architecture/overview.md`](docs/architecture/overview.md) | The whole model in one page |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Why each load-bearing choice was made, and against what |
+| [`.claude/skills/add-provider/SKILL.md`](.claude/skills/add-provider/SKILL.md) | Writing a provider |
+| [`TASKS.md`](TASKS.md) | What is left to build |
 
 ## Extending it — three seams, one answer
 

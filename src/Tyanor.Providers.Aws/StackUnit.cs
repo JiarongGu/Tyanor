@@ -21,11 +21,20 @@ namespace Tyanor.Providers.Aws;
 /// deployments of the same procedure.</para>
 /// </summary>
 internal sealed class StackUnit(
-    IAmazonCloudFormation cfn, IAmazonS3 s3, AwsAccount account, string region) : IUnitDriver
+    IAmazonCloudFormation cfn, IAmazonS3 s3, AwsAccount account, string region, TimeSpan? poll = null)
+    : IUnitDriver
 {
-    // CloudFormation charges nothing for DescribeStacks but it is rate limited, and a deploy can run for
-    // twenty minutes. Six seconds is what the ported deployer used against real stacks.
-    private static readonly TimeSpan Poll = TimeSpan.FromSeconds(6);
+    /// <summary>
+    /// How long to wait between status reads.
+    /// </summary>
+    /// <remarks>
+    /// CloudFormation charges nothing for <c>DescribeStacks</c> but it is rate limited, and a deploy can run
+    /// for twenty minutes. Six seconds is what the ported deployer used against real stacks.
+    /// <para>Injectable so the waiting and polling logic can be tested without waiting: a suite that has to
+    /// sit through six seconds per poll is a suite nobody runs, and "it can only be tested against AWS" then
+    /// becomes true by construction rather than by necessity.</para>
+    /// </remarks>
+    private readonly TimeSpan _poll = poll ?? TimeSpan.FromSeconds(6);
 
     /// <inheritdoc/>
     public async Task<UnitPhase> PhaseAsync(UnitContext context)
@@ -89,7 +98,7 @@ internal sealed class StackUnit(
         while (true)
         {
             context.ThrowIfCancelled();
-            await Task.Delay(Poll, context.Cancellation);
+            await Task.Delay(_poll, context.Cancellation);
 
             var status = await StatusAsync(name, context.Cancellation);
             // Null is success here: once a stack is fully deleted CloudFormation stops describing it at all,
@@ -114,7 +123,7 @@ internal sealed class StackUnit(
         while (true)
         {
             context.ThrowIfCancelled();
-            await Task.Delay(Poll, context.Cancellation);
+            await Task.Delay(_poll, context.Cancellation);
             await StreamEventsAsync(name, context, seen);
 
             var status = await StatusAsync(name, context.Cancellation);
@@ -162,9 +171,14 @@ internal sealed class StackUnit(
     /// calling AWS, so a whole site's configuration can be checked before an account exists.
     /// </summary>
     /// <remarks>
-    /// Every check here is the apply's own: the same <see cref="Part"/> resolution, the same stack-name rule.
-    /// The one thing it cannot check is whether the template itself is valid CloudFormation — that needs
-    /// CloudFormation, and pretending otherwise would be the sort of half-answer that stops being read.
+    /// <para>Every check here is the apply's own: the same <see cref="Part"/> resolution, the same
+    /// stack-name rule. The one thing it cannot check is whether the template itself is valid
+    /// CloudFormation — that needs CloudFormation, and pretending otherwise would be the sort of
+    /// half-answer that stops being read.</para>
+    /// <para><see cref="Capabilities"/> is deliberately NOT checked. It cannot fail offline — any string
+    /// splits into a list — and only CloudFormation knows whether a capability name is real. Listing it
+    /// here made validation look like it covered one more thing than it did, which is the way a check
+    /// stops being trusted.</para>
     /// </remarks>
     public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
     {
@@ -173,8 +187,7 @@ internal sealed class StackUnit(
         foreach (var check in (Action[])[
             () => Name(context),
             () => Part(context, AwsOptions.Template, ArtifactPart.File),
-            () => { if (context.Option(AwsOptions.Assets) is not null) Part(context, AwsOptions.Assets, ArtifactPart.Directory); },
-            () => Capabilities(context)])
+            () => { if (context.Option(AwsOptions.Assets) is not null) Part(context, AwsOptions.Assets, ArtifactPart.Directory); }])
         {
             try { check(); }
             catch (DefinitionException e) { problems.Add(e.Message); }

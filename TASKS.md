@@ -12,7 +12,7 @@
 > | | State |
 > |---|---|
 > | Operational doctrine (~700 lines of `AwsDeployer` + the contracts) | ✅ ported, generalized, tested |
-> | AWS mechanics (CloudFormation / S3 / CloudFront) | ✅ ported — **never run against AWS**, see D14 |
+> | AWS mechanics (CloudFormation / S3 / CloudFront) | ✅ ported, control flow tested offline — **never run against AWS**; D14, D23 |
 > | ACM + Route 53 domain setup (~350 lines) | deferred on purpose — item 1 |
 > | `cdk synth` post-processing (`DeploymentBundler`) | stays in Aurelia; it is authoring, not operations (D5) |
 > | DB snapshot, migration verification, prerenderer | stay in Aurelia; application policy, not operations |
@@ -25,7 +25,30 @@
 >
 > **What is still not true:** nothing has been deployed to a cloud from this repo — the AWS live test exists
 > and is gated behind `TYANOR_LIVE_AWS`, and until it runs, "ported" is the honest word. And no real
-> consumer ships on Tyanor yet.
+> consumer ships on Tyanor yet. What the live test still owes us is now much narrower than it was: the
+> driver's own control flow is covered offline (**D23**), so what remains is whether AWS accepts what we
+> build and answers the way the phase table believes.
+
+> **0.1.0 is the first release.** Cut with `npm run doctor` and `node devtools/dev.mjs release`; six
+> packages, versioned in lockstep from the repository-root `Directory.Build.props`.
+>
+> **What a consumer gets, and what they do not.** The engine, both providers, the contract suites and a test
+> target are all real and covered. The AWS provider's SDK calls have still never reached AWS — that is the
+> one claim this release does not make, it is stated in the README, and item 1 below is how it stops being
+> true.
+
+> **The review before it.** A full review before it went out found one bug that mattered — a destroy plan built
+> without a state store reported "0 to destroy" and `IsDestructive` false, silently opening the confirmation
+> gate in front of the only irreversible direction — plus a resumed run losing its original start time, an
+> unscoped `path` collapsing every local directory unit into one folder, two rules written twice, and a
+> version declared in two places while `doctor` claimed one. All fixed; see the CHANGELOG.
+>
+> **The most useful thing it found was an untested surface, not a bug.** "Mocking the SDK proves nothing"
+> was true of CloudFormation's vocabulary and had been stretched to cover the driver's own control flow,
+> leaving the largest unexercised code path in the repository. Forty tests and one injectable poll interval
+> later, it is covered — and every one was mutation-checked, because a test that has never failed is
+> decoration. **D23.** When "it can only be tested against the real thing" gets said again, check whether it
+> is a fact about the target or about a hard-coded constant.
 
 > **Pre-1.0 priority: the STRUCTURE, then providers one at a time as they are needed.** The seams are the
 > expensive thing to change later; a provider is not. So anything that would make a provider or a storage
@@ -44,10 +67,16 @@ whether the plumbing is right.
 
 **Run the live test.** `TYANOR_LIVE_AWS=1` plus key, secret and region. It deploys a free single-resource
 stack, plans, re-applies (the "No updates are to be performed" path, which resume depends on), refreshes and
-tears down. Everything testable without a cloud already is; what this covers is whether the SDK calls are
-wired correctly, and nothing else can tell us.
+tears down.
 
-Expect it to find something. A port that has never run never does exactly what it looks like it does.
+Everything testable without a cloud now IS tested — the phase table and classifier against the real strings,
+and the driver's own control flow against recording fakes (**D23**, which scopes D14's "never mock the SDK"
+to the question it was actually right about). What is left for this item is genuinely only what a fake cannot
+answer: whether AWS ACCEPTS the requests we build, and whether it answers the way the phase table believes.
+
+Expect it to find something. A port that has never run never does exactly what it looks like it does — and
+the surface where it can still surprise us is now small and named, which is the difference between a gap and
+an unknown.
 
 **Then the domain unit** — ACM certificate issuance and Route 53 validation, ~350 lines still in Aurelia
 (`Aws/AwsDomainSetup.cs`, `Domains/AwsRoute53DomainProvider.cs`). It maps onto the model well: a certificate
@@ -78,6 +107,30 @@ a person will.
 
 - Acceptance: one of the two ships a deployment through Tyanor, with the composition root in the
   application and no Tyanor change required to make it work.
+
+### What to watch for while adopting, and write down below
+
+The review before 0.1.0 was thorough about what the code DOES. It could say nothing about what a consumer
+WANTS, and those are the questions adoption answers. Worth noticing as they happen, because they are
+invisible in hindsight:
+
+- **Anything you had to work around.** A workaround is a missing feature that has already been paid for
+  once. Note the workaround, not the feature you think it implies.
+- **Anything you had to read the source for.** The guide is meant to be enough; each time it was not is a
+  gap in it, and the specific question you had is the fix.
+- **Where the composition root fought you.** D10 says Tyanor decides nothing about lifecycle, logging or
+  configuration. Every place that turned out to be false is a real defect.
+- **What the operator asked that Tyanor could not answer.** "Where is my site", "what will this change",
+  "why did it stop" all have answers now; the next one on that list comes from a person, not from here.
+- **Whether a pause was actually resumable in practice**, not just in the record. That is the whole claim.
+- **Anything in `DeploymentRequest.Options` that wanted to be typed.** D4 says the untyped map stays; a
+  real consumer straining against it is the evidence that would revisit that, and nothing else is.
+
+### From adoption
+
+*Nothing yet — the first consumer has not shipped.* Add findings here as they happen, one line each with
+enough context to act on later. Promote anything that earns it into a numbered item above, and record a
+decision in `docs/DECISIONS.md` if it changes a load-bearing choice rather than adding work.
 
 ## 3. A storage backend somebody actually needs — SQLite, Postgres or S3
 
@@ -144,6 +197,31 @@ declaring itself unremovable and a destroy plan reporting it as RETAINED rather 
 - Acceptance: a real pipeline runs in a real consumer, and whatever it could not express is written down here.
 
 ---
+
+## 5. Decide what a destroy should do about a live APPLY run
+
+Found by the pre-release review; recorded rather than guessed at, because either answer is defensible and
+only a real consumer can say which is right.
+
+With no explicit run id, `ProcedureRunner` adopts the live run for a procedure + prefix — D9's "the caller
+should not have to know whether they are starting or continuing", and what stops two live records existing
+for one deployment. But adoption does not check the run's **kind**. So a `DestroyAsync` after a paused apply
+continues the apply's record and rewrites it as a destroy, and the paused apply stops appearing in the
+history as something that was interrupted.
+
+Three candidate answers, in order of how much they cost:
+
+- **Leave it.** The live record gets resolved rather than dangling forever, and what the operator is doing
+  now IS a destroy. This is what ships.
+- **Finish the adopted run first**, marking it failed or superseded, then open a destroy run. Honest history,
+  one more record, and a new question about what "superseded" means.
+- **Refuse**, making the operator resolve the apply before destroying. Safest, and the most annoying — it
+  turns "just tear it down" into a two-step.
+
+The information that decides it is what an operator's history is FOR in a real consumer, which is item 2.
+
+- Acceptance: a real consumer's UI shows a run history that reads correctly after an interrupted apply
+  followed by a destroy, and whichever answer that needs is the one implemented.
 
 ## Deferred, deliberately
 

@@ -23,6 +23,20 @@ public interface IUnitDriverFixture
     /// <summary>Return the target to "nothing was ever deployed". Called before every check.</summary>
     /// <param name="ct">Cancellation.</param>
     Task ResetAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Output names this unit produces once deployed — a URL, an endpoint, a generated name. Empty when it
+    /// produces none, which is the default and a legitimate answer.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Without this the outputs checks cannot fail.</b> "An undeployed unit produces nothing" is
+    /// satisfied trivially by a driver that produces nothing ever, so a suite that only knows how to look
+    /// for emptiness is checking that emptiness is empty. Naming the keys is what lets it verify the
+    /// interesting direction too: they appear after a deploy, and they are gone after a remove.</para>
+    /// <para>A default member, so adding it broke no implementation — the pattern D18 established for
+    /// growing a contract: a new capability arrives meaning <i>I do not do that</i>.</para>
+    /// </remarks>
+    IReadOnlyCollection<string> ExpectedOutputs => [];
 }
 
 /// <summary>
@@ -127,6 +141,23 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
             return blank == 0 ? null : $"{blank} resources came back with no id";
         }),
 
+        ("Resource ids are unique within a unit", async ct =>
+        {
+            // An id is what a diff matches on, so two resources sharing one cannot both be tracked: the
+            // second hides the first, and whatever the first was doing becomes invisible to every plan and
+            // to the teardown. `StateDiff` already assumes this; the assumption belongs where an implementer
+            // can find out they broke it.
+            await fixture.ResetAsync(ct);
+            await DeployAsync(ct);
+
+            var ids = (await Driver.RefreshAsync(Context(ct))).Select(r => r.Id).ToList();
+            var repeated = ids.GroupBy(id => id, StringComparer.Ordinal)
+                .Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+            return repeated.Count == 0
+                ? null
+                : $"refresh reported these ids more than once: {string.Join(", ", repeated)}";
+        }),
+
         ("Reading the phase changes nothing", async ct =>
         {
             // PhaseAsync runs during a PLAN, which must be read-only. A driver that repairs something while
@@ -137,6 +168,81 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
             var first = await Driver.PhaseAsync(Context(ct));
             var second = await Driver.PhaseAsync(Context(ct));
             return first == second ? null : $"phase moved from {first} to {second} with nothing in between";
+        }),
+
+        ("Reading the phase of NOTHING does not bring it into being", async ct =>
+        {
+            // The check above only looks after a deploy, so a driver whose PhaseAsync creates the thing it is
+            // asked about would pass it. That is the moment read-only matters most: planning a deployment
+            // that does not exist yet is the plan people run first, and it must create nothing.
+            await fixture.ResetAsync(ct);
+
+            await Driver.PhaseAsync(Context(ct));
+            await Driver.PhaseAsync(Context(ct));
+
+            var resources = await Driver.RefreshAsync(Context(ct));
+            if (resources.Count > 0) return $"asking for the phase created {resources.Count} resources";
+
+            var phase = await Driver.PhaseAsync(Context(ct));
+            return phase == UnitPhase.Missing ? null : $"after three phase reads and nothing else it is {phase}";
+        }),
+
+        ("Nothing deployed produces no outputs, and does not throw", async ct =>
+        {
+            // Asking a procedure that is not deployed yet what it produced is a reasonable question with the
+            // answer "nothing". The guide tells consumers a UI rendering "your site is at …" need not guard
+            // the call, and that promise was made in the interface docs and checked nowhere.
+            await fixture.ResetAsync(ct);
+
+            var outputs = await Driver.OutputsAsync(Context(ct));
+            return outputs.Count == 0
+                ? null
+                : $"an undeployed unit produced {outputs.Count} outputs: {string.Join(", ", outputs.Keys)}";
+        }),
+
+        ("A deployed unit produces the outputs it says it does", async ct =>
+        {
+            // Vacuous for a driver that produces none — which is the honest degenerate case, not a hole,
+            // because such a driver has nothing to get wrong here.
+            if (fixture.ExpectedOutputs.Count == 0) return null;
+
+            await fixture.ResetAsync(ct);
+            await DeployAsync(ct);
+
+            var outputs = await Driver.OutputsAsync(Context(ct));
+            var missing = fixture.ExpectedOutputs.Where(k => !outputs.ContainsKey(k)).ToList();
+            return missing.Count == 0
+                ? null
+                : $"deployed, but produced no {string.Join(", ", missing)} — it has: " +
+                  $"{string.Join(", ", outputs.Keys.DefaultIfEmpty("nothing"))}";
+        }),
+
+        ("Outputs do not survive a remove", async ct =>
+        {
+            // The direction that fails quietly: outputs read from a stored copy rather than from the
+            // provider keep answering after the thing is gone, and a UI goes on showing an address that
+            // stopped resolving. `IUnitDriver.OutputsAsync` says read from the target for exactly this.
+            if (fixture.ExpectedOutputs.Count == 0) return null;
+
+            await fixture.ResetAsync(ct);
+            await DeployAsync(ct);
+            await Driver.RemoveAsync(Context(ct));
+
+            var outputs = await Driver.OutputsAsync(Context(ct));
+            var survivors = fixture.ExpectedOutputs.Where(outputs.ContainsKey).ToList();
+            return survivors.Count == 0
+                ? null
+                : $"{string.Join(", ", survivors)} still answered after the unit was removed";
+        }),
+
+        ("Validating REPORTS its problems rather than throwing", async ct =>
+        {
+            // A validation pass exists to return the whole list. A driver that throws stops at the first
+            // unconfigured unit, which is exactly the behaviour offline validation replaces — and it does it
+            // to the WHOLE procedure, not just to itself.
+            await fixture.ResetAsync(ct);
+            await Driver.ValidateAsync(Context(ct));
+            return null;
         }),
 
         ("Updating an unchanged deployment reports no change", async ct =>

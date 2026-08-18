@@ -97,34 +97,19 @@ public interface IStorageBackend
 /// </summary>
 public sealed class StorageBackends
 {
-    private readonly Dictionary<string, IStorageBackend> _backends;
+    private readonly Registry<IStorageBackend> _backends = new(b => b.Kind, "storage backend", "Kind");
 
     /// <summary>Build a registry.</summary>
     /// <param name="backends">The backends. Kinds are compared case-insensitively and must be unique.</param>
     /// <exception cref="ArgumentException">Two backends claim one kind, or one has no kind.</exception>
-    public StorageBackends(IEnumerable<IStorageBackend> backends)
-    {
-        ArgumentNullException.ThrowIfNull(backends);
-        _backends = new Dictionary<string, IStorageBackend>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var backend in backends)
-        {
-            if (string.IsNullOrWhiteSpace(backend.Kind))
-                throw new ArgumentException(
-                    $"{backend.GetType().Name} has no Kind, so no descriptor could ask for it.", nameof(backends));
-
-            if (!_backends.TryAdd(backend.Kind, backend))
-                throw new ArgumentException(
-                    $"Two storage backends both claim the kind '{backend.Kind}'.", nameof(backends));
-        }
-    }
+    public StorageBackends(IEnumerable<IStorageBackend> backends) => _backends.AddAll(backends, nameof(backends));
 
     /// <summary>Build a registry over the backends given.</summary>
     /// <param name="backends">The backends.</param>
     public StorageBackends(params IStorageBackend[] backends) : this((IEnumerable<IStorageBackend>)backends) { }
 
     /// <summary>The kinds available, for an error message or a picker.</summary>
-    public IReadOnlyCollection<string> Kinds => _backends.Keys.Order().ToList();
+    public IReadOnlyCollection<string> Kinds => _backends.Keys;
 
     /// <summary>Open deployment state from a descriptor.</summary>
     /// <param name="descriptor">Of the form <c>"{kind}:{target}"</c>.</param>
@@ -142,12 +127,11 @@ public sealed class StorageBackends
     {
         connection = StorageConnection.Parse(descriptor);
 
-        return _backends.TryGetValue(connection.Kind, out var backend)
-            ? backend
-            : throw new ArgumentException(
+        return _backends.TryGet(connection.Kind)
+            ?? throw new ArgumentException(
                 $"No storage backend is registered for '{connection.Kind}'. Registered: " +
-                $"{(_backends.Count == 0 ? "none" : string.Join(", ", Kinds))}. Reference the package that " +
-                "provides it, or implement IStorageBackend yourself and register it in your composition root.",
+                $"{_backends.Describe()}. Reference the package that provides it, or implement " +
+                "IStorageBackend yourself and register it in your composition root.",
                 nameof(descriptor));
     }
 }

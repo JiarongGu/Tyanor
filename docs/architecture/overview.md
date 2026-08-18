@@ -1,5 +1,8 @@
 # Architecture
 
+What the system IS. For what to *do* with it, in order, see [`../guide.md`](../guide.md); for why each
+choice was made, [`../DECISIONS.md`](../DECISIONS.md).
+
 ## The whole model in one page
 
 ```
@@ -45,7 +48,7 @@ pins that.
 
 A teardown has its own table, because it has its own two answers:
 
-| Phase | `Reconcile.DecideRemoval` |
+| Phase | `Reconcile.DecideDestroy` |
 |---|---|
 | `Missing` | `Nothing` — already gone |
 | anything else | `Remove` |
@@ -78,6 +81,12 @@ Deliberately Terraform's verbs, because they name the same jobs (D16):
 `Plan.IsDestructive` is the line to put a confirmation behind: a create or an update is recoverable by
 running it again, and a destroy is not.
 
+**Cancelling pauses; it does not fail.** The provider is still converging whatever it was given, so the run
+is recorded `Paused` with `PauseReason.External`, stays LIVE, and the next apply adopts it — a cancel is
+resumed the same way every other pause is. The ending is written with no cancellation token, because being
+told to stop is not a reason to stop recording why. A token already cancelled before the run starts is the
+one case that leaves no record: nothing happened.
+
 `procedure.Only("web")` narrows any of them to some units — Terraform's `-target`, and safer for having no
 dependency graph to skip: a subset of an ordered list is still ordered (D21).
 
@@ -106,7 +115,7 @@ no" without matching on message text.
 |---|---|
 | `Tyanor.Core` | Contracts and the pure decisions. **No package dependencies**, and it names no vendor. |
 | `Tyanor.Engine` | Ordering, reconcile, retry, history, state, and the operator-facing wording. **No package dependencies.** |
-| `Tyanor.Testing` | Contract suites an implementation runs to prove itself. **No package dependencies** — no test framework is imposed. |
+| `Tyanor.Testing` | Contract suites an implementation runs to prove itself, and `MemoryTarget` — a provider that deploys to a dictionary, for testing an application's own code. **No package dependencies.** |
 | `Tyanor.Extensions.DependencyInjection` | `AddTyanor`. Optional; the engine works without a container. |
 | `Tyanor.Providers.*` | Everything vendor-shaped: status vocabulary, API calls, waiting, classification. |
 
@@ -134,9 +143,33 @@ Two stores, deliberately separate. What Tyanor **owns** (`IStateStore`) has to s
 (`IRunHistory`) is an append-only account of attempts. Different lifetimes, and a team sharing one does not
 necessarily want to share the other.
 
+State exists to answer three questions, and a plan asks all three (D25):
+
+| Compare | Answers | Reported as |
+|---|---|---|
+| config ↔ reality | what will this run do? | `Plan.Steps` — the reconcile |
+| state ↔ reality | did the world move without me? | `Plan.Drift`, repaired by `Refresh` or `Apply` |
+| config ↔ state | do I own something the code no longer mentions? | `Plan.Orphaned` |
+
+The third is the one a reconcile loop structurally cannot ask, because every other pass walks the
+procedure's units and an orphan is by definition not in them. It is reported rather than destroyed: Tyanor's
+state holds identity, not a resource model, so nothing left in it can tell a driver how to remove the thing.
+
+`Serial` is the version a snapshot was READ at — the store advances it on write, so a backend with
+conditional writes can refuse a save derived from state someone else replaced.
+
+Within one PROCESS the file stores are safe to use from anywhere: the lock is per file, not per object, so
+constructing one wherever you need it is fine and reads never collide with writes. Between processes it is
+still last-writer-wins — the boundary D11 and D20 describe, and where a backend with conditional writes is
+the answer.
+
 Only `json` ships, registered by default because it is the only kind that needs no package, no server and no
 decision on day one. A bare path is refused rather than guessed: `"sqlite/state.db"` would otherwise read as a
 file called `sqlite/state.db` and write state somewhere nobody meant.
+
+`InMemoryRunHistory` and `InMemoryStateStore` exist for tests and one-shot CI runs, and are never a default.
+Choosing them is choosing to give up resume and safe teardown — which is a reasonable trade in a test and a
+surprise anywhere else, so it is made explicitly (`cfg.UseInMemoryState()`).
 
 ## Three seams, one answer
 
@@ -173,8 +206,11 @@ what belongs to a deployment. Everything the engine takes for granted against a 
 a pid file and a marker (D13). It is the useful one to read before writing your own.
 
 `Tyanor.Providers.Aws` is CloudFormation stacks plus website content in S3 behind CloudFront, ported from a
-deployer that ran real infrastructure (D14). Its pure logic is tested against the real status and error
-strings; **its SDK calls have not been run against AWS** — the live test is gated behind `TYANOR_LIVE_AWS`.
+deployer that ran real infrastructure (D14). Its phase table and classifier are tested against the real
+status and error strings, and the driver's own control flow — which request it builds, what it does with a
+throttle, whether a teardown re-runs — against recording fakes. **No request has reached AWS**: that is what
+the live test, gated behind `TYANOR_LIVE_AWS`, is for. Fakes for our control flow, a cloud for their
+semantics (D23).
 
 Adding a provider: [`../../.claude/skills/add-provider/SKILL.md`](../../.claude/skills/add-provider/SKILL.md).
 Run the contract suites in `Tyanor.Testing` against it — they are what the built-in providers run, and

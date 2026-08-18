@@ -51,7 +51,7 @@ rebuild mid-deploy and resumed to completion, in an app a non-technical owner ru
 
 - **Read the phase, decide, act.** `IUnitDriver.PhaseAsync` → `Reconcile.Decide` → one action. A provider
   adapter's whole job on the read side is mapping its own vocabulary onto `UnitPhase`.
-- **A teardown is decided the same way**, by `Reconcile.DecideRemoval` — so the teardown a plan SHOWED and
+- **A teardown is decided the same way**, by `Reconcile.DecideDestroy` — so the teardown a plan SHOWED and
   the teardown that runs come from one function rather than two that can drift apart. Both directions get a
   plan; the destructive one needs it most.
 - **Never re-issue against `Converging`.** The action is `Attach`: watch, issue nothing. Some providers
@@ -65,7 +65,10 @@ rebuild mid-deploy and resumed to completion, in an app a non-technical owner ru
 - **A resume continues the same run id.** Otherwise one interrupted job appears in the history as five
   failures, and the operator learns to distrust the record.
 - **Cancellation leaves the run live**, deliberately: the provider is still converging, and marking it
-  failed would hide that.
+  failed would hide that. **Record the ending with no token.** Being told to stop is not a reason to stop
+  saying WHY you stopped — writing the outcome with the token that was just cancelled means any store
+  honouring it skips the write, and the run stays recorded as `Running` with no reason. A token already
+  cancelled when the run is asked to start is different: nothing happens and nothing is recorded.
 
 ### Where a cache IS legitimate
 

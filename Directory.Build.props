@@ -1,0 +1,23 @@
+<Project>
+  <!--
+    Everything every project in this repository shares. `src/` and `tests/` add only what differs.
+
+    The VERSION lives here and nowhere else. It used to be declared identically in src/ and tests/, which
+    made "the version ships from one place" — a claim the README makes out loud and `doctor` checks —
+    quietly false, and left two numbers that could drift apart with nothing to notice.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- A public type without a <summary> fails the build, deliberately: this library's value is largely in
+         WHY, and the why belongs where the reader is rather than in a wiki. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <!-- Every package ships in lockstep from here; SemVer 2.0 applies from 1.0. -->
+    <VersionPrefix>0.1.0</VersionPrefix>
+  </PropertyGroup>
+</Project>

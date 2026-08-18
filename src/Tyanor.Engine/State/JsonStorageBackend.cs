@@ -16,6 +16,10 @@ namespace Tyanor.Engine.State;
 /// machines saving at the same instant will have one silently overwrite the other. Acceptable for a single
 /// operator or a single pipeline; not acceptable for a team, which is what a remote backend is for and why
 /// <see cref="DeploymentState.Serial"/> exists for one that can check it.</para>
+///
+/// <para><b>Give state and the run log different files.</b> A descriptor names a file and nothing else, so
+/// the same descriptor used for both produces two stores writing incompatible shapes over each other.
+/// <c>AddTyanor</c> refuses that outright; construct these yourself and it is yours to avoid.</para>
 /// </summary>
 public sealed class JsonStorageBackend : IStorageBackend
 {

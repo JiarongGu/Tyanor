@@ -134,22 +134,81 @@ public class SelfHostedServerTests
         box.Publish("Server.dll", "v1");
         var request = Request(box);
         await box.Runner.ApplyAsync(Server, request);
+
+        var first = box.Live("acme", "runtime");
+        var firstPid = box.Pid("acme", "service");
         Assert.Equal(1, box.Releases("acme", "runtime"));
 
         box.Publish("Server.dll", "v2");
         await box.Runner.ApplyAsync(Server, request);
 
-        // Two: the new one, and the one the server was still sitting in when it was written. Pruning is
-        // deliberately best-effort — failing a deployment over disk tidiness would be the wrong trade.
-        Assert.Equal(2, box.Releases("acme", "runtime"));
+        // BESIDE, which is the whole claim: a different directory, written while the server was still
+        // sitting in the old one — so nothing was replaced under a running process and the restart falls
+        // out of the fingerprint changing.
+        var second = box.Live("acme", "runtime");
+        Assert.NotEqual(first, second);
+        Assert.Equal("v2", await File.ReadAllTextAsync(Path.Combine(second, "Server.dll")));
+        Assert.NotEqual(firstPid, box.Pid("acme", "service"));
 
+        // ── and pruned LATER ──────────────────────────────────────────────────────────────────────
+        // Asserted with the service STOPPED, so nothing holds a release and pruning has no excuse.
+        //
+        // It used to count releases with the server still running, which made the number depend on when
+        // the OS released a just-exited process's working directory — one run in three under load, that is
+        // not yet — and on the platform, since deleting a directory that is a live process's CWD fails on
+        // Windows and succeeds everywhere else. Neither is what this test is about.
+        await box.Runner.DestroyAsync(Server.Only("service"), request);
         box.Publish("Server.dll", "v3");
+        await box.Runner.ApplyAsync(Server.Only("runtime"), request);
+
+        Assert.Equal(1, box.Releases("acme", "runtime"));
+        Assert.Equal("v3", await File.ReadAllTextAsync(Path.Combine(box.Live("acme", "runtime"), "Server.dll")));
+    }
+
+    [Fact]
+    public async Task A_file_ADDED_by_hand_is_removed_by_the_next_apply()
+    {
+        // The drift test below only overwrites a file that already exists, which a copy repairs by itself —
+        // so the code that deletes what the artifact does not contain had no test, and removing it broke
+        // nothing. The consequence is the one the provider comments warn about by name: a hand-patched
+        // server that survives every redeploy is how a machine drifts away from its recipe.
+        //
+        // Worse than surviving, it gets BLESSED. Materializing rewrites the marker from what is on disk, so
+        // the stray file becomes part of the recorded content and the next plan reports no drift at all.
+        using var box = new Sandbox();
+        box.Publish("Server.dll", "v1");
+        var request = Request(box);
         await box.Runner.ApplyAsync(Server, request);
 
-        // Still two, not three: v1 was free by now and went. The count stays bounded without anything
-        // needing to track it.
-        Assert.Equal(2, box.Releases("acme", "runtime"));
-        Assert.Equal("v3", await File.ReadAllTextAsync(Path.Combine(box.Live("acme", "runtime"), "Server.dll")));
+        var stray = Path.Combine(box.Live("acme", "runtime"), "not-in-the-artifact.dll");
+        await File.WriteAllTextAsync(stray, "left here by hand");
+
+        Assert.True((await box.Runner.PlanAsync(Server, request)).HasDrift);
+        Assert.True((await box.Runner.ApplyAsync(Server, request)).Ok);
+
+        Assert.False(File.Exists(stray));
+        Assert.False((await box.Runner.PlanAsync(Server, request)).HasDrift);
+    }
+
+    [Fact]
+    public async Task A_file_DELETED_by_hand_is_put_back_by_the_next_apply()
+    {
+        // The other direction of the same question — the deployed tree is what the artifact says, not what
+        // somebody left it as.
+        using var box = new Sandbox();
+        box.Publish("Server.dll", "v1");
+        box.Publish("appsettings.json", "{}");
+        var request = Request(box);
+        await box.Runner.ApplyAsync(Server, request);
+
+        var settings = Path.Combine(box.Live("acme", "runtime"), "appsettings.json");
+        File.Delete(settings);
+
+        Assert.True((await box.Runner.PlanAsync(Server, request)).HasDrift);
+        Assert.True((await box.Runner.ApplyAsync(Server, request)).Ok);
+
+        Assert.Equal("{}", await File.ReadAllTextAsync(settings));
+        Assert.False((await box.Runner.PlanAsync(Server, request)).HasDrift);
     }
 
     [Fact]

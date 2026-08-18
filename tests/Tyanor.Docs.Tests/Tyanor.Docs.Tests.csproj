@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Tyanor.Docs.Tests</AssemblyName>
+    <RootNamespace>Tyanor.Docs.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Tyanor.Core\Tyanor.Core.csproj" />
+    <ProjectReference Include="..\..\src\Tyanor.Engine\Tyanor.Engine.csproj" />
+    <ProjectReference Include="..\..\src\Tyanor.Testing\Tyanor.Testing.csproj" />
+    <ProjectReference Include="..\..\src\Tyanor.Extensions.DependencyInjection\Tyanor.Extensions.DependencyInjection.csproj" />
+    <ProjectReference Include="..\..\src\Tyanor.Providers.Local\Tyanor.Providers.Local.csproj" />
+    <ProjectReference Include="..\..\src\Tyanor.Providers.Aws\Tyanor.Providers.Aws.csproj" />
+  </ItemGroup>
+</Project>

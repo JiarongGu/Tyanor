@@ -96,6 +96,11 @@ derive from `UnitKindDriver` instead of writing the dispatch. Each unit declares
 option, and `DeploymentRequest.Option(unit, key)` reads it. Do not add a default kind: guessing deploys
 something the operator never described.
 
+**Ask which sort of setting each option is.** `Option(unit, key)` falls back to a procedure-wide value,
+which is what stops configuration being verbose. `OwnOption(unit, key)` does not — use it for anything that
+IS the unit's identity: its path, its bucket, its port. A shared identity is not a default, it is two units
+deploying on top of each other, and it fails by looking like it worked.
+
 If every unit is the same kind of thing, implement `IUnitDriver` directly and ignore all of that.
 
 ### Failing on a bad definition
@@ -108,7 +113,8 @@ provider failed" without matching on message text. Do not classify these; return
 ## Tests that must exist before the provider is trusted
 
 **Start with the contract suites** (`Tyanor.Testing`). They check what the engine assumes and no signature
-states, and they are the same suites the built-in providers run:
+states, they are the same suites the built-in providers run, and `npm run doctor` refuses a provider in this
+repository that does not run them — because the one kind that skipped them turned out to be failing four:
 
 ```csharp
 [Fact]
@@ -122,6 +128,24 @@ public Task My_classifier_satisfies_the_contract() =>
 
 Point the driver fixture at something real and disposable. A stub answers by agreeing with whatever your
 driver believes, which is the failure the suite exists to catch.
+
+**Watch one fail before you trust one passing.** Break something on purpose — report `Ready` before anything
+is deployed, or always return `true` from `UpdateAsync` — and check the suite goes red. A green run against a
+suite you have never seen fail tells you nothing, which is why the suites themselves are tested that way.
+
+**Declare `ExpectedOutputs` if your unit produces any.** Without it the outputs checks degenerate into
+verifying that emptiness is empty — they cannot see whether the keys appear after a deploy or, the quiet
+one, whether they go on answering after a remove because you read them from a stored copy instead of from
+the target.
+
+**One fixture per KIND.** `UnitDriverContract` tests one unit, so a provider with a directory and a process,
+or a stack and a bucket, needs a fixture for each — and the one nobody wrote is the one that was broken. The
+`providers` check cannot see this for you; it only knows whether the suite is run at all.
+
+If a kind genuinely cannot be created in isolation because it depends on another unit's resource — an S3
+bucket a stack makes — the fixture's reset supplies that resource and the contract still applies. That is
+what shook out the phase bug above: "the bucket exists" and "this unit deployed something" are different
+questions, and only the contract asked.
 
 Then the things a generic suite cannot know:
 

@@ -52,9 +52,11 @@ src/
   Tyanor.Core/      contracts + the reconcile decision. No I/O, no provider, no dependencies.
   Tyanor.Engine/    ProcedureRunner: ordering, reconcile, retry, classified outcomes, history + state.
   Tyanor.Extensions.DependencyInjection/   AddTyanor. Optional — the engine works without a container.
-  Tyanor.Testing/       contract suites. What an IUnitDriver / IFailureClassifier / IRunHistory /
-                        IStateStore must DO, runnable by whoever wrote one — including outside this
-                        repo. No package dependencies: no test framework is imposed (D15).
+  Tyanor.Testing/       contract suites — what an IUnitDriver / IFailureClassifier / IRunHistory /
+                        IStateStore must DO, runnable by whoever wrote one, including outside this
+                        repo (D15). Plus MemoryTarget: a real provider that deploys to a dictionary,
+                        so a CONSUMER can test its own code. It passes the suites (D24).
+                        No package dependencies: no test framework is imposed.
   Tyanor.Providers.Local/   this machine: a directory from an artifact, a process, a health check.
                             The worked reference — read it before writing a second provider.
   Tyanor.Providers.Aws/     CloudFormation stacks + S3/CloudFront content. Ported; NOT yet run
@@ -62,19 +64,31 @@ src/
   Tyanor.Providers.*/   one per target. The ONLY place vendor vocabulary exists.
 tests/
   Tyanor.Core.Tests/    pure tests for the decision logic. Always-on, no cloud, no mocks of an SDK.
+  Tyanor.Docs.Tests/    every C# sample in docs/guide.md, compiled. `doctor` refuses a fence in the
+                        guide that is not in here — so the two cannot drift.
+  Shared/               compiled into EVERY test project by tests/Directory.Build.props, with a global
+                        using. Put a helper here rather than copying it per assembly — `Suites` was
+                        written three times before it was written once.
   Tyanor.Providers.Local.Tests/   real files, real processes. A mocked filesystem would agree with
                                   whatever the driver believed, which is the opposite of a test.
-  Tyanor.Providers.Aws.Tests/     the phase table and the classifier against the REAL strings, plus one
-                                  env-gated live deploy. Never mock the SDK: it would agree too.
+  Tyanor.Providers.Aws.Tests/     the phase table and the classifier against the REAL strings; the driver's
+                                  own control flow against recording fakes; one env-gated live deploy.
+                                  A fake REPLAYS real strings, it never invents one (D23).
 ```
 
 **`Tyanor.Core`, `Tyanor.Engine` and `Tyanor.Testing` take no package dependencies** — `doctor` checks it.
 If something needs one, it belongs in a package beside them, not in them.
 
+**Build settings live in the root `Directory.Build.props`, and the version lives there alone.** `src/` adds
+package metadata; `tests/` adds `IsPackable=false`. `doctor` refuses a second `<VersionPrefix>` anywhere,
+because there were two of them for a while and the claim that there was one was checked at only one end.
+
 **Every seam is public and third-party-implementable.** When adding to a seam, ask what an out-of-repo
 implementer would have to copy — if the answer is anything, it belongs in the framework. Both shipped
 providers hand-wrote the kind dispatch and artifact-part resolution before they became `UnitKindDriver` and
-`RequirePart`.
+`RequirePart`; `DeploymentTargets` and `StorageBackends` each hand-wrote the same registry before it became
+the internal `Registry<T>`. **Twice is the signal.** By the third time, the copies have already diverged in
+one of the four things they all do.
 
 The same answer has now been right three times, so reach for it before inventing a fourth shape:
 
@@ -97,15 +111,25 @@ One command — build, test, and every check the repo can make cheaply. It exist
 something anyone has to remember, because the step people forget is the step that breaks.
 
 ```
-npm run doctor                    build + test + decisions + rules + sensitive + the two claims
+npm run doctor                    build + test + the knowledge layer + the two claims
 node devtools/dev.mjs decisions   supersession points both ways; every cited D<n> exists
 node devtools/dev.mjs rules       every rule indexed, every link resolves
+node devtools/dev.mjs docs        every .md link and anchor resolves; the guide's samples compile
+node devtools/dev.mjs providers   every provider AND every unit kind is held to the contract suites
 node devtools/dev.mjs sensitive   credential scan
 ```
 
-Two of doctor's checks verify **claims the README makes out loud** — that `Tyanor.Core` and
-`Tyanor.Engine` take no package dependencies, and that the version ships from one place. If one fails
+Two of doctor's checks verify **claims the README makes out loud** — that `Tyanor.Core`, `Tyanor.Engine`
+and `Tyanor.Testing` take no package dependencies, and that the version ships from one place. If one fails
 because the claim changed deliberately, change the claim. Do not silence the check.
+
+**The guide's samples are compiled.** Every C# fence in `docs/guide.md` must appear verbatim in
+`tests/Tyanor.Docs.Tests`, which builds — so a renamed method breaks the build rather than rotting quietly in
+a document a newcomer is trusting. Edit one and you must edit the other; that is the point.
+
+Cutting a release is `doctor`, then `node devtools/dev.mjs release` — the second answers "is this
+shippable right now?", which is mostly about things `doctor` has no reason to care about: a clean tree (the
+commit is stamped into every package), and packages that actually contain their README and XML docs.
 
 `devtools/README.md` says what goes wrong without each check. Everything is driven by
 `devtools/project.config.mjs`; no tool names Tyanor.
@@ -141,6 +165,11 @@ Four independent libraries; none depends on another.
 |---|---|
 | Enforced conventions | `.claude/rules/*.md` (indexed in `RULES_INDEX.md`) |
 | Why a decision was made | `docs/DECISIONS.md` |
+| How to USE the library, in order | `docs/guide.md` |
+| System shape | `docs/architecture/overview.md` |
 | How to add a provider | `.claude/skills/add-provider/SKILL.md` |
 | What is left to build | `TASKS.md` |
-| System shape | `docs/architecture/overview.md` |
+| What changed, and what broke | `CHANGELOG.md` |
+
+Each answers a different question, and a change usually touches two. `guide.md` is the one that goes stale
+invisibly — nothing checks that a code sample still compiles, so when a signature changes, look there.

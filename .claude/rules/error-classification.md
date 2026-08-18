@@ -33,7 +33,8 @@ five times, and retrying an expired credential merely delays the moment someone 
   the most common way a classifier goes quietly wrong.
 - **Classify on codes, not messages.** Message text is not API surface and changes without notice.
 - **Retry only `Transient`** (`ProcedureRunner.WithRetryAsync`). Credentials and hard failures rethrow at
-  once.
+  once — and pin it with a test that COUNTS attempts, because this is a rule an implementation satisfies by
+  omission. Widening the retry to cover credentials once passed every test in the repository.
 - **Unit-test the classifier directly.** A mocked SDK cannot catch a wrong or missing status code — the
   test has to name the real codes. This is the part of a provider most worth testing without a cloud.
 - **A pause says the work is kept, and means it.** The operator-facing wording for a pause must say so;

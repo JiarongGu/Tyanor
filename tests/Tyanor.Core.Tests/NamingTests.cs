@@ -56,6 +56,26 @@ public class NamingTests
         Assert.Throws<ArgumentException>(() => new ProcedureUnit(".hidden", "Hidden"));
     }
 
+    [Fact]
+    public void Each_refusal_gives_the_reason_that_is_actually_TRUE_of_the_name()
+    {
+        // Which rule fires first is not cosmetic — it decides what the operator is told to fix, and every
+        // one of these names is refused whichever order the rules run in, so nothing but the message says
+        // the order is right.
+        //
+        // It was wrong. `..` matched "starts with a dot" and was told about hidden files and provider
+        // bookkeeping, while the sentence written for a parent-directory reference only ever appeared for
+        // names like `v1..2` — where it is not true.
+        Assert.Contains("parent directory",
+            Assert.Throws<ArgumentException>(() => new ProcedureUnit("..", "Up")).Message);
+
+        Assert.Contains("starts with a dot",
+            Assert.Throws<ArgumentException>(() => new ProcedureUnit(".hidden", "Hidden")).Message);
+
+        Assert.Contains("Use letters, digits",
+            Assert.Throws<ArgumentException>(() => new ProcedureUnit("a/b", "Slashed")).Message);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]

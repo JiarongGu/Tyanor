@@ -49,20 +49,25 @@ internal static class Identifiers
                     "these names become directories and provider resource names, so anything that could be " +
                     "read as a path is refused rather than escaped.", what);
 
+        // Rejecting the CHARACTERS of a path separator above already prevents traversal; this refuses the
+        // intent as well, so `..` fails with a message about what it is rather than resolving to a directory
+        // nobody named.
+        //
+        // BEFORE the leading-dot rule, and that order is the whole of why this message is reachable. The
+        // other way round, the one input this sentence was written for — `..` itself — matched "starts with
+        // a dot" and was told about hidden files and provider bookkeeping, while the parent-directory
+        // wording only ever appeared for names like `v1..2`, where it is not true.
+        if (name.Contains(".."))
+            throw new ArgumentException(
+                $"The {what} '{name}' contains '..', which names a parent directory rather than a deployment.",
+                what);
+
         // A leading dot is refused for a reason beyond tidiness: the local provider keeps its own bookkeeping
         // in `.tyanor` beside the units, so a unit allowed to be named `.tyanor` would deploy on top of it.
         if (name[0] == '.')
             throw new ArgumentException(
                 $"The {what} '{name}' starts with a dot. That is hidden on some systems and collides with " +
                 "the bookkeeping a provider keeps beside your units.", what);
-
-        // The two that matter most. Rejecting the CHARACTERS of a path separator above already prevents
-        // traversal; this refuses the intent as well, so `..` fails with a message about what it is rather
-        // than resolving to a directory nobody named.
-        if (name.Contains(".."))
-            throw new ArgumentException(
-                $"The {what} '{name}' contains '..', which names a parent directory rather than a deployment.",
-                what);
 
         return name;
     }

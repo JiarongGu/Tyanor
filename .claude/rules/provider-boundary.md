@@ -27,6 +27,11 @@ then consumers depend on the leaked shape.
   `"{key}"`. A provider whose units are all the same kind of thing never needs it — every CloudFormation
   unit is a stack — but one with a directory here and a process there does, and without the convention in
   the contract each provider would invent its own.
+- **A setting that IS the unit's identity uses `request.OwnOption(unit, key)`**, which does NOT fall back.
+  Where a unit lives on disk, which bucket it fills, which port it answers on: for these the shared value is
+  never a sensible default, it is every unit deploying on top of every other. That is the collision
+  `Procedure` refuses when two units share a name, arriving through a different door — so ask which one a
+  setting is before reaching for the convenient reader.
 - **The test:** would a Kubernetes provider and a bare-SSH provider both implement this without pretending?
   If either has to invent a meaning for a field, it belongs in `Options` or in the provider.
 - **A target may have no credentials at all**, so `ValidateAsync` takes `TargetCredentials?` — null means

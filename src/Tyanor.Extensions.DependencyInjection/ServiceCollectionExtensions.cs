@@ -11,22 +11,24 @@ namespace Tyanor.Engine;
 public sealed class TyanorOptions
 {
     /// <summary>
-    /// Where run state is kept. Defaults to <c>tyanor/runs.json</c> under the application's base
-    /// directory — a working default that needs no server, no schema and no decision on day one.
-    /// Set it to put state on a shared volume, beside a project, or anywhere an operator can find it.
+    /// Where DEPLOYMENT STATE — what Tyanor owns — is kept. Defaults to <c>tyanor/state.json</c> under the
+    /// application's base directory: a working default that needs no server, no schema and no decision on
+    /// day one. Set it to put state on a shared volume, beside a project, or anywhere an operator can find
+    /// it.
     /// </summary>
     /// <remarks>
-    /// Ignored when a history is supplied directly via <see cref="TyanorBuilder.UseHistory(IRunHistory)"/>,
-    /// named by a descriptor via <see cref="TyanorBuilder.UseHistory(string)"/>, or replaced by
+    /// Ignored when a store is supplied directly via <see cref="TyanorBuilder.UseState(IStateStore)"/>,
+    /// named by a descriptor via <see cref="TyanorBuilder.UseState(string)"/>, or replaced by
     /// <see cref="TyanorBuilder.UseInMemoryState"/>.
     /// </remarks>
     public string StatePath { get; set; } =
         Path.Combine(AppContext.BaseDirectory, "tyanor", "state.json");
 
     /// <summary>
-    /// Where the run LOG is kept — separate from state on purpose. State is what Tyanor owns and must stay
-    /// true; history is an append-only account of attempts. They have different lifetimes, and a team that
-    /// shares state does not necessarily want to share every operator's run log.
+    /// Where the run LOG is kept — separate from state on purpose, and it does NOT follow
+    /// <see cref="StatePath"/>. State is what Tyanor owns and must stay true; history is an append-only
+    /// account of attempts. They have different lifetimes, and a team that shares state does not necessarily
+    /// want to share every operator's run log. Defaults to <c>tyanor/runs.json</c>.
     /// </summary>
     public string RunHistoryPath { get; set; } =
         Path.Combine(AppContext.BaseDirectory, "tyanor", "runs.json");
@@ -66,8 +68,14 @@ public sealed class TyanorBuilder
 
     /// <summary>
     /// Keep deployment state — the one set, recording what Tyanor owns — in a JSON file at
-    /// <paramref name="path"/>. Run history goes beside it unless <see cref="UseFileHistory"/> says otherwise.
+    /// <paramref name="path"/>.
     /// </summary>
+    /// <param name="path">Where the state file lives.</param>
+    /// <remarks>
+    /// This moves STATE only. The run log stays at <see cref="TyanorOptions.RunHistoryPath"/> until
+    /// <see cref="UseFileHistory"/> moves it, because the two are deliberately separate stores with
+    /// different lifetimes — see <see cref="TyanorOptions.RunHistoryPath"/>.
+    /// </remarks>
     public TyanorBuilder UseFileState(string path)
     {
         Options.StatePath = path;
@@ -76,6 +84,7 @@ public sealed class TyanorBuilder
     }
 
     /// <summary>Supply your own state store — S3, Postgres, wherever the one set of state should live.</summary>
+    /// <param name="store">The store.</param>
     public TyanorBuilder UseState(IStateStore store)
     {
         _services.AddSingleton(store);
@@ -83,6 +92,7 @@ public sealed class TyanorBuilder
     }
 
     /// <summary>Keep the run LOG in a JSON file at <paramref name="path"/>.</summary>
+    /// <param name="path">Where the log lives.</param>
     public TyanorBuilder UseFileHistory(string path)
     {
         Options.RunHistoryPath = path;
@@ -91,17 +101,25 @@ public sealed class TyanorBuilder
     }
 
     /// <summary>
-    /// Keep run state in memory only. Nothing survives the process, so nothing can be resumed after a
-    /// crash — appropriate for tests and one-shot CI runs, and a mistake anywhere an operator would expect
-    /// to re-enter a deployment.
+    /// Keep BOTH the run log and deployment state in memory only. Nothing survives the process, so nothing
+    /// can be resumed after a crash and a later teardown cannot tell what Tyanor created from what was
+    /// already there — appropriate for tests and one-shot CI runs, and a mistake anywhere an operator would
+    /// expect to re-enter a deployment.
     /// </summary>
+    /// <remarks>
+    /// It registers both on purpose. Registering only the history left state going to a FILE under the
+    /// application's base directory, so a method named for memory quietly wrote to disk — the sort of
+    /// difference nobody finds until a test run leaves state behind.
+    /// </remarks>
     public TyanorBuilder UseInMemoryState()
     {
         _services.AddSingleton<IRunHistory, InMemoryRunHistory>();
+        _services.AddSingleton<IStateStore, InMemoryStateStore>();
         return this;
     }
 
     /// <summary>Supply your own store — SQLite, Postgres, a table in the app's existing database.</summary>
+    /// <param name="history">The run log.</param>
     public TyanorBuilder UseHistory(IRunHistory history)
     {
         _services.AddSingleton(history);
@@ -182,26 +200,31 @@ public sealed class TyanorBuilder
 public static class TyanorServiceCollectionExtensions
 {
     /// <summary>
-    /// Add Tyanor: run state, retry policy, and the targets available to this application.
+    /// Add Tyanor: the two stores, the retry policy, and the targets available to this application.
     ///
     /// <code>
     /// services.AddTyanor(cfg =>
     /// {
-    ///     cfg.UseFileState("/var/lib/myapp/runs.json");   // where run state lives — YOUR choice
+    ///     cfg.UseState("json:/var/lib/myapp/state.json");     // what Tyanor OWNS — YOUR choice
+    ///     cfg.UseHistory("json:/var/lib/myapp/runs.json");    // what was ATTEMPTED
     ///     cfg.AddTarget(new AwsTarget(credentials));
     /// });
     /// </code>
     ///
-    /// <para>With no state configured, run history goes to a JSON file under the application's base
-    /// directory. That is a real, durable default — an in-memory one would look like it worked right up
-    /// until the moment resume mattered.</para>
+    /// <para>With neither configured, both go to JSON files under the application's base directory. That is
+    /// a real, durable default — an in-memory one would look like it worked right up until the moment
+    /// resume mattered.</para>
     /// </summary>
     /// <param name="services">The container.</param>
     /// <param name="configure">Configuration callback.</param>
+    /// <exception cref="ArgumentException">
+    /// State and the run log were pointed at the SAME location — see <see cref="RefuseOneLocation"/>.
+    /// </exception>
     public static IServiceCollection AddTyanor(this IServiceCollection services, Action<TyanorBuilder>? configure = null)
     {
         var options = new TyanorOptions();
         configure?.Invoke(new TyanorBuilder(services, options));
+        RefuseOneLocation(options);
 
         services.TryAddSingleton(options);
         // Only if the caller registered none — TryAdd means an explicit UseFileState/UseInMemoryState/
@@ -230,5 +253,39 @@ public static class TyanorServiceCollectionExtensions
         // them, rather than silently picking one — see DeploymentTargets.Single.
         services.TryAddSingleton(sp => sp.GetRequiredService<ProcedureRunners>().ForSingle());
         return services;
+    }
+
+    /// <summary>
+    /// Refuse a configuration that points state and the run log at ONE location.
+    /// </summary>
+    /// <remarks>
+    /// <para>They hold different shapes — a list of deployments and a list of run records — so sharing a file
+    /// does not fail loudly. Each store reads the other's contents as its own type, gets a list of records
+    /// with every field defaulted, and writes that back. The result is two stores quietly destroying each
+    /// other's data, with the deployment state going first, which is the one that answers what a teardown is
+    /// allowed to remove.</para>
+    /// <para>Caught here rather than left to be discovered, for the reason <c>docs/DECISIONS.md</c> D20 gives
+    /// about refusing a bare path: a deployment tool asking rather than guessing is worth one clear error.</para>
+    /// <para>It checks the two SAME-KIND pairs — two descriptors, or two paths. A descriptor and a path that
+    /// happen to name one file are not compared, because comparing them means resolving a descriptor whose
+    /// target only its backend can interpret, and Core knowing what a Postgres connection string means is the
+    /// leak D4 is about.</para>
+    /// </remarks>
+    /// <param name="options">The configured options.</param>
+    /// <exception cref="ArgumentException">Both stores were given the same location.</exception>
+    private static void RefuseOneLocation(TyanorOptions options)
+    {
+        Refuse(options.StateConnection, options.HistoryConnection, "descriptor");
+        Refuse(options.StatePath, options.RunHistoryPath, "path");
+
+        static void Refuse(string? state, string? history, string what)
+        {
+            if (state is null || !string.Equals(state, history, StringComparison.OrdinalIgnoreCase)) return;
+
+            throw new ArgumentException(
+                $"Deployment state and the run log are both configured at the {what} '{state}'. They hold " +
+                "different things and would overwrite each other — state is what Tyanor OWNS and must stay " +
+                "true, the run log is an account of what was attempted. Give them separate locations.");
+        }
     }
 }

@@ -45,6 +45,7 @@ public class LocalDriverContractTests : IDisposable
             _box = box;
             Driver = box.Target.Driver;
             Unit = new ProcedureUnit(kind == Kind.Directory ? "runtime" : "service", "Contract subject");
+            ExpectedOutputs = kind == Kind.Directory ? ["runtime.path"] : ["service.pid"];
 
             var (command, arguments) = Sandbox.Sleeper;
             Request = new DeploymentRequest("contract",
@@ -69,6 +70,9 @@ public class LocalDriverContractTests : IDisposable
         public ProcedureUnit Unit { get; }
 
         public DeploymentRequest Request { get; }
+
+        /// <summary>What each kind actually exposes — a directory its release path, a process its pid.</summary>
+        public IReadOnlyCollection<string> ExpectedOutputs { get; }
 
         // The driver's own remove IS the reset — which is worth noticing, because a provider whose remove
         // does not fully return to nothing fails half this suite, and that is exactly the defect it should.
@@ -113,16 +117,5 @@ public class LocalClassifierContractTests
             new LocalConfigurationException("service", "names no command"),
             LocalDeploymentException.Hard("service", "the process exited while starting"),
         ];
-    }
-}
-
-/// <summary>Turning a suite's check names into xUnit cases, so each one reports under its own name.</summary>
-internal static class Suites
-{
-    public static TheoryData<string> Names(ContractSuite suite)
-    {
-        var data = new TheoryData<string>();
-        foreach (var check in suite.Checks) data.Add(check);
-        return data;
     }
 }

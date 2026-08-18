@@ -98,6 +98,23 @@ public class RequestOptionTests
         var request = new DeploymentRequest("acme", new DeploymentArtifact(new Dictionary<string, string>()));
 
         Assert.Null(request.Option("web", "kind"));
+        Assert.Null(request.OwnOption("web", "kind"));
         Assert.Empty(request.OptionSet("web", "parameter"));
+    }
+
+    [Fact]
+    public void An_OWN_option_does_not_inherit_the_procedure_wide_one()
+    {
+        // For a setting that IS the unit's identity — where it lives on disk, which bucket it fills. The
+        // fallback that makes Option(unit, key) convenient is exactly wrong there: a procedure-wide "path"
+        // does not mean "every unit defaults to this directory", it means every unit deploys ON TOP of every
+        // other, silently, and removing one removes them all.
+        var request = Request(new Dictionary<string, string> { ["path"] = "/srv/shared", ["web.path"] = "/srv/web" });
+
+        Assert.Equal("/srv/web", request.OwnOption("web", "path"));
+        Assert.Null(request.OwnOption("db", "path"));            // …rather than inheriting /srv/shared
+
+        // The convenient reader still inherits, which is why both exist.
+        Assert.Equal("/srv/shared", request.Option("db", "path"));
     }
 }

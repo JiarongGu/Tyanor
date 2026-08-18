@@ -17,38 +17,19 @@ namespace Tyanor;
 /// </summary>
 public sealed class DeploymentTargets
 {
-    private readonly Dictionary<string, IDeploymentTarget> _targets;
+    private readonly Registry<IDeploymentTarget> _targets = new(t => t.Id, "target", "Id");
 
     /// <summary>Build a registry over the targets this application offers.</summary>
     /// <param name="targets">The targets. Ids are compared case-insensitively.</param>
     /// <exception cref="ArgumentException">Two targets share an id, or one has none.</exception>
-    public DeploymentTargets(IEnumerable<IDeploymentTarget> targets)
-    {
-        ArgumentNullException.ThrowIfNull(targets);
-        _targets = new Dictionary<string, IDeploymentTarget>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var target in targets)
-        {
-            if (string.IsNullOrWhiteSpace(target.Id))
-                throw new ArgumentException(
-                    $"{target.GetType().Name} has no Id. A target's id is how a caller asks for it by name.",
-                    nameof(targets));
-
-            // Refused rather than resolved by order. Two providers claiming "aws" is a mistake somebody made
-            // in a composition root, and the last-one-wins version of it is undiscoverable.
-            if (!_targets.TryAdd(target.Id, target))
-                throw new ArgumentException(
-                    $"Two targets both claim the id '{target.Id}'. Ids have to be unique — that is what " +
-                    "makes one selectable.", nameof(targets));
-        }
-    }
+    public DeploymentTargets(IEnumerable<IDeploymentTarget> targets) => _targets.AddAll(targets, nameof(targets));
 
     /// <summary>Build a registry over the targets given.</summary>
     /// <param name="targets">The targets.</param>
     public DeploymentTargets(params IDeploymentTarget[] targets) : this((IEnumerable<IDeploymentTarget>)targets) { }
 
     /// <summary>The ids registered, in order, for an error message or a picker in a UI.</summary>
-    public IReadOnlyCollection<string> Ids => _targets.Keys.Order().ToList();
+    public IReadOnlyCollection<string> Ids => _targets.Keys;
 
     /// <summary>
     /// The target with this id.
@@ -57,12 +38,11 @@ public sealed class DeploymentTargets
     /// <exception cref="ArgumentException">No target has that id.</exception>
     public IDeploymentTarget Get(string id) =>
         TryGet(id) ?? throw new ArgumentException(
-            $"No deployment target with id '{id}'. Registered: {Describe()}.", nameof(id));
+            $"No deployment target with id '{id}'. Registered: {_targets.Describe()}.", nameof(id));
 
     /// <summary>The target with this id, or null.</summary>
     /// <param name="id">The provider id.</param>
-    public IDeploymentTarget? TryGet(string id) =>
-        id is not null && _targets.TryGetValue(id, out var target) ? target : null;
+    public IDeploymentTarget? TryGet(string id) => _targets.TryGet(id);
 
     /// <summary>
     /// The only target, when there is exactly one.
@@ -72,15 +52,9 @@ public sealed class DeploymentTargets
     /// that asks for "the" target has a question only it can answer, and answering it by registration order
     /// would deploy to whichever provider happened to be wired up second.
     /// </exception>
-    public IDeploymentTarget Single() => _targets.Count switch
-    {
-        1 => _targets.Values.First(),
-        0 => throw new InvalidOperationException(
-            "No deployment targets are registered. Add one in your composition root."),
-        _ => throw new InvalidOperationException(
-            $"{_targets.Count} deployment targets are registered ({Describe()}), so there is no single one. " +
-            "Ask for the one you mean by id."),
-    };
-
-    private string Describe() => _targets.Count == 0 ? "none" : string.Join(", ", Ids);
+    public IDeploymentTarget Single() => _targets.Only ?? throw new InvalidOperationException(
+        _targets.Count == 0
+            ? "No deployment targets are registered. Add one in your composition root."
+            : $"{_targets.Count} deployment targets are registered ({_targets.Describe()}), so there is no " +
+              "single one. Ask for the one you mean by id.");
 }

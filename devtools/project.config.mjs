@@ -33,8 +33,12 @@ export default {
     'src/Tyanor.Testing/Tyanor.Testing.csproj',
   ],
 
-  /** Single source of the version, mirrored into the changelog headline. */
-  versionProps: 'src/Directory.Build.props',
+  /**
+   * THE single source of the version, mirrored into the changelog headline. `doctor` also refuses any other
+   * project file that declares one — "single-sourced" was previously checked only at the changelog end,
+   * while src/ and tests/ each carried a copy.
+   */
+  versionProps: 'Directory.Build.props',
 
   /** The decisions log `decisions` validates. */
   decisions: 'docs/DECISIONS.md',
@@ -43,6 +47,34 @@ export default {
   rulesDir: '.claude/rules',
   rulesIndex: '.claude/rules/RULES_INDEX.md',
 
-  /** Paths `check-sensitive` never reads (generated, vendored, or its own fixtures). */
+  /**
+   * Providers live at src/{providerPrefix}*, and each must have a test project that runs these suites.
+   * The skill that describes writing a provider already lists them as required; this is what makes that
+   * a check rather than a hope.
+   */
+  providerPrefix: 'Tyanor.Providers.',
+  providerContracts: ['UnitDriverContract', 'FailureClassifierContract'],
+
+  /**
+   * Documents whose C# samples must exist verbatim inside a project that COMPILES. A fenced code block is
+   * the part of a document nothing can invalidate, so the guide is checked against a real project rather
+   * than trusted. Ignoring indentation, the two hold the same text.
+   */
+  compiledSamples: [{ doc: 'docs/guide.md', project: 'tests/Tyanor.Docs.Tests' }],
+
+  /**
+   * Documents something in this repository promises exist — the package metadata names the licence, the
+   * README points at the guide. `docs` fails if one goes missing, which is the way a promise quietly stops
+   * being kept.
+   */
+  requiredDocs: ['README.md', 'LICENSE', 'CHANGELOG.md', 'docs/guide.md', 'docs/architecture/overview.md'],
+
+  /** Paths the scanners never read (generated, vendored, or its own fixtures). */
   ignore: ['bin', 'obj', 'node_modules', '.git', 'artifacts', 'TestResults'],
+
+  /**
+   * The comment marker that silences one line of `check-sensitive`. Project-specific because it appears in
+   * this repository's source, and the scripts are meant to be copyable to another repo unchanged.
+   */
+  allowSecret: 'tyanor:allow-secret',
 };

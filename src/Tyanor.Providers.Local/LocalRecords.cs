@@ -10,8 +10,15 @@ internal static class LocalPaths
     /// is what lets one machine host two deployments of the same procedure without collision — the same
     /// job it does in an account name elsewhere.
     /// </summary>
+    /// <remarks>
+    /// The override is read per unit and NEVER falls back to a procedure-wide <c>"path"</c>. A shared one
+    /// cannot mean what the fallback convention implies: it would put every directory unit in the same
+    /// folder, so the second to deploy prunes the first's releases and removing either removes both. This
+    /// path is the unit's address, and an address has to be its own — see
+    /// <see cref="DeploymentRequest.OwnOption"/>.
+    /// </remarks>
     public static string Unit(string root, DeploymentRequest request, string unit) =>
-        request.Option(unit, LocalOptions.Path) ?? Path.Combine(root, request.Prefix, unit);
+        request.OwnOption(unit, LocalOptions.Path) ?? Path.Combine(root, request.Prefix, unit);
 
     /// <summary>
     /// This provider's own bookkeeping for a deployment — pid files, and nothing else. Kept OUTSIDE the

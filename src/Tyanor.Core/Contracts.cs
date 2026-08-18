@@ -98,7 +98,9 @@ public sealed class ArtifactException(string message) : DefinitionException(mess
 /// Operator-chosen name base. Units deploy as <c>{Prefix}-{unit}</c>, which is what lets one account host
 /// several independent deployments of the same procedure.
 /// <para>Checked, because it is not a label: it becomes a directory under a provider's root and a component
-/// of resource names. See <see cref="Identifiers"/> for what is refused and why.</para>
+/// of resource names. Letters, digits, <c>-</c>, <c>_</c> and <c>.</c> only; no leading dot, no <c>..</c>,
+/// at most 255 characters — so a name can never be read as a path. A provider adds its own stricter rule in
+/// its own words (<c>docs/DECISIONS.md</c> D17).</para>
 /// </param>
 /// <param name="Artifact">What to deploy.</param>
 /// <param name="Options">Procedure- and provider-specific settings (a compute tier, a domain name, a
@@ -139,6 +141,23 @@ public sealed record DeploymentRequest(
     /// written once, unscoped, and only the exceptions are named.</para>
     /// </remarks>
     public string? Option(string unit, string key) => Option($"{unit}.{key}") ?? Option(key);
+
+    /// <summary>
+    /// A setting for ONE unit and no other — <c>"{unit}.{key}"</c>, with no fall back to the shared value.
+    /// </summary>
+    /// <param name="unit">The unit's <see cref="ProcedureUnit.Name"/>.</param>
+    /// <param name="key">The setting.</param>
+    /// <remarks>
+    /// <para><b>For a setting that IS the unit's identity</b> — where it lives on disk, which bucket it fills,
+    /// which port it answers on. The shared fallback that makes
+    /// <see cref="Option(string, string)"/> convenient is exactly wrong for these: a procedure-wide
+    /// <c>"path"</c> does not mean "every unit defaults to this directory", it means every unit deploys ON
+    /// TOP of every other, silently, and removing one removes them all.</para>
+    /// <para>That is the collision <see cref="Procedure"/> refuses when two units share a name, arriving
+    /// through a different door — a unit's address must be its own however it is spelled. So an
+    /// identity-bearing setting is read with this, and everything else with the convenient one.</para>
+    /// </remarks>
+    public string? OwnOption(string unit, string key) => Option($"{unit}.{key}");
 
     /// <summary>
     /// A whole GROUP of options for one unit, gathered by prefix and returned with the prefix stripped:

@@ -26,7 +26,14 @@ internal sealed class Sandbox : IDisposable
         Target = new LocalTarget(Root);
         State = new FileStateStore(Path.Combine(_base, "state.json"));
         History = new FileRunHistory(Path.Combine(_base, "runs.json"));
-        Runner = new ProcedureRunner(Target, History, State, new RetryPolicy(Attempts: 1));
+        // A real retry policy, only faster. `Attempts: 1` meant NO retry, which quietly contradicted the
+        // provider it was testing: a sharing violation is classified Transient precisely so the engine rides
+        // it out, and a harness that switches that off turns an ordinary OS hiccup into a failed run. It
+        // showed up as this suite failing perhaps one run in three when the machine was busy — a deleting
+        // directory still held by a just-exited process — which is the exact case the classification exists
+        // for. Four fast attempts is under 200ms in the worst case and is how the engine actually behaves.
+        Runner = new ProcedureRunner(Target, History, State,
+            new RetryPolicy(Attempts: 4, BaseDelay: TimeSpan.FromMilliseconds(25)));
     }
 
     /// <summary>Where deployments land.</summary>

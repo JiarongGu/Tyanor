@@ -139,6 +139,44 @@ public sealed class FileRunHistoryTests : IDisposable
         Assert.Empty(await new FileRunHistory(StatePath).RecentAsync());
         Assert.Null(await new FileRunHistory(StatePath).LiveAsync("site", "acme"));
     }
+
+    [Theory]
+    [InlineData("Unheard-Of")]
+    [InlineData("9")]
+    [InlineData("")]
+    public async Task A_status_this_version_cannot_read_is_treated_as_LIVE(string status)
+    {
+        // The safe error is to PROTECT a record we cannot classify, not to let it be deleted — it may be the
+        // only handle on work still converging.
+        //
+        // "9" is the one that was actually broken: Enum.TryParse happily accepts a NUMBER, so a hand-edited
+        // status parsed to an undefined RunStatus that was neither Running nor Paused, read as not live, and
+        // became deletable. The fallback has to hold for a hand-edited file, which is the case it is for.
+        Directory.CreateDirectory(Path.GetDirectoryName(StatePath)!);
+        await File.WriteAllTextAsync(StatePath,
+            $$"""
+            [{"Id":"r1","Procedure":"site","Prefix":"acme","Kind":"Apply","Status":"{{status}}",
+              "StartedAt":"2026-08-18T00:00:00+00:00"}]
+            """);
+
+        var history = new FileRunHistory(StatePath);
+
+        Assert.NotNull(await history.LiveAsync("site", "acme"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => history.DeleteAsync("r1"));
+    }
+
+    [Fact]
+    public async Task A_kind_this_version_cannot_read_falls_back_to_Apply()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(StatePath)!);
+        await File.WriteAllTextAsync(StatePath,
+            """
+            [{"Id":"r1","Procedure":"site","Prefix":"acme","Kind":"7","Status":"Succeeded",
+              "StartedAt":"2026-08-18T00:00:00+00:00"}]
+            """);
+
+        Assert.Equal(RunKind.Apply, (await new FileRunHistory(StatePath).RecentAsync())[0].Kind);
+    }
 }
 
 /// <summary>The in-memory history keeps the same guards; only durability differs.</summary>

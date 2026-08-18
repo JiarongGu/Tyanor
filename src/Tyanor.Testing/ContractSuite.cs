@@ -30,6 +30,11 @@ public sealed class ContractException(string message) : Exception(message);
 /// reason Core and Engine do not: a library that makes you adopt its test framework to check your own code
 /// has overreached.</para>
 ///
+/// <para><b>The suites are themselves tested against implementations that are deliberately wrong</b>, one
+/// broken promise at a time. Running them only against code that passes proves that green is reachable and
+/// nothing else — and a suite that cannot go red does not fail, it silently certifies. That is worth saying
+/// out loud here because it is the thing a reader is trusting when they run one.</para>
+///
 /// <example>
 /// The whole suite as one test:
 /// <code>

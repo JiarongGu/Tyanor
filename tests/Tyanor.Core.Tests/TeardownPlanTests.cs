@@ -1,5 +1,6 @@
 using Tyanor.Engine;
 using Tyanor.Engine.State;
+using Tyanor.Testing;
 using Xunit;
 
 namespace Tyanor.Tests;
@@ -22,7 +23,7 @@ public class TeardownPlanTests
     private static DeploymentRequest Request() =>
         new("acme", new DeploymentArtifact(new Dictionary<string, string>()));
 
-    private static ProcedureRunner Runner(FakeTarget target, IStateStore? state = null) =>
+    private static ProcedureRunner Runner(MemoryTarget target, IStateStore? state = null) =>
         new(target, new InMemoryRunHistory(), state);
 
     [Fact]
@@ -42,7 +43,7 @@ public class TeardownPlanTests
     {
         // The order they will actually go in, so what an operator reads is what will happen. Edge before
         // compute before data, so whatever imports from a unit is gone before the unit itself.
-        var target = new FakeTarget { ["db"] = UnitPhase.Ready, ["api"] = UnitPhase.Ready, ["web"] = UnitPhase.Ready };
+        var target = new MemoryTarget().AlreadyDeployed("db", "api", "web");
 
         var plan = await Runner(target).PlanAsync(Site, Request(), RunKind.Destroy);
 
@@ -54,7 +55,7 @@ public class TeardownPlanTests
     public async Task A_teardown_plan_says_which_units_are_already_gone()
     {
         // A re-run of an interrupted teardown, which is how teardowns usually finish.
-        var target = new FakeTarget { ["db"] = UnitPhase.Ready, ["api"] = UnitPhase.Missing, ["web"] = UnitPhase.Missing };
+        var target = new MemoryTarget().AlreadyDeployed("db");
 
         var plan = await Runner(target).PlanAsync(Site, Request(), RunKind.Destroy);
 
@@ -67,7 +68,7 @@ public class TeardownPlanTests
     public async Task A_teardown_plan_counts_what_it_will_destroy()
     {
         // The number the operator is actually deciding on.
-        var target = new FakeTarget { ["db"] = UnitPhase.Ready, ["api"] = UnitPhase.Ready, ["web"] = UnitPhase.Missing };
+        var target = new MemoryTarget().AlreadyDeployed("db", "api");
         target.Resources["db"] = [new ResourceState("db-1", "T", "v1"), new ResourceState("db-2", "T", "v1")];
         target.Resources["api"] = [new ResourceState("api-1", "T", "v1")];
 
@@ -87,7 +88,7 @@ public class TeardownPlanTests
         await state.SaveAsync(DeploymentState.Empty("site", "acme")
             .With("db", [new ResourceState("db-1", "T", "v1"), new ResourceState("gone-already", "T", "v1")]));
 
-        var target = new FakeTarget { ["db"] = UnitPhase.Ready };
+        var target = new MemoryTarget().AlreadyDeployed("db");
         target.Resources["db"] = [new ResourceState("db-1", "T", "v1")];
 
         var plan = await Runner(target, state).PlanAsync(
@@ -101,7 +102,7 @@ public class TeardownPlanTests
     {
         // Destroying stays empty for an apply. A destroy count on an apply means DRIFT — something already
         // gone — which is a different sentence and should not be confused with intent.
-        var target = new FakeTarget { ["db"] = UnitPhase.Ready };
+        var target = new MemoryTarget().AlreadyDeployed("db");
         target.Resources["db"] = [new ResourceState("db-1", "T", "v1")];
 
         var plan = await Runner(target, new InMemoryStateStore()).PlanAsync(
@@ -115,7 +116,7 @@ public class TeardownPlanTests
     [Fact]
     public async Task A_teardown_of_something_already_gone_destroys_nothing()
     {
-        var target = new FakeTarget { ["db"] = UnitPhase.Missing, ["api"] = UnitPhase.Missing, ["web"] = UnitPhase.Missing };
+        var target = new MemoryTarget();
 
         var plan = await Runner(target, new InMemoryStateStore()).PlanAsync(Site, Request(), RunKind.Destroy);
 
@@ -131,7 +132,7 @@ public class TeardownPlanTests
         // an apply — only Converging produces Attach — and wrong here, because a teardown never attaches: a
         // removal plan reported an idle provider however busy it was, which made every teardown plan claim
         // a live run had stalled and that nothing was in sync.
-        var target = new FakeTarget { ["db"] = UnitPhase.Ready, ["api"] = UnitPhase.Converging };
+        var target = new MemoryTarget { Phases = { ["api"] = UnitPhase.Converging } }.AlreadyDeployed("db");
         var history = new InMemoryRunHistory();
         await history.UpsertAsync(new RunRecord(
             "run-A", "site", "acme", RunKind.Apply, RunStatus.Running, DateTimeOffset.UnixEpoch));
@@ -148,7 +149,7 @@ public class TeardownPlanTests
     {
         // Replacing usually means losing whatever the unit was holding, which is the other thing worth a
         // confirmation.
-        var target = new FakeTarget { ["db"] = UnitPhase.Broken };
+        var target = new MemoryTarget().Reports("db", UnitPhase.Broken);
 
         var plan = await Runner(target).PlanAsync(
             new Procedure("site", [new ProcedureUnit("db", "Database")]), Request());
@@ -156,50 +157,39 @@ public class TeardownPlanTests
         Assert.True(plan.IsDestructive);
     }
 
-    // ── fakes ────────────────────────────────────────────────────────────────────────────────────
-    private sealed class FakeTarget : IDeploymentTarget, IUnitDriver, IFailureClassifier
+    [Fact]
+    public async Task A_teardown_plan_counts_what_it_will_destroy_WITHOUT_a_state_store()
     {
-        private readonly Dictionary<string, UnitPhase> _phases = [];
+        // A state store is optional, and gating the destroy count on one made a teardown plan built without
+        // it report "0 to destroy" and IsDestructive FALSE — for a run that was about to take everything
+        // away. That is the confirmation gate the README tells operators to put in front of the one
+        // irreversible direction, silently open.
+        //
+        // Drift genuinely needs state (it is state-versus-reality). What a teardown will destroy does not:
+        // it is read entirely from the provider.
+        var target = new MemoryTarget().AlreadyDeployed("db", "api");
+        target.Resources["db"] = [new ResourceState("db-1", "T", "v1")];
+        target.Resources["api"] = [new ResourceState("api-1", "T", "v1")];
 
-        public UnitPhase this[string unit] { set => _phases[unit] = value; }
+        var plan = await Runner(target).PlanAsync(Site, Request(), RunKind.Destroy);
 
-        public Dictionary<string, IReadOnlyList<ResourceState>> Resources { get; } = [];
-
-        public string Id => "fake";
-        public IUnitDriver Driver => this;
-        public IFailureClassifier Classifier => this;
-        public FailureClass? Classify(Exception error) => null;
-        public Task<TargetIdentity> ValidateAsync(TargetCredentials? c, CancellationToken ct) => Task.FromResult(new TargetIdentity(true));
-
-        public Task<UnitPhase> PhaseAsync(UnitContext c) =>
-            Task.FromResult(_phases.GetValueOrDefault(c.Name, UnitPhase.Missing));
-
-        public Task CreateAsync(UnitContext c) => Task.CompletedTask;
-        public Task<bool> UpdateAsync(UnitContext c) => Task.FromResult(false);
-        public Task RemoveAsync(UnitContext c) => Task.CompletedTask;
-        public Task AwaitSettledAsync(UnitContext c) => Task.CompletedTask;
-
-        public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext c) =>
-            Task.FromResult(Resources.GetValueOrDefault(c.Name, []));
+        Assert.Equal(2, plan.ToDestroy);
+        Assert.True(plan.IsDestructive);
+        Assert.Equal("0 to add, 0 to change, 2 to destroy", plan.Summary);
     }
 
-    private sealed class InMemoryStateStore : IStateStore
+    [Fact]
+    public async Task An_apply_plan_without_a_state_store_still_reports_no_drift()
     {
-        private readonly Dictionary<string, DeploymentState> _states = [];
+        // The other half of the same line: drift is state-versus-reality, so with no state there is nothing
+        // to compare and reporting everything as an ADD would be an invention.
+        var target = new MemoryTarget().AlreadyDeployed("db");
+        target.Resources["db"] = [new ResourceState("db-1", "T", "v1")];
 
-        public Task<DeploymentState> GetAsync(string procedure, string prefix, CancellationToken ct = default) =>
-            Task.FromResult(_states.GetValueOrDefault($"{procedure}/{prefix}") ?? DeploymentState.Empty(procedure, prefix));
+        var plan = await Runner(target).PlanAsync(
+            new Procedure("site", [new ProcedureUnit("db", "Database")]), Request());
 
-        public Task SaveAsync(DeploymentState state, CancellationToken ct = default)
-        {
-            _states[$"{state.Procedure}/{state.Prefix}"] = state;
-            return Task.CompletedTask;
-        }
-
-        public Task DeleteAsync(string procedure, string prefix, CancellationToken ct = default)
-        {
-            _states.Remove($"{procedure}/{prefix}");
-            return Task.CompletedTask;
-        }
+        Assert.False(plan.HasDrift);
+        Assert.Equal("0 to add, 0 to change, 0 to destroy", plan.Summary);
     }
 }

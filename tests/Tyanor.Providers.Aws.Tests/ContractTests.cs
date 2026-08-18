@@ -19,12 +19,7 @@ public class AwsClassifierContractTests
 {
     private static readonly FailureClassifierContract Suite = new(new AwsFixture());
 
-    public static TheoryData<string> Checks()
-    {
-        var data = new TheoryData<string>();
-        foreach (var check in Suite.Checks) data.Add(check);
-        return data;
-    }
+    public static TheoryData<string> Checks() => Suites.Names(Suite);
 
     [Theory]
     [MemberData(nameof(Checks))]

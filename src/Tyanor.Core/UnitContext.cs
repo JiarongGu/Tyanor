@@ -52,6 +52,13 @@ public sealed record UnitContext(
     /// <param name="key">The setting.</param>
     public string? Option(string key) => Request.Option(Unit.Name, key);
 
+    /// <summary>
+    /// A setting for THIS unit alone, with no shared fallback — see
+    /// <see cref="DeploymentRequest.OwnOption"/> for when that is the one you want.
+    /// </summary>
+    /// <param name="key">The setting. One that IS the unit's identity: its path, its bucket, its port.</param>
+    public string? OwnOption(string key) => Request.OwnOption(Unit.Name, key);
+
     /// <summary>A group of settings for this unit — see <see cref="DeploymentRequest.OptionSet"/>.</summary>
     /// <param name="prefix">The group, without a trailing dot.</param>
     public IReadOnlyDictionary<string, string> Options(string prefix) => Request.OptionSet(Unit.Name, prefix);

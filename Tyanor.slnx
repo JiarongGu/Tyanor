@@ -9,6 +9,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Tyanor.Core.Tests/Tyanor.Core.Tests.csproj" />
+    <Project Path="tests/Tyanor.Docs.Tests/Tyanor.Docs.Tests.csproj" />
     <Project Path="tests/Tyanor.Providers.Aws.Tests/Tyanor.Providers.Aws.Tests.csproj" />
     <Project Path="tests/Tyanor.Providers.Local.Tests/Tyanor.Providers.Local.Tests.csproj" />
   </Folder>

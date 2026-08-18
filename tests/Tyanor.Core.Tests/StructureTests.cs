@@ -1,3 +1,4 @@
+using Tyanor.Testing;
 using Xunit;
 
 namespace Tyanor.Tests;
@@ -11,26 +12,10 @@ namespace Tyanor.Tests;
 /// </summary>
 public class DeploymentTargetsTests
 {
-    private sealed class Fake(string id) : IDeploymentTarget, IUnitDriver, IFailureClassifier
-    {
-        public string Id => id;
-        public IUnitDriver Driver => this;
-        public IFailureClassifier Classifier => this;
-        public FailureClass? Classify(Exception error) => null;
-        public Task<TargetIdentity> ValidateAsync(TargetCredentials? c, CancellationToken ct) => Task.FromResult(new TargetIdentity(true));
-        public Task<UnitPhase> PhaseAsync(UnitContext c) => Task.FromResult(UnitPhase.Missing);
-        public Task CreateAsync(UnitContext c) => Task.CompletedTask;
-        public Task<bool> UpdateAsync(UnitContext c) => Task.FromResult(false);
-        public Task RemoveAsync(UnitContext c) => Task.CompletedTask;
-        public Task AwaitSettledAsync(UnitContext c) => Task.CompletedTask;
-        public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext c)
-            => Task.FromResult<IReadOnlyList<ResourceState>>([]);
-    }
-
     [Fact]
     public void Targets_are_selected_by_id()
     {
-        var targets = new DeploymentTargets(new Fake("aws"), new Fake("local"));
+        var targets = new DeploymentTargets(new MemoryTarget { Id = "aws" }, new MemoryTarget { Id = "local" });
 
         Assert.Equal("aws", targets.Get("aws").Id);
         Assert.Equal("local", targets.Get("local").Id);
@@ -41,12 +26,12 @@ public class DeploymentTargetsTests
     public void An_id_is_matched_however_it_is_cased()
         // A provider id is typed by a person into a config file, and rejecting "AWS" would be a support
         // question rather than a safety property.
-        => Assert.NotNull(new DeploymentTargets(new Fake("aws")).TryGet("AWS"));
+        => Assert.NotNull(new DeploymentTargets(new MemoryTarget { Id = "aws" }).TryGet("AWS"));
 
     [Fact]
     public void Asking_for_a_target_that_is_not_registered_names_the_ones_that_are()
     {
-        var targets = new DeploymentTargets(new Fake("aws"), new Fake("local"));
+        var targets = new DeploymentTargets(new MemoryTarget { Id = "aws" }, new MemoryTarget { Id = "local" });
 
         var error = Assert.Throws<ArgumentException>(() => targets.Get("kubernetes"));
 
@@ -58,22 +43,22 @@ public class DeploymentTargetsTests
     public void Two_targets_claiming_one_id_is_refused_rather_than_resolved_by_order()
         // Last-one-wins here is a wrong deployment produced by a wiring detail, and it is undiscoverable:
         // the plan would be computed against the wrong target too, so it would agree.
-        => Assert.Throws<ArgumentException>(() => new DeploymentTargets(new Fake("aws"), new Fake("aws")));
+        => Assert.Throws<ArgumentException>(() => new DeploymentTargets(new MemoryTarget { Id = "aws" }, new MemoryTarget { Id = "aws" }));
 
     [Fact]
     public void A_target_with_no_id_is_refused_because_nothing_could_ask_for_it()
-        => Assert.Throws<ArgumentException>(() => new DeploymentTargets(new Fake("  ")));
+        => Assert.Throws<ArgumentException>(() => new DeploymentTargets(new MemoryTarget { Id = "  " }));
 
     [Fact]
     public void The_single_target_is_the_ordinary_case()
-        => Assert.Equal("local", new DeploymentTargets(new Fake("local")).Single().Id);
+        => Assert.Equal("local", new DeploymentTargets(new MemoryTarget { Id = "local" }).Single().Id);
 
     [Fact]
     public void Asking_for_THE_target_when_there_are_several_throws_rather_than_picking()
     {
         // The bug this whole type exists for. Registering a second provider must not silently change which
         // one a runner deploys to.
-        var targets = new DeploymentTargets(new Fake("aws"), new Fake("local"));
+        var targets = new DeploymentTargets(new MemoryTarget { Id = "aws" }, new MemoryTarget { Id = "local" });
 
         var error = Assert.Throws<InvalidOperationException>(() => targets.Single());
 

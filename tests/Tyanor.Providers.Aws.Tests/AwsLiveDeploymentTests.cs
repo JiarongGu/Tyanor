@@ -158,6 +158,9 @@ public class AwsLiveDeploymentTests
 
         public DeploymentRequest Request { get; }
 
+        /// <summary>The template exposes one output, so the suite can check it appears and then goes.</summary>
+        public IReadOnlyCollection<string> ExpectedOutputs { get; } = ["markername"];
+
         public Task ResetAsync(CancellationToken ct) => Driver.RemoveAsync(new UnitContext(Unit, Request));
     }
 

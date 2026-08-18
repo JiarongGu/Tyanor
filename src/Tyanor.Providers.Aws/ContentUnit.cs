@@ -22,22 +22,29 @@ namespace Tyanor.Providers.Aws;
 internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, StackUnit stacks) : IUnitDriver
 {
     /// <summary>
-    /// Missing or Ready, and the question is only whether the BUCKET is there — not whether its contents are
-    /// current.
+    /// Missing or Ready, and the question is whether this unit has put ANYTHING there — not whether what is
+    /// there is current.
     /// </summary>
     /// <remarks>
-    /// Deliberately not "Missing when a file differs", which was the first shape of this and made the plan
-    /// lie: <see cref="ReconcileAction.Create"/> renders as "create (nothing there now)", and reading that
-    /// about a website that is up and serving is worse than saying nothing. Whether the files are current is
-    /// what <see cref="UpdateAsync"/> is for, and "already up to date" is an answer the engine already knows
-    /// how to report.
+    /// <para>Deliberately not "Missing when a file differs", which was the first shape of this and made the
+    /// plan lie: <see cref="ReconcileAction.Create"/> renders as "create (nothing there now)", and reading
+    /// that about a website that is up and serving is worse than saying nothing. Whether the files are
+    /// current is what <see cref="UpdateAsync"/> is for, and "already up to date" is an answer the engine
+    /// already knows how to report.</para>
+    /// <para><b>An EMPTY bucket is Missing, and that is a correction.</b> This used to ask only whether the
+    /// bucket EXISTED — but the bucket is the stack's resource, not this unit's, and it outlives this unit's
+    /// teardown by design. So an emptied bucket reported <see cref="UnitPhase.Ready"/>: a destroyed content
+    /// unit claimed to still be deployed, a second teardown plan said there was something left to remove,
+    /// and a bucket a stack had just created reported Ready before anything was ever uploaded to it.
+    /// <c>UnitDriverContract</c> found all four at once, which is what it is for.</para>
     /// </remarks>
     public async Task<UnitPhase> PhaseAsync(UnitContext context)
     {
         var bucket = await BucketAsync(context);
         if (bucket is null) return UnitPhase.Missing;         // the stack that makes it is not deployed yet
 
-        return await ObjectsAsync(bucket, context.Cancellation) is null ? UnitPhase.Missing : UnitPhase.Ready;
+        var deployed = await ObjectsAsync(bucket, context.Cancellation);
+        return deployed is null || deployed.Count == 0 ? UnitPhase.Missing : UnitPhase.Ready;
     }
 
     /// <inheritdoc/>
@@ -68,10 +75,16 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     }
 
     /// <summary>
-    /// Empty the prefix this unit uploaded. The BUCKET is not deleted — it belongs to the stack that created
-    /// it, and that stack's own removal takes it. A unit that deleted another unit's resource would break
+    /// Empty the bucket. The BUCKET ITSELF is not deleted — it belongs to the stack that created it, and
+    /// that stack's own removal takes it. A unit that deleted another unit's resource would break
     /// reverse-order teardown by reaching sideways.
     /// </summary>
+    /// <remarks>
+    /// It empties the whole bucket, not a prefix within it, because that is what this unit fills: a sync
+    /// writes keys at the root. Stated because it matters if you point a content unit at a bucket holding
+    /// anything else — do not; give it one of its own, which is what <c>bucketFrom</c> naming a stack's
+    /// output produces.
+    /// </remarks>
     public async Task RemoveAsync(UnitContext context)
     {
         var bucket = await BucketAsync(context);
@@ -100,13 +113,19 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     /// rather than a hash of every object, which is the honest trade — it catches a website that lost files
     /// or was replaced, and it does not catch an edit that happens to preserve the byte count.
     /// </summary>
+    /// <remarks>
+    /// An empty bucket owns NOTHING, for the same reason it reads as <see cref="UnitPhase.Missing"/>: the
+    /// bucket belongs to the stack that made it, and this unit owns only what it uploaded. Reporting a
+    /// resource for an emptied bucket left state claiming a destroyed unit still held something, which is
+    /// the one question state exists to answer correctly.
+    /// </remarks>
     public async Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context)
     {
         var bucket = await BucketAsync(context);
         if (bucket is null) return [];
 
         var deployed = await ObjectsAsync(bucket, context.Cancellation);
-        if (deployed is null) return [];
+        if (deployed is null || deployed.Count == 0) return [];
 
         return [new ResourceState($"s3://{bucket}", "AWS::S3::Bucket",
             $"{deployed.Count} objects, {deployed.Values.Sum()} bytes")];
@@ -116,29 +135,47 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     /// Resolve what a sync would resolve, without calling AWS. The bucket reference is checked for SHAPE
     /// only — whether the stack it names has actually been deployed is a question for a plan.
     /// </summary>
+    /// <remarks>
+    /// The reference check is <see cref="Reference"/>, which is the same function <see cref="ResolveAsync"/>
+    /// runs at apply time. It used to be a second copy of the same parse living here, which is precisely the
+    /// "two copies of a rule is two rules" that <c>docs/DECISIONS.md</c> D18 says makes an offline check and
+    /// the real thing drift apart.
+    /// </remarks>
     public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
     {
         var problems = new List<string>();
 
-        try { Source(context); }
-        catch (DefinitionException e) { problems.Add(e.Message); }
+        foreach (var check in (Action[])[
+            () => Source(context),
+            () => Reference(context, AwsOptions.BucketFrom),
+            () => Reference(context, AwsOptions.InvalidateFrom)])
+        {
+            try { check(); }
+            catch (DefinitionException e) { problems.Add(e.Message); }
+        }
 
         if (context.Option(AwsOptions.Bucket) is null && context.Option(AwsOptions.BucketFrom) is null)
             problems.Add(
                 $"Names no destination bucket. Set '{AwsOptions.Bucket}', or '{AwsOptions.BucketFrom}' to " +
                 "\"{unit}:{OutputKey}\" naming a stack that exports one.");
 
-        foreach (var option in (string[])[AwsOptions.BucketFrom, AwsOptions.InvalidateFrom])
-            if (context.Option(option) is { } reference && !IsReference(reference))
-                problems.Add($"'{option}' is '{reference}'; it must be \"{{unit}}:{{OutputKey}}\".");
-
         return Task.FromResult<IReadOnlyList<string>>(problems);
     }
 
-    private static bool IsReference(string reference)
+    /// <summary>
+    /// A <c>"{unit}:{OutputKey}"</c> reference, or null when the option is not set at all.
+    /// </summary>
+    /// <exception cref="AwsConfigurationException">It is set and does not parse.</exception>
+    private static (string Unit, string Key)? Reference(UnitContext context, string option)
     {
+        if (context.Option(option) is not { } reference) return null;
+
         var parts = reference.Split(':', 2);
-        return parts.Length == 2 && !parts.Any(string.IsNullOrWhiteSpace);
+        if (parts.Length != 2 || parts.Any(string.IsNullOrWhiteSpace))
+            throw new AwsConfigurationException(
+                $"'{option}' on unit '{context.Name}' is '{reference}'; it must be \"{{unit}}:{{OutputKey}}\".");
+
+        return (parts[0], parts[1]);
     }
 
     private async Task SyncAsync(UnitContext context)
@@ -160,13 +197,27 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
         foreach (var file in files)
         {
             context.ThrowIfCancelled();
-            await s3.PutObjectAsync(new PutObjectRequest
+            try
             {
-                BucketName = bucket,
-                Key = Path.GetRelativePath(source, file).Replace('\\', '/'),
-                FilePath = file,
-                ContentType = ContentTypes.Of(file),
-            }, context.Cancellation);
+                await s3.PutObjectAsync(new PutObjectRequest
+                {
+                    BucketName = bucket,
+                    Key = Path.GetRelativePath(source, file).Replace('\\', '/'),
+                    FilePath = file,
+                    ContentType = ContentTypes.Of(file),
+                }, context.Cancellation);
+            }
+            catch (AmazonS3Exception e) when (e.ErrorCode is "NoSuchBucket")
+            {
+                // This unit never CREATES its bucket — the stack declared before it does. So the bucket
+                // being absent means that stack has not been deployed, and the raw SDK error says only
+                // "the specified bucket does not exist", which sends an operator looking at S3 rather than
+                // at their procedure. Most likely reached by narrowing a run to the content unit alone.
+                throw new AwsConfigurationException(
+                    $"Unit '{context.Name}' uploads to the bucket '{bucket}', which does not exist. This " +
+                    "unit does not create it — the stack declared before it does. Deploy that stack first, " +
+                    $"or check '{AwsOptions.BucketFrom}' names the right unit and output.");
+            }
 
             // Percent is through THIS unit; the engine rescales it into the run.
             uploaded++;
@@ -234,22 +285,19 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
            ?? await ResolveAsync(context, AwsOptions.BucketFrom);
 
     /// <summary>
-    /// Read a <c>"{unit}:{OutputKey}"</c> reference out of another stack's outputs. Null when the stack is
-    /// not deployed yet — which is a legitimate answer during a plan of a deployment that does not exist.
+    /// Read a <c>"{unit}:{OutputKey}"</c> reference out of another stack's outputs. Null when the option is
+    /// unset, or when the stack is not deployed yet — which is a legitimate answer during a plan of a
+    /// deployment that does not exist.
     /// </summary>
     private async Task<string?> ResolveAsync(UnitContext context, string option)
     {
-        if (context.Option(option) is not { } reference) return null;
-
-        var parts = reference.Split(':', 2);
-        if (parts.Length != 2 || parts.Any(string.IsNullOrWhiteSpace))
-            throw new AwsConfigurationException(
-                $"'{option}' on unit '{context.Name}' is '{reference}'; it must be \"{{unit}}:{{OutputKey}}\".");
+        if (Reference(context, option) is not { } reference) return null;
+        var (unit, key) = reference;
 
         try
         {
-            var outputs = await stacks.OutputsAsync($"{context.Request.Prefix}-{parts[0]}", context.Cancellation);
-            return outputs.TryGetValue(parts[1], out var value) ? value : null;
+            var outputs = await stacks.OutputsAsync($"{context.Request.Prefix}-{unit}", context.Cancellation);
+            return outputs.TryGetValue(key, out var value) ? value : null;
         }
         catch (Amazon.CloudFormation.AmazonCloudFormationException e)
             when (CloudFormationPhases.IsStackMissing(e.ErrorCode, e.Message))

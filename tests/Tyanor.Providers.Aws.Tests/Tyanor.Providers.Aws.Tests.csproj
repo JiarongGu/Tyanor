@@ -2,8 +2,6 @@
   <PropertyGroup>
     <AssemblyName>Tyanor.Providers.Aws.Tests</AssemblyName>
     <RootNamespace>Tyanor.Providers.Aws.Tests</RootNamespace>
-    <IsPackable>false</IsPackable>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

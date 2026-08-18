@@ -1,15 +1,31 @@
 <Project>
+  <!-- The shared settings, including the single VersionPrefix, come from the repository root. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!-- Package metadata: everything under src/ ships to NuGet. Per-project Description lives in the csproj,
+       because that is the one line that genuinely differs between them. -->
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <!-- Every package ships in lockstep from here; SemVer 2.0 applies from 1.0. -->
-    <VersionPrefix>0.1.0</VersionPrefix>
     <Authors>Jiarong Gu</Authors>
     <Product>Tyanor</Product>
+    <Company>Jiarong Gu</Company>
+    <Copyright>Copyright (c) Jiarong Gu</Copyright>
+
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageProjectUrl>https://github.com/JiarongGu/Tyanor</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/JiarongGu/Tyanor</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>deployment;operations;devops;infrastructure;reconcile;terraform;local-first</PackageTags>
+
+    <!-- The README travels with the package: someone reading it on nuget.org is exactly the person who has
+         not yet decided to clone the repository. -->
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- Symbols, so a consumer stepping into a paused deployment can see why it paused. -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)../README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
 </Project>

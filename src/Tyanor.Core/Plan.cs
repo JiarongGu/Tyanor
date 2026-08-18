@@ -120,6 +120,27 @@ public sealed record Plan(
     /// </remarks>
     public IReadOnlyList<Drift> Destroying { get; init; } = [];
 
+    /// <summary>
+    /// Units that STATE records but the procedure no longer declares — code deleted a unit and left what it
+    /// deployed behind.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The one question a reconcile loop structurally cannot ask.</b> Every other check here walks
+    /// the procedure's units: the phase read, the drift comparison, the teardown. So deleting a unit from the
+    /// C# removed it from everything that looks — and its resources went on existing, paid for, unmanaged and
+    /// unmentioned by any plan. Terraform catches this because it diffs CONFIG against STATE; Tyanor diffs
+    /// config against reality and state against reality, and this is the third edge.</para>
+    /// <para><b>Reported, not destroyed</b>, and that is deliberate. Tyanor cannot destroy a unit it no longer
+    /// has: the driver would need the kind, the options and the artifact parts that were deleted along with
+    /// it. Guessing at a teardown from a state record is exactly the resource-model reasoning
+    /// <c>docs/DECISIONS.md</c> D3 refuses. So this says what is stranded and leaves the decision where the
+    /// information is — put the unit back and run a narrowed destroy, or clear it deliberately.</para>
+    /// </remarks>
+    public IReadOnlyList<UnitState> Orphaned { get; init; } = [];
+
+    /// <summary>State is holding units this procedure no longer describes.</summary>
+    public bool HasOrphans => Orphaned.Count > 0;
+
     /// <summary>Resources that exist in the provider but not in state — created outside Tyanor, or a state
     /// that was lost. They will be adopted on the next apply.</summary>
     public int ToAdd => Drift.Count(d => d.Change == ResourceChange.Add);
@@ -149,8 +170,9 @@ public sealed record Plan(
     /// </summary>
     public bool HasDrift => Drift.Count > 0;
 
-    /// <summary>Nothing to do — every unit is already as asked, no drift, and no run is outstanding.</summary>
-    public bool IsNoOp => Changes.Count == 0 && !HasWorkInFlight && ActiveRun is null && !HasDrift;
+    /// <summary>Nothing to do — every unit is already as asked, no drift, no orphan, no run outstanding.</summary>
+    public bool IsNoOp =>
+        Changes.Count == 0 && !HasWorkInFlight && ActiveRun is null && !HasDrift && !HasOrphans;
 
     /// <summary>
     /// The line to put a confirmation behind. True when this plan will take something away that exists —

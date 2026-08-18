@@ -6,8 +6,8 @@
 // a commit rather than as a review step.
 //
 // It is deliberately noisy-but-cheap to silence: a real finding is rare, and a false one costs one
-// `// tyanor:allow-secret` comment on the line. The opposite tuning — quiet and occasionally wrong — is
-// the one that leaks.
+// comment on the line (the marker is `allowSecret` in project.config.mjs). The opposite tuning — quiet and
+// occasionally wrong — is the one that leaks.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
@@ -37,15 +37,18 @@ const walk = (dir) => readdirSync(dir).flatMap((e) => {
   return statSync(p).isDirectory() ? walk(p) : [p];
 });
 
+const self = fileURLToPath(import.meta.url);
+const allow = cfg.allowSecret ?? 'allow-secret';
+
 const findings = [];
 for (const file of walk(root).filter((f) => TEXT.test(f))) {
-  const rel = file.slice(root.length + 1).replace(/\\/g, '/');
   // This file necessarily contains the patterns it searches for.
-  if (rel === 'devtools/scripts/check-sensitive.mjs') continue;
+  if (file === self) continue;
 
+  const rel = file.slice(root.length + 1).replace(/\\/g, '/');
   const lines = readFileSync(file, 'utf8').split(/\r?\n/);
   lines.forEach((line, i) => {
-    if (line.includes('tyanor:allow-secret')) return;
+    if (line.includes(allow)) return;
     for (const { name, re } of PATTERNS)
       if (re.test(line))
         findings.push(`${rel}:${i + 1}  ${name}\n      ${line.trim().slice(0, 100)}`);
@@ -59,5 +62,5 @@ if (findings.length === 0) {
 console.error(
   `sensitive: ${findings.length} possible credential(s)\n` +
   findings.map((f) => `  - ${f}`).join('\n') +
-  '\n\n  If one is a false positive, add `tyanor:allow-secret` as a comment on that line.\n');
+  `\n\n  If one is a false positive, add \`${allow}\` as a comment on that line.\n`);
 process.exit(findings.length);

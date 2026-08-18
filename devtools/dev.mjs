@@ -6,6 +6,7 @@
 //   doctor [--fix]     build + test + every check below. The one command to run before committing.
 //   test               run the test suite
 //   build              build the solution
+//   release            are we shippable? clean tree, version, packages that contain what they should
 //   pack [outDir]      produce the NuGet packages locally
 //   decisions          validate docs/DECISIONS.md — references resolve, supersessions point forward
 //   rules              validate .claude/rules — every rule listed in the index, every link resolves
@@ -26,6 +27,9 @@ const TOOLS = {
   doctor: 'doctor.mjs',
   decisions: 'decisions.mjs',
   rules: 'rules.mjs',
+  docs: 'docs.mjs',
+  providers: 'providers.mjs',
+  release: 'release.mjs',
   sensitive: 'check-sensitive.mjs',
 };
 
@@ -37,10 +41,11 @@ const DOTNET = {
 };
 
 const [cmd, ...rest] = process.argv.slice(2);
+const { default: cfg } = await import('./project.config.mjs');
 
 if (!cmd || ['help', '--help', '-h'].includes(cmd)) {
   process.stdout.write(
-    'Tyanor devtools — node devtools/dev.mjs <command> [...args]\n\n' +
+    `${cfg.name} devtools — node devtools/dev.mjs <command> [...args]\n\n` +
       [...Object.keys(DOTNET), ...Object.keys(TOOLS)].sort().map((c) => `  ${c}`).join('\n') +
       '\n\nSee devtools/README.md for what each one checks and why.\n',
   );
@@ -50,10 +55,7 @@ if (!cmd || ['help', '--help', '-h'].includes(cmd)) {
 const run = (file, args, opts = {}) =>
   spawnSync(file, args, { stdio: 'inherit', shell: process.platform === 'win32', ...opts }).status ?? 1;
 
-if (DOTNET[cmd]) {
-  const { default: cfg } = await import('./project.config.mjs');
-  process.exit(run('dotnet', DOTNET[cmd](cfg, rest), { cwd: resolve(here, '..') }));
-}
+if (DOTNET[cmd]) process.exit(run('dotnet', DOTNET[cmd](cfg, rest), { cwd: resolve(here, '..') }));
 
 if (TOOLS[cmd]) process.exit(run('node', [resolve(here, 'scripts', TOOLS[cmd]), ...rest]));
 

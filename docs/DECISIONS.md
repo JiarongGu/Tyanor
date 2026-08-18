@@ -28,9 +28,10 @@ the way a log like this rots is that the entry which supersedes says so and the 
 |---|---|---|
 | [D1](#d1--reconcile-against-the-provider-keep-no-state-file-2026-08-06) | reconcile against the provider | ⚠ overtaken by D12 |
 | [D2](#d2--three-failure-classes-because-there-are-three-responses-2026-08-06) | three failure classes | |
-| [D16](#d16--the-gate-goes-in-front-of-the-destructive-direction-too-2026-08-09) | destroy gets a plan; `UnitContext` | |
+| [D16](#d16--the-gate-goes-in-front-of-the-destructive-direction-too-2026-08-09) | destroy gets a plan; `UnitContext` | ⚠ verbs renamed by D22 |
 | [D18](#d18--validate-offline-and-say-what-the-deployment-produced-2026-08-09) | validate offline; outputs | |
 | [D17](#d17--a-name-is-checked-where-it-stops-being-a-label-2026-08-09) | names are checked, not sanitised | |
+| [D22](#d22--the-operator-facing-verbs-are-terraforms-2026-08-18--amends-d16) | the operator's verbs are Terraform's | amends D16 |
 
 **State**
 
@@ -41,6 +42,7 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D9](#d9--cross-machine-is-a-capability-made-safe-by-visibility-rather-than-by-locking-2026-08-06) | cross-machine by visibility, not locks | ⚠ scoped by D11 |
 | [D11](#d11--we-support-state-checking-not-cross-machine-syncing-2026-08-06--scopes-d9) | checking, not syncing | ⚠ overtaken by D12 |
 | [D20](#d20--storage-is-a-kind-and-a-connection-2026-08-09) | storage is a kind and a connection | |
+| [D25](#d25--state-answers-three-questions-and-one-of-them-had-no-code-2026-08-18) | config ↔ state was never compared | orphans, serial, schema |
 
 **Extending it**
 
@@ -50,13 +52,15 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D6](#d6--no-plugin-discovery-2026-08-06) | no plugin *discovery* | authoring is supported — D15 |
 | [D15](#d15--a-provider-written-elsewhere-is-a-first-class-provider-2026-08-09) | a provider written elsewhere is first-class | |
 | [D19](#d19--an-applications-own-step-is-a-unit-not-code-that-runs-afterwards-2026-08-09) | an application's own step is a unit | |
+| [D24](#d24--tyanor-ships-a-target-to-test-against-not-just-suites-to-test-with-2026-08-18) | a target to test against | it is a provider, not a mock |
 
 **What was built, and what it cost**
 
 | | | |
 |---|---|---|
 | [D13](#d13--the-abstraction-was-tested-against-a-second-shape-before-aws-was-ported-2026-08-08) | the local provider, built before AWS on purpose | |
-| [D14](#d14--the-aws-port-keeps-the-knowledge-and-leaves-the-application-behind-2026-08-08) | the AWS port — **never run against AWS** | |
+| [D14](#d14--the-aws-port-keeps-the-knowledge-and-leaves-the-application-behind-2026-08-08) | the AWS port — **never run against AWS** | ⚠ scoped by D23 |
+| [D23](#d23--a-fake-cannot-tell-you-what-aws-does-it-can-tell-you-what-we-do-2026-08-18--scopes-d14) | fakes for our control flow, a cloud for their semantics | scopes D14 |
 
 ---
 
@@ -513,6 +517,11 @@ configuration that is refused before any call is made. The SDK plumbing is a por
 Mocking the SDK would not change that. A mock answers the question by agreeing with whatever this code
 believes, which is why the gate is a real deployment or nothing.
 
+> ⚠ **Scoped by [D23](#d23--a-fake-cannot-tell-you-what-aws-does-it-can-tell-you-what-we-do-2026-08-18--scopes-d14).**
+> The paragraph above is right about the VOCABULARY and was applied too widely. "Does CloudFormation answer
+> this way?" still needs a real deployment. "Given that answer, does this provider do the right thing?" is
+> our own control flow, and leaving it untested was a gap the rule was being used to justify.
+
 ### Deferred deliberately: the domain unit (see also D15)
 
 ACM certificate issuance plus Route 53 validation is the natural third kind, and it maps onto Tyanor's model
@@ -620,6 +629,10 @@ the whole decision rests on.
 the teardown that runs come from one place rather than two that can drift apart. It has two answers, and
 notably no `Attach`: a unit mid-create is a unit that will exist in a minute, and waiting politely for
 someone else's creation to finish before destroying it is a longer teardown with the same ending.
+
+> **Renamed since, by [D22](#d22--the-operator-facing-verbs-are-terraforms-2026-08-18--amends-d16):** `RunKind.Remove` →
+> `RunKind.Destroy` and `Reconcile.DecideRemoval` → `Reconcile.DecideDestroy`. Nothing about the reasoning
+> above changed — only the words, and only at the operator-facing end.
 
 ### Progress has a frame of reference, and it is the unit's
 
@@ -939,3 +952,209 @@ that quietly deploys nothing and reports success is the worst way for this to be
 
 It narrows a destroy too, and a narrowed run touches only its own units' state — so a targeted apply cannot
 quietly forget what it did not look at, which would leave a later teardown unaware those resources exist.
+
+---
+
+## D22 — The operator-facing verbs are Terraform's (2026-08-18) — amends D16
+
+The command set an operator calls is **validate · plan · apply · destroy · refresh · output**, spelled the
+way Terraform spells it. `ProcedureRunner.RemoveAsync` became `DestroyAsync` and `RunKind.Remove` became
+`RunKind.Destroy`; `Reconcile.DecideRemoval` followed as `DecideDestroy`.
+
+**Decided against:** a vocabulary of our own. It was already half Terraform's by accident — `plan` and
+`apply` were never anything else — and half not, which is the worst of both: familiar enough that a reader
+assumes they know it, different enough that they are wrong.
+
+**Why.** These name the same jobs Terraform's do, and the audience overwhelmingly arrives knowing that. A
+name that has to be translated is a cost paid by every reader forever to save one author an afternoon. The
+whole positioning (D8) is "Terraform's mechanics, CDK's authoring" — so the mechanics reading as Terraform's
+is the positioning being legible rather than merely claimed.
+
+**Recorded late, and that is the point of recording it.** The rename shipped as a refactor with a changelog
+line and no entry here, which left three documents citing `DecideRemoval` and `RunKind.Remove` months after
+neither existed. A breaking change to public API is a decision whether or not it felt like one — this entry
+exists so the next reader of D16 can tell a renamed thing from a removed one.
+
+### The asymmetry, kept deliberately
+
+A **driver** still says `RemoveAsync`. It removes one unit; it does not destroy a deployment. Terraform has
+exactly this split between its `destroy` command and a provider's per-resource delete, and collapsing it
+would mean either an operator-facing word on a per-unit contract or a per-unit word on the operator's
+command — each wrong in the direction that matters.
+
+The test for the next verb: **does an operator type it, or does a provider implement it?** The first is
+Terraform's word; the second is ours.
+
+**The stored value is unchanged.** `RunKind` still serializes as `Apply`/`Destroy` text and `Remove` was
+never written to a file by any released version, so no history needed migrating — which is the only reason
+this was cheap, and would not be true after 1.0.
+
+---
+
+## D23 — A fake cannot tell you what AWS does; it can tell you what WE do (2026-08-18) — scopes D14
+
+D14 said mocking the SDK proves nothing, and used that to leave the AWS driver's behaviour untested. The
+first half is true. The conclusion was too wide, and the gap it left was the largest untested surface in the
+repository — a provider whose every code path outside two pure functions had never been executed by anything.
+
+**Two questions were being treated as one:**
+
+| Question | Who can answer | Where it lives |
+|---|---|---|
+| Does CloudFormation report `UPDATE_ROLLBACK_COMPLETE` for a reverted update? | a real deployment | `TYANOR_LIVE_AWS` |
+| Given that status, does this provider throw rather than report success? | a fake, completely | an ordinary test run |
+
+The second is not a claim about AWS. It is a claim about **our** control flow, and the bugs it hides are
+ours: a request built without its tags, a delete issued against a stack already gone, a throttle mistaken
+for absence. A real deployment is a slow, expensive and *unreliable* way to find those — unreliable because
+a live test exercises one happy path and none of the failure branches that matter most.
+
+**The rule that keeps this honest: a fake replays, it never invents.** Every status string and error code a
+fake hands back is a real one, and the mapping from those strings to a `UnitPhase` is pinned separately by
+`CloudFormationPhaseTests`, which enumerates the SDK's own `StackStatus` by reflection and fails when AWS
+adds one. So the fake is never the source of a value this provider interprets — it is a recorder of what we
+sent and a script of what comes back. That is the difference between testing our logic and testing our
+assumptions, and it is the whole of why D14's warning does not apply.
+
+### What it found, and what it cost
+
+Forty behaviour tests, running in under half a second, covering: request construction (name, capabilities,
+parameters, tags, `OnFailure`), the staging bucket's per-account name, STS memoization, no-updates versus a
+genuine validation error, teardown re-runnability, delete-failed reporting, first-failure-not-last, event
+de-duplication across polls, S3 key shape and content types, unchanged-build detection, CloudFront
+invalidation and its unique caller reference, and 1000-object delete batching.
+
+**Every one was mutation-checked** — the behaviour was broken deliberately and the suite had to fail. A test
+that passes against a fake without ever having failed is decoration, and this whole category is one where
+that is easy to ship.
+
+The cost was one line of production code: `StackUnit`'s six-second poll became injectable. Worth naming,
+because it is the shape of the problem — the code was *almost* testable, and the one thing standing in the
+way made "it can only be tested against AWS" true by construction rather than by necessity. When that
+sentence gets said again, check whether it is a fact about the target or about a hard-coded constant.
+
+### Where the line still is
+
+**The STACK driver's `UnitDriverContract` stays behind the live gate**, and this is the boundary worth being
+exact about. That suite asks whether a real target behaves the way the engine assumes — create then read,
+remove then read, does an id survive. To run it against a fake, the fake would have to become a model of
+CloudFormation: create makes it `CREATE_COMPLETE`, delete makes it absent. At that point the fake encodes my
+belief about AWS and agrees with the driver by construction, which is precisely D14's objection, correctly
+applied.
+
+**The CONTENT driver's does not**, and the difference is the test for where this line falls. S3 has no state
+machine to model: the only behaviour that driver uses is that what you put is what you list, and a dictionary
+is not a *model* of that so much as the thing itself. There is no belief of mine encoded in it — which is why
+it can run offline while the stack one cannot.
+
+That distinction earned itself immediately. The content driver had never been run through the suite at all,
+in either mode, and it failed four checks on the first attempt — all one defect: `PhaseAsync` asked whether
+the BUCKET existed, but the bucket belongs to the stack that made it and outlives this unit's teardown. So a
+destroyed content unit reported itself `Ready` and still owned a resource. Ask the right question of a driver
+and it answers; nobody had asked.
+
+So: **fakes for our control flow, a real deployment for their semantics.** The live test is no less necessary
+than it was — it is now the only thing left that needs a cloud, rather than the only thing testing the
+provider at all.
+
+**This does not license mocking elsewhere.** The local provider tests real files and real processes, and
+must keep doing so: it *can* be tested for real cheaply, and a fake filesystem would agree with whatever the
+driver believed. The rule is not "fakes are fine" — it is that the untestable-without-a-cloud surface should
+be as small as it honestly is, and no smaller claim than that should be made for it.
+
+---
+
+## D24 — Tyanor ships a target to test against, not just suites to test with (2026-08-18)
+
+`Tyanor.Testing` gains `MemoryTarget`: a deployment target whose target is a dictionary.
+
+**The gap.** The package shipped four contract suites — things that VERIFY an implementation — and no
+implementation to verify against. So a consumer who had written a procedure, a pipeline, or a deployment UI
+had nothing to run it on. Reaching the states their code most needs to handle (a run that paused on
+credentials, a unit already converging, a deployment that drifted) meant real credentials, real money and
+real minutes, which in practice means those paths are written once and never exercised.
+
+**"Isn't this the mocking D14 refused?"** No, and the distinction is the whole reason it is allowed to
+exist: **it is a provider, not a mock.** `LocalTarget` deploys to a machine, `AwsTarget` deploys to an
+account, `MemoryTarget` deploys to a dictionary. It never simulates another provider's semantics, so it
+cannot teach anyone a wrong belief about one — which is precisely what D14 objected to and D23 scoped.
+
+The proof is not the argument, it is the test: **it passes `UnitDriverContract` and
+`FailureClassifierContract`**, the same entry ticket every other implementation buys. A test target that did
+not would be worse than none, because a consumer's procedure would pass against it and fail against AWS.
+
+**One deliberate departure from honesty, and it is fenced.** `Phases` reports a unit as `Converging` or
+`Broken` whatever is actually deployed. Those are states a real target reaches by timing or by failing, and
+a test cannot arrange either. Everything else — create, update, remove, refresh, outputs — is the truth about
+what is in the dictionary, which is why the contract passes. When no phase is scripted, the target is fully
+honest.
+
+**It replaced a private one.** The engine's own tests had a hand-rolled fake target, written five times over
+before it was consolidated earlier in this same pass. Keeping it beside a shipped equivalent would have been
+the exact duplication this repository keeps extracting away from — and if the shipped target is not good
+enough for our own engine tests, it is not good enough for a consumer's. Same argument as D15's "the suites'
+first customers are the shipped implementations".
+
+**What it does NOT do**, said rather than discovered: it hosts one kind of unit, so a `CustomUnits` step
+(D19) cannot be registered in it — test one of those against the provider it belongs to, or directly with
+`UnitDriverContract`. And it is not safe across concurrent runs, because a test that needs that is testing
+the engine rather than using it.
+
+---
+
+## D25 — State answers three questions, and one of them had no code (2026-08-18)
+
+A review against Terraform's state model, asked because Tyanor's is deliberately different: code-driven
+rather than DSL-driven, and reconcile-first rather than state-first. Three pairings exist, and Tyanor only
+had two.
+
+| Pairing | Question | Where it lives |
+|---|---|---|
+| config ↔ reality | what should this run DO? | `Reconcile.Decide` — the whole engine |
+| state ↔ reality | did the world move without me? | `StateDiff`, `Plan.Drift`, `Refresh` |
+| **config ↔ state** | **do I own something the code no longer mentions?** | **nothing** |
+
+**The third is the one being code-driven makes easy to lose.** In Terraform a resource is removed from the
+config and the next plan says "1 to destroy", because the plan is fundamentally a diff of config against
+state. In Tyanor every pass — the phase read, the drift comparison, the teardown — walks
+`procedure.Units`. So deleting a unit from the C# removed it from everything that looks, and whatever it
+had deployed went on existing: paid for, unmanaged, and mentioned by no plan in either direction. Deleting
+four lines of C# leaked a database.
+
+**Reported, not destroyed**, and this is where Tyanor should differ from Terraform rather than copy it.
+Terraform can destroy an orphan because its state holds a resource MODEL — enough to call the provider.
+Tyanor's state is deliberately opaque (D12): an id, a type, a fingerprint. The kind, the options and the
+artifact parts that would tell a driver how to remove the thing were deleted along with the unit. Inventing
+a teardown from a state record means putting a resource model in state, which is the graph D3 refuses,
+arriving through the back door.
+
+So `Plan.Orphaned` names what is stranded and leaves the decision where the information is. The way out is
+to put the declaration back and run a narrowed destroy — which works today, and is why `Only(...)` narrowing
+a destroy (D21) turned out to matter more than it looked.
+
+**A narrowed plan reports none**, which is not an omission but the point: `Only("web")` leaves units out on
+purpose, and calling those orphans would make every targeted run noisy — and noise is how a real orphan comes
+to be ignored. `Procedure.IsNarrowed` exists for exactly this distinction and nothing else.
+
+### Two more the same review found in the same file
+
+**`Serial` could not do the job it was documented for.** D12 and D20 both lean on it: a backend with
+conditional writes compares it and refuses a save derived from state someone else replaced. But `With(...)`
+incremented it, so the state handed to `Save` was always one ahead of what the store held — a backend
+implementing the check as written would have refused **every** save. `Refresh` was worse: it edits every unit
+before saving once, so the number ran ahead by the unit count and no comparison could have worked at all.
+
+A serial has to mean *the version I read*, or the writer and the store are not talking about the same thing.
+So `With` no longer touches it and the STORE advances it, which is how an ETag or a row version behaves. The
+contract suite asserted the old shape — and would have been satisfied by a store that never advanced the
+serial at all — so it was rewritten to assert the property that matters.
+
+**State had no schema version; the run log did.** `FileRunHistory` has a DTO and a comment saying the domain
+type must be free to change while an older file still loads. `FileStateStore` serialized `DeploymentState`
+directly. So the cheaper file to lose was the protected one, and the file that decides what a teardown may
+remove had nothing between a property rename and an unreadable deployment. It now has the same DTO, a
+version, and a refusal to half-read a file written by a newer Tyanor.
+
+**What this does NOT change.** State still records identity and never a resource model. The provider is
+still the arbiter of what is happening now. `Refresh` still repairs a stale mirror by re-reading rather than
+by surgery. D12 stands; this fills in what it left unbuilt.

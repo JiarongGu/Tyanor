@@ -8,6 +8,9 @@ namespace Tyanor.Providers.Local;
 /// be written per unit (<c>"service.command"</c>) or once for the whole procedure (<c>"command"</c>). The
 /// per-unit form is the normal one here: unlike a cloud provider, where every unit is the same kind of
 /// thing, a machine deployment is a directory AND a process AND they are configured differently.</para>
+///
+/// <para>The exception is <see cref="Path"/>, which is the unit's ADDRESS and is read per unit only. A
+/// shared address is a collision rather than a default — see <see cref="DeploymentRequest.OwnOption"/>.</para>
 /// </summary>
 public static class LocalOptions
 {
@@ -30,6 +33,11 @@ public static class LocalOptions
     /// <para>The files themselves land one level down, in <c>{path}/releases/{fingerprint}</c>, so a new
     /// build is never written over the one a process is running. This path is the stable NAME of the
     /// deployment; the release under it is the build.</para>
+    ///
+    /// <para><b>Per unit only.</b> Unlike every other setting here, this one does NOT fall back to an
+    /// unscoped <c>"path"</c>: a procedure-wide directory would put every unit in the same folder, where the
+    /// second to deploy prunes the first's releases and removing either removes both. Write
+    /// <c>"runtime.path"</c>, never <c>"path"</c>.</para>
     /// </summary>
     public const string Path = "path";
 
