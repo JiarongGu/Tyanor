@@ -30,14 +30,59 @@ namespace Tyanor.Testing;
 /// </code>
 /// </example>
 ///
-/// <para><b>What it does not do.</b> It has one kind of unit, so it will not host a
-/// <see cref="CustomUnits"/> step — test one of those against the provider it is registered in, or against
-/// <c>IUnitDriver</c> directly with <see cref="UnitDriverContract"/>. And it is not thread-safe across
-/// concurrent runs, because a test that needs that is testing the engine rather than using it.</para>
+/// <para><b>It hosts your own units too.</b> A step written against <c>IUnitDriver</c> — verify a migration
+/// applied, warm a cache — can be registered here exactly as it would be in a real provider
+/// (<c>docs/DECISIONS.md</c> D19), so it can be developed and driven through a whole procedure before it
+/// ever meets a cloud. That is the development loop D19 describes, and without this the only harness for it
+/// was a real target.</para>
+///
+/// <example>
+/// <code>
+/// var target = new MemoryTarget(new CustomUnits
+/// {
+///     Classifier = new MyClassifier(),
+///     ["migration"] = new VerifyMigrationUnit(http),
+/// });
+///
+/// // ["migration.kind"] = "migration" in the request; every other unit needs no kind at all.
+/// </code>
+/// </example>
+///
+/// <para><b>Unlike a real provider it has no REQUIRED kind.</b> <c>UnitKindDriver</c> refuses a unit that
+/// declares none, because guessing would deploy something the operator never described. Here the guess is a
+/// dictionary, so a unit that declares no kind gets the memory behaviour and only a declared one dispatches
+/// — which is what keeps the ordinary case a single line.</para>
+///
+/// <para><b>What it does not do:</b> it is not thread-safe across concurrent runs, because a test that needs
+/// that is testing the engine rather than using it.</para>
 /// </summary>
 public sealed class MemoryTarget : IDeploymentTarget, IUnitDriver, IFailureClassifier
 {
+    /// <summary>The option a unit sets to say what it is — the same convention every provider uses.</summary>
+    public const string KindOption = "kind";
+
     private readonly Dictionary<string, int> _deployed = new(StringComparer.Ordinal);
+    private readonly CustomUnits? _custom;
+
+    /// <summary>A target that deploys to a dictionary, optionally hosting units of your own.</summary>
+    /// <param name="custom">
+    /// Your own unit kinds, registered as they would be in a real provider. Their errors are classified by
+    /// <see cref="CustomUnits.Classifier"/> chained AFTER this target's own, so a step of yours can pause
+    /// rather than only fail.
+    /// </param>
+    public MemoryTarget(CustomUnits? custom = null)
+    {
+        _custom = custom;
+        Classifier = FailureClassifiers.Chain(this, custom?.Classifier);
+    }
+
+    /// <summary>The driver for one unit: yours when it declares a kind you registered, otherwise memory.</summary>
+    private IUnitDriver? Own(UnitContext context) =>
+        _custom is not null
+        && context.Option(KindOption) is { } kind
+        && _custom.TryGetValue(kind, out var driver)
+            ? driver
+            : null;
 
     /// <summary>The id this target answers to. Change it to test wiring that selects by id.</summary>
     public string Id { get; init; } = "memory";
@@ -51,8 +96,8 @@ public sealed class MemoryTarget : IDeploymentTarget, IUnitDriver, IFailureClass
     /// <inheritdoc/>
     public IUnitDriver Driver => this;
 
-    /// <inheritdoc/>
-    public IFailureClassifier Classifier => this;
+    /// <summary>This target's own reading of an error, with <see cref="CustomUnits.Classifier"/> after it.</summary>
+    public IFailureClassifier Classifier { get; }
 
     /// <summary>
     /// Who this target says we are. Set it to test what your application shows when credentials are refused.
@@ -219,6 +264,8 @@ public sealed class MemoryTarget : IDeploymentTarget, IUnitDriver, IFailureClass
     /// <inheritdoc/>
     public Task<UnitPhase> PhaseAsync(UnitContext context)
     {
+        if (Own(context) is { } own) return own.PhaseAsync(context);
+
         Attempts[context.Name] = Attempts.GetValueOrDefault(context.Name) + 1;
         Raise(context);
 
@@ -231,6 +278,8 @@ public sealed class MemoryTarget : IDeploymentTarget, IUnitDriver, IFailureClass
     /// <inheritdoc/>
     public Task CreateAsync(UnitContext context)
     {
+        if (Own(context) is { } own) return own.CreateAsync(context);
+
         Raise(context);
         Calls.Add($"{context.Name}:create");
         _deployed[context.Name] = Revision;
@@ -243,6 +292,8 @@ public sealed class MemoryTarget : IDeploymentTarget, IUnitDriver, IFailureClass
     /// </summary>
     public Task<bool> UpdateAsync(UnitContext context)
     {
+        if (Own(context) is { } own) return own.UpdateAsync(context);
+
         Raise(context);
         Calls.Add($"{context.Name}:update");
 
@@ -255,6 +306,8 @@ public sealed class MemoryTarget : IDeploymentTarget, IUnitDriver, IFailureClass
     /// <inheritdoc/>
     public Task RemoveAsync(UnitContext context)
     {
+        if (Own(context) is { } own) return own.RemoveAsync(context);
+
         Raise(context);
         Calls.Add($"{context.Name}:remove");
         _deployed.Remove(context.Name);            // already gone is fine — a teardown must be re-runnable
@@ -264,6 +317,8 @@ public sealed class MemoryTarget : IDeploymentTarget, IUnitDriver, IFailureClass
     /// <inheritdoc/>
     public Task AwaitSettledAsync(UnitContext context)
     {
+        if (Own(context) is { } own) return own.AwaitSettledAsync(context);
+
         Raise(context);
         // Recorded only when waiting IS the whole action, so Calls shows what the engine decided rather
         // than logging one for every create.
@@ -280,6 +335,8 @@ public sealed class MemoryTarget : IDeploymentTarget, IUnitDriver, IFailureClass
     /// </summary>
     public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context)
     {
+        if (Own(context) is { } own) return own.RefreshAsync(context);
+
         Refreshes[context.Name] = Refreshes.GetValueOrDefault(context.Name) + 1;
         Raise(context);
 
@@ -293,11 +350,11 @@ public sealed class MemoryTarget : IDeploymentTarget, IUnitDriver, IFailureClass
 
     /// <inheritdoc/>
     public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context) =>
-        Task.FromResult(Problems.GetValueOrDefault(context.Name, []));
+        Own(context)?.ValidateAsync(context) ?? Task.FromResult(Problems.GetValueOrDefault(context.Name, []));
 
     /// <inheritdoc/>
     public Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext context) =>
-        Task.FromResult<IReadOnlyDictionary<string, string>>(
+        Own(context)?.OutputsAsync(context) ?? Task.FromResult<IReadOnlyDictionary<string, string>>(
             _deployed.ContainsKey(context.Name) && Outputs.TryGetValue(context.Name, out var outputs)
                 ? outputs
                 : new Dictionary<string, string>());

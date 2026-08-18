@@ -71,13 +71,28 @@ if (head && /unreleased/i.test(head))
   problems.push('CHANGELOG still heads at "Unreleased" — a release needs a section that names its version');
 
 // ── a clean tree, so the commit in the package is the code in the package ────────────────────────
-const status = sh('git', ['status', '--porcelain']);
-const dirty = status.stdout.split('\n').filter((l) => l.trim().length > 0);
+// Files a release OWNS may be dirty; anything else may not. The workflow writes the new version into the
+// working tree, packs, publishes, and commits the bookkeeping only after the push succeeds — so a failed
+// release burns no version. What must not happen is a stray edit riding along into a published package.
+const allowed = new Set(cfg.releaseFiles ?? []);
 
-if (dirty.length > 0)
+const dirty = sh('git', ['status', '--porcelain']).stdout
+  .split('\n')
+  .map((line) => line.trim())
+  .filter((line) => line.length > 0)
+  .map((line) => line.replace(/^\S+\s+/, '').replace(/^"|"$/g, ''));
+
+const stray = dirty.filter((path) => !allowed.has(path));
+const bookkeeping = dirty.filter((path) => allowed.has(path));
+
+if (stray.length > 0)
   problems.push(
-    `${dirty.length} uncommitted path(s). \`dotnet pack\` stamps the CURRENT commit into every .nuspec, ` +
-    'so packing now ships packages whose recorded source is not the source inside them. Commit first.');
+    `${stray.length} uncommitted path(s) a release does not own: ${stray.slice(0, 5).join(', ')}` +
+    `${stray.length > 5 ? ', …' : ''}. \`dotnet pack\` stamps the CURRENT commit into every .nuspec, so ` +
+    'packing now ships packages whose recorded source is not the source inside them. Commit first.');
+
+if (bookkeeping.length > 0)
+  notes.push(`${bookkeeping.join(' + ')} rewritten for this release, not yet committed`);
 
 const commit = sh('git', ['rev-parse', 'HEAD']).stdout.trim();
 notes.push(`version ${version}, commit ${commit.slice(0, 10)}`);
@@ -89,7 +104,12 @@ try {
   if (packed.status !== 0) {
     problems.push('dotnet pack failed');
   } else {
-    const produced = readdirSync(out).filter((f) => f.endsWith('.nupkg'));
+    // Both extensions, kept apart. Filtering to `.nupkg` first and then asking that list for a `.snupkg`
+    // is a question that can only be answered no — every package reported "no symbols" while six symbol
+    // packages sat in the same directory.
+    const built = readdirSync(out);
+    const produced = built.filter((f) => f.endsWith('.nupkg'));
+    const symbols = built.filter((f) => f.endsWith('.snupkg'));
 
     for (const project of cfg.packages) {
       const id = basename(project, '.csproj');
@@ -109,10 +129,10 @@ try {
         problems.push(`${id}: no README inside the package — that is the page nuget.org shows`);
       if (!inside.some((n) => n.endsWith(`${id}.xml`)))
         problems.push(`${id}: no XML documentation — most of this library's value is in the why`);
-      if (!produced.includes(`${id}.${version}.snupkg`)) notes.push(`${id}: no symbols`);
+      if (!symbols.includes(`${id}.${version}.snupkg`)) problems.push(`${id}: no symbol package`);
     }
 
-    notes.push(`${produced.length} packages build`);
+    notes.push(`${produced.length} packages + ${symbols.length} symbol packages build`);
   }
 } finally {
   rmSync(out, { recursive: true, force: true });

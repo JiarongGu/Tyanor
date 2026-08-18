@@ -45,8 +45,14 @@ Credentials are **nullable**: null means the target authenticates ambiently — 
 role, an already-selected context. If yours needs credentials and gets none, return `TargetIdentity` with
 `Ok: false` and say so rather than throwing (D13).
 
-Take a `CustomUnits?` too, and pass it to your driver. It is two lines and it is what lets a consuming
-application add its own step to a procedure built on your provider (D19).
+Take a `CustomUnits?` too, and pass it to your driver. It is two lines, and it is not optional in spirit: it
+is how an application adds a service Tyanor does not support (D19), and how that service survives a move
+between platforms — the adopter registers ONE `CustomUnits` instance and hands the same one to every target.
+A provider that does not accept them silently makes itself the end of that road.
+
+All three shipped targets take one, and each is tested doing it — including that an adopter's own failure
+CLASSES travel too, so the same failure pauses on every platform rather than pausing on one and ending the
+run on another.
 
 ### 2. `IUnitDriver` — six required, two optional, no orchestration
 

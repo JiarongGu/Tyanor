@@ -1,0 +1,206 @@
+name: Release
+
+# Manual-trigger only, like the sibling repositories. Cutting a release is a deliberate act you start from
+# the Actions tab — there is intentionally NO tag-push or release-published trigger, because a release here
+# publishes six packages to a permanent, immutable feed and that should never be a side effect of a push.
+#
+# The order below is the whole design: verify against the exact commit, pack, push (the irreversible step),
+# and only THEN write the version bump and the tag. A failed release therefore burns no version and leaves
+# no phantom bump commit behind.
+#
+# Publishing uses NuGet Trusted Publishing (OIDC) — no stored API key. One-time setup on nuget.org:
+# Account → Trusted Publishing → add a policy for the nuget.org user, repository JiarongGu/Tyanor, workflow
+# file `release.yml`, scoped to the `Tyanor.*` package glob.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 0.2.0) — leave empty to bump from the current one'
+        required: false
+        type: string
+      bump:
+        description: 'Bump type (ignored when an explicit version is given)'
+        required: false
+        type: choice
+        default: 'none'
+        options:
+          - none
+          - patch
+          - minor
+          - major
+      publish:
+        description: 'Push to NuGet. Turn OFF for a rehearsal that verifies and packs only.'
+        required: false
+        type: boolean
+        default: true
+      create_tag:
+        description: 'Create and push a git tag'
+        required: false
+        type: boolean
+        default: true
+      draft:
+        description: 'Create the GitHub release as a draft'
+        required: false
+        type: boolean
+        default: true
+      prerelease:
+        description: 'Mark as a pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write   # the version-bump commit, the tag, the release
+  id-token: write   # OIDC for NuGet Trusted Publishing — mints a short-lived key, no stored secret
+
+jobs:
+  release:
+    name: Verify · pack · publish
+    # ubuntu, deliberately. The local provider's tests copy real files and start real processes, and running
+    # them somewhere other than the developer's Windows box is most of their value — the directory-delete
+    # semantics that differ between the two are exactly what a release should be exercising.
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history, so the tag and the notes have something to stand on
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # The version lives in the repository-root Directory.Build.props and NOWHERE else — `doctor` refuses a
+      # second file declaring one. An explicit `version` input wins; otherwise `bump` steps the current
+      # semver; `none` releases what is already there, which is what a first release wants.
+      #
+      # The bump is WRITTEN here so pack uses it, and COMMITTED only after the publish succeeds.
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          props="Directory.Build.props"
+          current=$(sed -n 's|.*<VersionPrefix>\(.*\)</VersionPrefix>.*|\1|p' "$props")
+          echo "current version: $current"
+
+          final="$current"
+          if [ -n "${{ inputs.version }}" ]; then
+            final="${{ inputs.version }}"
+            echo "explicit version: $final"
+          elif [ "${{ inputs.bump }}" != "none" ]; then
+            IFS=. read -r major minor patch <<< "$current"
+            case "${{ inputs.bump }}" in
+              major) major=$((major + 1)); minor=0; patch=0 ;;
+              minor) minor=$((minor + 1)); patch=0 ;;
+              patch) patch=$((patch + 1)) ;;
+            esac
+            final="$major.$minor.$patch"
+            echo "bumped ${{ inputs.bump }}: $current -> $final"
+          fi
+
+          if [ "$final" != "$current" ]; then
+            sed -i "s|<VersionPrefix>$current</VersionPrefix>|<VersionPrefix>$final</VersionPrefix>|" "$props"
+            echo "wrote $final to $props (commit deferred until the gate and publish pass)"
+          fi
+
+          changed=$([ -n "$(git status --porcelain -- "$props" CHANGELOG.md README.md)" ] && echo true || echo false)
+          {
+            echo "version=$final"
+            echo "tag=v$final"
+            echo "changed=$changed"
+          } >> "$GITHUB_OUTPUT"
+
+      # The gate. `doctor` is build + test + every check that keeps the repo honest; `release` is the other
+      # question — packages that build and contain their README and XML docs, a changelog section that names
+      # this version, and no uncommitted edit riding along that a release does not own.
+      #
+      # Both run against the exact commit being shipped. `notes` fails here rather than after the push if
+      # the changelog has nothing to say about this version.
+      - name: Verify
+        run: npm run doctor
+
+      - name: Release preconditions
+        run: node devtools/dev.mjs release
+
+      - name: Release notes
+        run: node devtools/dev.mjs notes --version "${{ steps.version.outputs.version }}" --link | tee release-notes.md
+
+      - name: Pack
+        run: node devtools/dev.mjs pack artifacts
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: tyanor-${{ steps.version.outputs.version }}
+          path: artifacts/*
+          if-no-files-found: error
+
+      # Trusted Publishing: exchange this workflow's GitHub OIDC token for a short-lived nuget.org key,
+      # matched against the policy configured for this repository and workflow. Nothing is stored.
+      - name: NuGet login (Trusted Publishing)
+        id: nuget-login
+        if: inputs.publish
+        uses: NuGet/login@v1
+        with:
+          user: Jiarong.Gu
+
+      # The irreversible step, and everything reversible happens after it. --skip-duplicate makes a re-run
+      # safe when a version is already live; each .nupkg's adjacent .snupkg is pushed with it.
+      - name: Push to NuGet
+        if: inputs.publish
+        run: >
+          dotnet nuget push "artifacts/*.nupkg"
+          --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
+      # Bookkeeping, only now that the gate and the publish have both passed. `git add` names the files
+      # explicitly so nothing else the job touched — artifacts/, release-notes.md — can ride along.
+      - name: Commit the version
+        if: inputs.publish && steps.version.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Directory.Build.props CHANGELOG.md README.md
+          git commit -m "chore: release ${{ steps.version.outputs.tag }}"
+          git push
+
+      # Tags point at commits that actually shipped, so this comes after the push.
+      - name: Tag
+        if: inputs.publish && inputs.create_tag
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "tag $tag already exists — leaving it in place (re-run)"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "$tag" -m "Release $tag"
+            git push origin "$tag"
+          fi
+
+      # The notes are the one release output a person actually reads, and they come from the CHANGELOG
+      # section that names this version rather than from commit subjects — this repository's changelog is
+      # written by hand and says why, so generating one would produce a second, worse account of the release.
+      #
+      # The packages themselves are not attached: nuget.org is their permanent home, and duplicating them
+      # into GitHub release storage just makes two places to look.
+      - name: GitHub Release
+        if: inputs.publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Tyanor ${{ steps.version.outputs.tag }}
+          body_path: release-notes.md
+          draft: ${{ inputs.draft }}
+          prerelease: ${{ inputs.prerelease }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

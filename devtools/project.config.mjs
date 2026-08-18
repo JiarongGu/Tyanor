@@ -6,6 +6,9 @@
 export default {
   name: 'Tyanor',
 
+  /** Where the source lives, for release notes and package metadata. */
+  repositoryUrl: 'https://github.com/JiarongGu/Tyanor',
+
   /** Solution to build and test. */
   solution: 'Tyanor.slnx',
 
@@ -54,6 +57,15 @@ export default {
    */
   providerPrefix: 'Tyanor.Providers.',
   providerContracts: ['UnitDriverContract', 'FailureClassifierContract'],
+
+  /**
+   * The only files a release may rewrite before packing. The workflow writes the new version (and stamps
+   * the changelog) into the working tree, packs, publishes, and commits the bookkeeping only AFTER the
+   * push succeeds — so a failed release burns no version and leaves no phantom bump commit. `release`
+   * therefore tolerates these being dirty and refuses anything else, which is the part that matters: no
+   * stray edit rides along into a published package.
+   */
+  releaseFiles: ['Directory.Build.props', 'CHANGELOG.md', 'README.md'],
 
   /**
    * Documents whose C# samples must exist verbatim inside a project that COMPILES. A fenced code block is

@@ -7,6 +7,7 @@
 //   test               run the test suite
 //   build              build the solution
 //   release            are we shippable? clean tree, version, packages that contain what they should
+//   notes              this release's notes, from the CHANGELOG section that names it
 //   pack [outDir]      produce the NuGet packages locally
 //   decisions          validate docs/DECISIONS.md — references resolve, supersessions point forward
 //   rules              validate .claude/rules — every rule listed in the index, every link resolves
@@ -30,6 +31,7 @@ const TOOLS = {
   docs: 'docs.mjs',
   providers: 'providers.mjs',
   release: 'release.mjs',
+  notes: 'release-notes.mjs',
   sensitive: 'check-sensitive.mjs',
 };
 

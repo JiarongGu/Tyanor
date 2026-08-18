@@ -224,6 +224,31 @@ internal static class GuideSamples
     }
 
     private static bool Confirmed() => false;
+
+    // ── the same step, on every platform ─────────────────────────────────────────────────────────
+    private static void OneRegistrationEveryPlatform(TargetCredentials credentials)
+    {
+        var mine = new CustomUnits { Classifier = new MyClassifier(), ["discovery"] = new ServiceRegistry() };
+
+        var machine = new LocalTarget("/srv", mine);
+        var cloud   = new AwsTarget(credentials, mine);
+        var forTest = new MemoryTarget(mine);
+
+        cloud.Dispose();
+        Console.WriteLine($"{machine.Id} {forTest.Id}");
+    }
+}
+
+/// <summary>The adopter's own service — something Tyanor does not support and does not need to.</summary>
+internal sealed class ServiceRegistry : IUnitDriver
+{
+    public Task<UnitPhase> PhaseAsync(UnitContext context) => Task.FromResult(UnitPhase.Missing);
+    public Task CreateAsync(UnitContext context) => Task.CompletedTask;
+    public Task<bool> UpdateAsync(UnitContext context) => Task.FromResult(false);
+    public Task RemoveAsync(UnitContext context) => Task.CompletedTask;
+    public Task AwaitSettledAsync(UnitContext context) => Task.CompletedTask;
+    public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context) =>
+        Task.FromResult<IReadOnlyList<ResourceState>>([]);
 }
 
 /// <summary>

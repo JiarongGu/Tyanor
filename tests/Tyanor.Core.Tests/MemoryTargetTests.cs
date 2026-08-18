@@ -301,3 +301,138 @@ public class MemoryTargetTests
         Assert.Equal(["aws", "local"], targets.Ids);
     }
 }
+
+/// <summary>
+/// A step the APPLICATION brings, developed against the memory target before it meets a cloud.
+///
+/// <para>D19's whole path is "build it where you need it, prove it with the contracts, upstream it if it
+/// generalizes" — and until now the only harness for the first part was a real target. A migration check
+/// belongs to one application and reaches a real database; developing it against AWS means credentials and
+/// minutes per iteration, which is how a step ends up written once and never exercised.</para>
+/// </summary>
+public class MemoryCustomUnitTests
+{
+    private static readonly Procedure Site = new("site",
+        [new ProcedureUnit("db", "Database"), new ProcedureUnit("migration", "Database changes")]);
+
+    private static DeploymentRequest Request() =>
+        new("acme", new DeploymentArtifact(new Dictionary<string, string>()),
+            new Dictionary<string, string> { ["migration.kind"] = "migration" });
+
+    [Fact]
+    public async Task A_custom_kind_runs_in_the_procedure_beside_the_targets_own_units()
+    {
+        var migration = new CountingUnit();
+        var target = new MemoryTarget(new CustomUnits { ["migration"] = migration });
+
+        Assert.True((await new ProcedureRunner(target, new InMemoryRunHistory())
+            .ApplyAsync(Site, Request())).Ok);
+
+        Assert.Equal(["db"], target.Deployed);           // the memory unit went to memory…
+        Assert.Equal(1, migration.Created);              // …and the application's step ran itself
+    }
+
+    [Fact]
+    public async Task A_unit_that_declares_NO_kind_still_needs_none()
+    {
+        // The relaxation that keeps the ordinary case one line. A real provider refuses a missing kind
+        // because guessing deploys something nobody described; here the guess is a dictionary.
+        var target = new MemoryTarget(new CustomUnits { ["migration"] = new CountingUnit() });
+
+        Assert.True((await new ProcedureRunner(target, new InMemoryRunHistory())
+            .ApplyAsync(new Procedure("site", [new ProcedureUnit("db", "Database")]), Request())).Ok);
+
+        Assert.Equal(["db"], target.Deployed);
+    }
+
+    [Fact]
+    public async Task A_custom_units_transient_failure_PAUSES_the_run()
+    {
+        // Without the chained classifier a custom unit could never pause: its errors mean nothing to the
+        // target's own classifier, which correctly returns null, and null means Hard.
+        var target = new MemoryTarget(new CustomUnits
+        {
+            Classifier = new NotReadyClassifier(),
+            ["migration"] = new CountingUnit { Throws = new NotReady() },
+        });
+
+        var outcome = await new ProcedureRunner(target, new InMemoryRunHistory(), null,
+            new RetryPolicy(Attempts: 1)).ApplyAsync(Site, Request());
+
+        Assert.True(outcome.Resumable);
+        Assert.Equal("transient", outcome.Reason?.Value);
+        Assert.Equal(["db"], target.Deployed);           // …and what got done stayed done
+    }
+
+    [Fact]
+    public async Task Without_a_classifier_of_its_own_a_custom_failure_is_terminal()
+    {
+        // Safe, and the reason `CustomUnits.Classifier` exists: unrecognised means Hard.
+        var target = new MemoryTarget(new CustomUnits
+        {
+            ["migration"] = new CountingUnit { Throws = new NotReady() },
+        });
+
+        var outcome = await new ProcedureRunner(target, new InMemoryRunHistory(), null,
+            new RetryPolicy(Attempts: 1)).ApplyAsync(Site, Request());
+
+        Assert.False(outcome.Resumable);
+    }
+
+    [Fact]
+    public async Task The_custom_unit_is_asked_the_same_questions_a_provider_would_be()
+    {
+        // A plan reaches it, validation reaches it, outputs reach it — which is the entire argument of D19:
+        // a step in the procedure gets what the engine gives, and a script running afterwards does not.
+        var migration = new CountingUnit();
+        var target = new MemoryTarget(new CustomUnits { ["migration"] = migration });
+        var runner = new ProcedureRunner(target, new InMemoryRunHistory(), new InMemoryStateStore());
+
+        var plan = await runner.PlanAsync(Site, Request());
+        Assert.Equal(["db", "migration"], plan.Steps.Select(s => s.Unit.Name));
+
+        Assert.False((await runner.ValidateAsync(Site, Request())).Ok);   // it reported its own problem
+        Assert.True(migration.Validated);
+    }
+
+    /// <summary>The reader's own step, standing in for a migration check.</summary>
+    private sealed class CountingUnit : IUnitDriver
+    {
+        public int Created { get; private set; }
+
+        public bool Validated { get; private set; }
+
+        public Exception? Throws { get; init; }
+
+        public Task<UnitPhase> PhaseAsync(UnitContext c) =>
+            Throws is null ? Task.FromResult(Created > 0 ? UnitPhase.Ready : UnitPhase.Missing) : throw Throws;
+
+        public Task CreateAsync(UnitContext c) { Created++; return Task.CompletedTask; }
+        public Task<bool> UpdateAsync(UnitContext c) => Task.FromResult(false);
+        public Task RemoveAsync(UnitContext c) { Created = 0; return Task.CompletedTask; }
+        public Task AwaitSettledAsync(UnitContext c) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext c) =>
+            Task.FromResult<IReadOnlyList<ResourceState>>(
+                Created > 0 ? [new ResourceState("migration", "app/migration", "applied")] : []);
+
+        public Task<IReadOnlyList<string>> ValidateAsync(UnitContext c)
+        {
+            Validated = true;
+            return Task.FromResult<IReadOnlyList<string>>(["names no connection string"]);
+        }
+    }
+
+    private sealed class NotReady : Exception;
+
+    private sealed class NotReadyClassifier : IFailureClassifier
+    {
+        public FailureClass? Classify(Exception error)
+        {
+            for (Exception? e = error; e is not null; e = e.InnerException)
+                if (e is NotReady) return FailureClass.Transient;
+
+            return null;
+        }
+    }
+}

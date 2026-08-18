@@ -423,6 +423,50 @@ classification. The one thing you must supply is the thing the engine cannot gue
 answering *has this already happened?* A step that can answer is skipped when it is done. A step that cannot
 is a script, and belongs outside the procedure.
 
+#### If you know CI/CD plugins
+
+This is that idea, with two deliberate differences:
+
+| | A CI/CD plugin | A Tyanor unit |
+|---|---|---|
+| How it is found | a marketplace or plugin directory | **registered in one line of your code — never discovered** |
+| What it must do | run | run, *and answer whether it already ran* |
+| How it is written | YAML plus a container image | a C# type against `IUnitDriver` |
+| How it fails | pass or fail | classified: pause · retry · fail, with your own classifier |
+
+**Nothing is loaded from disk, deliberately.** A deployment tool holds credentials and mutates
+infrastructure, so running code it merely *found* is a security question nobody asked for
+([D6](DECISIONS.md)). Writing and registering your own is fully supported; that is a different question from
+loading one.
+
+**The entry requirement is the phase, and it is what buys everything else.** A CI step is "run this", so it
+runs every time. A unit that can answer *has this already happened?* gets skipped when it is done, attached
+to when someone else's run has it in flight, resumed after a crash, and shown in a plan before it happens.
+That is the whole trade: one method more than a CI plugin, and the engine's entire model in return.
+
+#### It moves between platforms with you
+
+Register the SAME `CustomUnits` instance in every target you use. Your step knows nothing about any
+provider, so nothing about it changes when the platform does:
+
+```csharp
+var mine = new CustomUnits { Classifier = new MyClassifier(), ["discovery"] = new ServiceRegistry() };
+
+var machine = new LocalTarget("/srv", mine);
+var cloud   = new AwsTarget(credentials, mine);
+var forTest = new MemoryTarget(mine);
+```
+
+One procedure, one registration, three platforms — and your own failure classes travel too, so the same
+failure pauses everywhere rather than pausing on one platform and ending the run on another. What differs
+between them is only the OPTIONS, because a unit is a `directory` on a machine and a `stack` on AWS and that
+is where vendor vocabulary is allowed to live. Your own kind is spelled the same everywhere, because it is
+yours.
+
+**The mistake this invites**: units are registered per target, so moving to a new one means remembering to
+bring them. Forget, and the run is refused naming the kinds that DO exist — an error rather than a wrong
+deployment, but one you avoid by keeping the registration in a single place and passing it around.
+
 ### Proving it behaves
 
 ```csharp
