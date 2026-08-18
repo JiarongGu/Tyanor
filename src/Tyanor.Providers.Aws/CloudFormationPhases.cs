@@ -10,7 +10,7 @@ namespace Tyanor.Providers.Aws;
 /// and one read as <see cref="UnitPhase.Broken"/> that is not becomes a stack — and a database —
 /// deleted and remade for no reason. So it is a pure function over strings, tested against the real ones.</para>
 /// </summary>
-public static class CloudFormationPhases
+internal static class CloudFormationPhases
 {
     /// <summary>
     /// Map a stack status. <paramref name="status"/> is null when the stack does not exist, which

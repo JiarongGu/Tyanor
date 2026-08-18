@@ -6,3 +6,7 @@ artifacts/
 .idea/
 TestResults/
 .claude/settings.local.json
+
+# What an API baseline test writes when it fails, so the fix is a copy rather than a transcription from a
+# test log. Never committed — the baseline beside it is the file under review.
+tests/ApiBaselines/*.actual

@@ -1,0 +1,484 @@
+# Public API surface of Tyanor. Generated — see tests/Shared/ApiSurface.cs.
+
+sealed class Tyanor.ArtifactException : DefinitionException
+    .ctor(string message)
+
+enum Tyanor.ArtifactPart
+    Any = 0
+    Directory = 1
+    File = 2
+
+sealed class Tyanor.CustomUnits : Dictionary<string, IUnitDriver>
+    .ctor()
+    IFailureClassifier Classifier { get; init; }
+
+abstract class Tyanor.DefinitionException : Exception
+
+sealed record Tyanor.DeploymentArtifact : IEquatable<DeploymentArtifact>
+    .ctor(IReadOnlyDictionary<string, string> Parts)
+    IReadOnlyDictionary<string, string> Parts { get; init; }
+    string Part(string name)
+    string RequirePart(string name, ArtifactPart expect = Any)
+
+sealed record Tyanor.DeploymentRequest : IEquatable<DeploymentRequest>
+    .ctor(string Prefix, DeploymentArtifact Artifact, IReadOnlyDictionary<string, string> Options = null, IReadOnlyDictionary<string, string> Tags = null)
+    DeploymentArtifact Artifact { get; init; }
+    IReadOnlyDictionary<string, string> OptionSet(string unit, string prefix)
+    IReadOnlyDictionary<string, string> Options { get; init; }
+    IReadOnlyDictionary<string, string> Tags { get; init; }
+    string Option(string key)
+    string Option(string unit, string key)
+    string OwnOption(string unit, string key)
+    string Prefix { get; init; }
+
+sealed record Tyanor.DeploymentState : IEquatable<DeploymentState>
+    .ctor(string Procedure, string Prefix, IReadOnlyList<UnitState> Units, DateTimeOffset UpdatedAt, long Serial = 0)
+    DateTimeOffset UpdatedAt { get; init; }
+    DeploymentState With(string unit, IReadOnlyList<ResourceState> resources)
+    IEnumerable<string> RecordedUnits { get; }
+    IReadOnlyList<ResourceState> For(string unit)
+    IReadOnlyList<UnitState> Units { get; init; }
+    long Serial { get; init; }
+    static DeploymentState Empty(string procedure, string prefix)
+    string Prefix { get; init; }
+    string Procedure { get; init; }
+
+sealed class Tyanor.DeploymentTargets
+    .ctor(IDeploymentTarget[] targets)
+    .ctor(IEnumerable<IDeploymentTarget> targets)
+    IDeploymentTarget Get(string id)
+    IDeploymentTarget Single()
+    IDeploymentTarget TryGet(string id)
+    IReadOnlyCollection<string> Ids { get; }
+
+sealed record Tyanor.Drift : IEquatable<Drift>
+    .ctor(string Unit, ResourceState Resource, ResourceChange Change)
+    ResourceChange Change { get; init; }
+    ResourceState Resource { get; init; }
+    string Unit { get; init; }
+
+sealed class Tyanor.Engine.ProcedureRunner
+    .ctor(IDeploymentTarget target, IRunHistory history, IStateStore state = null, RetryPolicy retry = null)
+    Task<DeploymentState> RefreshAsync(Procedure procedure, DeploymentRequest request, CancellationToken ct = null)
+    Task<IReadOnlyDictionary<string, string>> OutputsAsync(Procedure procedure, DeploymentRequest request, CancellationToken ct = null)
+    Task<OperationOutcome> ApplyAsync(Procedure procedure, DeploymentRequest request, Action<ProgressReport> report = null, string runId = null, CancellationToken ct = null)
+    Task<OperationOutcome> DestroyAsync(Procedure procedure, DeploymentRequest request, Action<ProgressReport> report = null, string runId = null, CancellationToken ct = null)
+    Task<Plan> PlanAsync(Procedure procedure, DeploymentRequest request, RunKind kind = Apply, CancellationToken ct = null)
+    Task<Validation> ValidateAsync(Procedure procedure, DeploymentRequest request, CancellationToken ct = null)
+
+sealed class Tyanor.Engine.ProcedureRunners
+    .ctor(DeploymentTargets targets, IRunHistory history, IStateStore state = null, RetryPolicy retry = null)
+    DeploymentTargets Targets { get; }
+    ProcedureRunner For(IDeploymentTarget target)
+    ProcedureRunner For(string targetId)
+    ProcedureRunner ForSingle()
+
+sealed record Tyanor.Engine.RetryPolicy : IEquatable<RetryPolicy>
+    .ctor(int Attempts = 5, TimeSpan? BaseDelay = null)
+    TimeSpan DelayFor(int attempt)
+    TimeSpan? BaseDelay { get; init; }
+    int Attempts { get; init; }
+
+sealed class Tyanor.Engine.State.FileRunHistory : IRunHistory
+    .ctor(string path)
+    Task DeleteAsync(string id, CancellationToken ct = null)
+    Task UpsertAsync(RunRecord record, CancellationToken ct = null)
+    Task<IReadOnlyList<RunRecord>> RecentAsync(int limit = 50, CancellationToken ct = null)
+    Task<RunRecord> LiveAsync(string procedure, string prefix, CancellationToken ct = null)
+    string Path { get; }
+
+sealed class Tyanor.Engine.State.FileStateStore : IStateStore
+    .ctor(string path)
+    Task DeleteAsync(string procedure, string prefix, CancellationToken ct = null)
+    Task SaveAsync(DeploymentState state, CancellationToken ct = null)
+    Task<DeploymentState> GetAsync(string procedure, string prefix, CancellationToken ct = null)
+    string Path { get; }
+
+sealed class Tyanor.Engine.State.InMemoryRunHistory : IRunHistory
+    .ctor()
+    Task DeleteAsync(string id, CancellationToken ct = null)
+    Task UpsertAsync(RunRecord record, CancellationToken ct = null)
+    Task<IReadOnlyList<RunRecord>> RecentAsync(int limit = 50, CancellationToken ct = null)
+    Task<RunRecord> LiveAsync(string procedure, string prefix, CancellationToken ct = null)
+
+sealed class Tyanor.Engine.State.InMemoryStateStore : IStateStore
+    .ctor()
+    Task DeleteAsync(string procedure, string prefix, CancellationToken ct = null)
+    Task SaveAsync(DeploymentState state, CancellationToken ct = null)
+    Task<DeploymentState> GetAsync(string procedure, string prefix, CancellationToken ct = null)
+
+sealed class Tyanor.Engine.State.JsonStorageBackend : IStorageBackend
+    .ctor()
+    IRunHistory OpenHistory(StorageConnection connection)
+    IStateStore OpenState(StorageConnection connection)
+    const string JsonKind
+    string Kind { get; }
+
+sealed class Tyanor.Engine.TyanorBuilder
+    TyanorBuilder AddStorage(IStorageBackend backend)
+    TyanorBuilder AddTarget(IDeploymentTarget target)
+    TyanorBuilder AddTarget<T>()
+    TyanorBuilder UseFileHistory(string path)
+    TyanorBuilder UseFileState(string path)
+    TyanorBuilder UseHistory(IRunHistory history)
+    TyanorBuilder UseHistory(string descriptor)
+    TyanorBuilder UseInMemoryState()
+    TyanorBuilder UseRetry(RetryPolicy retry)
+    TyanorBuilder UseState(IStateStore store)
+    TyanorBuilder UseState(string descriptor)
+    TyanorOptions Options { get; }
+
+sealed class Tyanor.Engine.TyanorOptions
+    .ctor()
+    RetryPolicy Retry { get; set; }
+    string HistoryConnection { get; set; }
+    string RunHistoryPath { get; set; }
+    string StateConnection { get; set; }
+    string StatePath { get; set; }
+
+static class Tyanor.Engine.TyanorServiceCollectionExtensions
+    static IServiceCollection AddTyanor(IServiceCollection services, Action<TyanorBuilder> configure = null)
+
+enum Tyanor.FailureClass
+    Credentials = 0
+    Hard = 2
+    Transient = 1
+
+static class Tyanor.FailureClassifiers
+    static IFailureClassifier Chain(IFailureClassifier[] classifiers)
+
+interface Tyanor.IDeploymentTarget
+    abstract IFailureClassifier Classifier { get; }
+    abstract IUnitDriver Driver { get; }
+    abstract Task<TargetIdentity> ValidateAsync(TargetCredentials credentials, CancellationToken ct)
+    abstract string Id { get; }
+
+interface Tyanor.IFailureClassifier
+    abstract FailureClass? Classify(Exception error)
+
+interface Tyanor.IRunHistory
+    abstract Task DeleteAsync(string id, CancellationToken ct = null)
+    abstract Task UpsertAsync(RunRecord record, CancellationToken ct = null)
+    abstract Task<IReadOnlyList<RunRecord>> RecentAsync(int limit = 50, CancellationToken ct = null)
+    abstract Task<RunRecord> LiveAsync(string procedure, string prefix, CancellationToken ct = null)
+
+interface Tyanor.IStateStore
+    abstract Task DeleteAsync(string procedure, string prefix, CancellationToken ct = null)
+    abstract Task SaveAsync(DeploymentState state, CancellationToken ct = null)
+    abstract Task<DeploymentState> GetAsync(string procedure, string prefix, CancellationToken ct = null)
+
+interface Tyanor.IStorageBackend
+    abstract IRunHistory OpenHistory(StorageConnection connection)
+    abstract IStateStore OpenState(StorageConnection connection)
+    abstract string Kind { get; }
+
+interface Tyanor.IUnitDriver
+    abstract Task AwaitSettledAsync(UnitContext context)
+    abstract Task CreateAsync(UnitContext context)
+    abstract Task RemoveAsync(UnitContext context)
+    abstract Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context)
+    abstract Task<UnitPhase> PhaseAsync(UnitContext context)
+    abstract Task<bool> UpdateAsync(UnitContext context)
+    virtual Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext context)
+    virtual Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
+
+sealed record Tyanor.OperationOutcome : IEquatable<OperationOutcome>
+    .ctor(bool Ok, string Error = null, PauseReason? Reason = null)
+    PauseReason? Reason { get; init; }
+    bool Ok { get; init; }
+    bool Resumable { get; }
+    static OperationOutcome Failed(string error)
+    static OperationOutcome From(FailureClass failure, string error = null)
+    static OperationOutcome Paused(PauseReason reason, string error = null)
+    static OperationOutcome Success()
+    string Error { get; init; }
+
+struct Tyanor.PauseReason : IEquatable<PauseReason>
+    .ctor(string Value)
+    static PauseReason Credentials
+    static PauseReason External
+    static PauseReason Transient
+    string Value { get; init; }
+
+sealed record Tyanor.Plan : IEquatable<Plan>
+    .ctor(string Procedure, string Prefix, IReadOnlyList<PlannedStep> Steps, RunRecord ActiveRun = null)
+    IReadOnlyList<Drift> Destroying { get; init; }
+    IReadOnlyList<Drift> Drift { get; init; }
+    IReadOnlyList<PlannedStep> Changes { get; }
+    IReadOnlyList<PlannedStep> Replacements { get; }
+    IReadOnlyList<PlannedStep> Steps { get; init; }
+    IReadOnlyList<UnitState> Orphaned { get; init; }
+    RunKind Kind { get; init; }
+    RunRecord ActiveRun { get; init; }
+    bool HasDrift { get; }
+    bool HasOrphans { get; }
+    bool HasStalledRun { get; }
+    bool HasWorkInFlight { get; }
+    bool InSync { get; }
+    bool IsDestructive { get; }
+    bool IsNoOp { get; }
+    int ToAdd { get; }
+    int ToChange { get; }
+    int ToDestroy { get; }
+    string Prefix { get; init; }
+    string Procedure { get; init; }
+    string Summary { get; }
+
+sealed record Tyanor.PlannedStep : IEquatable<PlannedStep>
+    .ctor(ProcedureUnit Unit, UnitPhase Phase, ReconcileAction Action)
+    ProcedureUnit Unit { get; init; }
+    ReconcileAction Action { get; init; }
+    UnitPhase Phase { get; init; }
+    bool Mutates { get; }
+
+sealed record Tyanor.Procedure : IEquatable<Procedure>
+    .ctor(string Name, IReadOnlyList<ProcedureUnit> Units)
+    IEnumerable<ProcedureUnit> Forward()
+    IEnumerable<ProcedureUnit> Reverse()
+    IReadOnlyList<ProcedureUnit> Units { get; init; }
+    Procedure Only(string[] units)
+    bool IsNarrowed { get; init; }
+    int TotalWeight { get; }
+    string Name { get; init; }
+
+sealed record Tyanor.ProcedureUnit : IEquatable<ProcedureUnit>
+    .ctor(string Name, string Label, int Weight = 1)
+    int Weight { get; init; }
+    string Label { get; init; }
+    string Name { get; init; }
+
+sealed record Tyanor.ProgressReport : IEquatable<ProgressReport>
+    .ctor(string Unit, string Message, int Percent, ProgressStatus Status = Info)
+    ProgressStatus Status { get; init; }
+    int Percent { get; init; }
+    string Message { get; init; }
+    string Unit { get; init; }
+
+enum Tyanor.ProgressStatus
+    Error = 2
+    Info = 0
+    Success = 1
+
+static class Tyanor.Reconcile
+    static ReconcileAction Decide(UnitPhase phase)
+    static ReconcileAction DecideDestroy(UnitPhase phase)
+    static bool Mutates(ReconcileAction action)
+
+enum Tyanor.ReconcileAction
+    Attach = 2
+    Create = 0
+    Nothing = 6
+    Recreate = 4
+    Remove = 5
+    SettleThenRecreate = 3
+    Update = 1
+
+enum Tyanor.ResourceChange
+    Add = 0
+    Change = 1
+    Destroy = 2
+    None = 3
+
+sealed record Tyanor.ResourceState : IEquatable<ResourceState>
+    .ctor(string Id, string Type, string Fingerprint = null)
+    string Fingerprint { get; init; }
+    string Id { get; init; }
+    string Type { get; init; }
+
+enum Tyanor.RunKind
+    Apply = 0
+    Destroy = 1
+
+sealed record Tyanor.RunRecord : IEquatable<RunRecord>
+    .ctor(string Id, string Procedure, string Prefix, RunKind Kind, RunStatus Status, DateTimeOffset StartedAt, DateTimeOffset? FinishedAt = null, PauseReason? Reason = null, string Error = null)
+    DateTimeOffset StartedAt { get; init; }
+    DateTimeOffset? FinishedAt { get; init; }
+    PauseReason? Reason { get; init; }
+    RunKind Kind { get; init; }
+    RunStatus Status { get; init; }
+    bool IsLive { get; }
+    string Error { get; init; }
+    string Id { get; init; }
+    string Prefix { get; init; }
+    string Procedure { get; init; }
+
+enum Tyanor.RunStatus
+    Failed = 3
+    Paused = 1
+    Running = 0
+    Succeeded = 2
+
+static class Tyanor.StateDiff
+    static IReadOnlyList<Drift> ForUnit(string unit, IReadOnlyList<ResourceState> recorded, IReadOnlyList<ResourceState> actual)
+    static bool Unchanged(string recorded, string actual)
+
+sealed class Tyanor.StorageBackends
+    .ctor(IEnumerable<IStorageBackend> backends)
+    .ctor(IStorageBackend[] backends)
+    IReadOnlyCollection<string> Kinds { get; }
+    IRunHistory History(string descriptor)
+    IStateStore State(string descriptor)
+
+sealed record Tyanor.StorageConnection : IEquatable<StorageConnection>
+    .ctor(string Kind, string Target)
+    static StorageConnection Parse(string descriptor)
+    string Kind { get; init; }
+    string Target { get; init; }
+
+sealed record Tyanor.TargetCredentials : IEquatable<TargetCredentials>
+    .ctor(string KeyId, string Secret, string Region = null, IReadOnlyDictionary<string, string> Extra = null)
+    IReadOnlyDictionary<string, string> Extra { get; init; }
+    string KeyId { get; init; }
+    string Region { get; init; }
+    string Secret { get; init; }
+
+sealed record Tyanor.TargetIdentity : IEquatable<TargetIdentity>
+    .ctor(bool Ok, string Account = null, string Principal = null, string Error = null)
+    bool Ok { get; init; }
+    string Account { get; init; }
+    string Error { get; init; }
+    string Principal { get; init; }
+
+sealed record Tyanor.Testing.ContractCheck : IEquatable<ContractCheck>
+    .ctor(string Name, bool Passed, string Detail = null)
+    bool Passed { get; init; }
+    string Detail { get; init; }
+    string Name { get; init; }
+
+sealed class Tyanor.Testing.ContractException : Exception
+    .ctor(string message)
+
+abstract class Tyanor.Testing.ContractSuite
+    IReadOnlyList<string> Checks { get; }
+    Task AssertAllAsync(CancellationToken ct = null)
+    Task AssertAsync(string name, CancellationToken ct = null)
+    Task<ContractCheck> RunAsync(string name, CancellationToken ct = null)
+    Task<IReadOnlyList<ContractCheck>> RunAllAsync(CancellationToken ct = null)
+    abstract string Subject { get; }
+
+sealed class Tyanor.Testing.FailureClassifierContract : ContractSuite
+    .ctor(IFailureClassifierFixture fixture)
+    virtual string Subject { get; }
+
+interface Tyanor.Testing.IFailureClassifierFixture
+    abstract IFailureClassifier Classifier { get; }
+    abstract IReadOnlyList<Exception> CredentialErrors { get; }
+    abstract IReadOnlyList<Exception> HardErrors { get; }
+    abstract IReadOnlyList<Exception> TransientErrors { get; }
+
+interface Tyanor.Testing.IUnitDriverFixture
+    abstract DeploymentRequest Request { get; }
+    abstract IUnitDriver Driver { get; }
+    abstract ProcedureUnit Unit { get; }
+    abstract Task ResetAsync(CancellationToken ct)
+    virtual IReadOnlyCollection<string> ExpectedOutputs { get; }
+
+sealed record Tyanor.Testing.MemoryFault : IEquatable<MemoryFault>
+    .ctor(Exception Error, bool Once = False)
+    Exception Error { get; init; }
+    bool Once { get; init; }
+
+sealed class Tyanor.Testing.MemoryFaultException : Exception
+    .ctor(FailureClass failure, string message)
+    FailureClass Failure { get; }
+
+sealed class Tyanor.Testing.MemoryTarget : IDeploymentTarget, IFailureClassifier, IUnitDriver
+    .ctor(CustomUnits custom = null)
+    Dictionary<string, Dictionary<string, string>> Outputs { get; }
+    Dictionary<string, IReadOnlyList<ResourceState>> Resources { get; }
+    Dictionary<string, IReadOnlyList<string>> Problems { get; }
+    Dictionary<string, MemoryFault> Faults { get; }
+    Dictionary<string, UnitPhase> Phases { get; }
+    Dictionary<string, int> Attempts { get; }
+    Dictionary<string, int> Progress { get; }
+    Dictionary<string, int> Refreshes { get; }
+    FailureClass? Classify(Exception error)
+    IFailureClassifier Classifier { get; }
+    IReadOnlyCollection<string> Deployed { get; }
+    IUnitDriver Driver { get; }
+    List<string> Calls { get; }
+    MemoryTarget AlreadyDeployed(string[] units)
+    MemoryTarget Drifted(string[] units)
+    MemoryTarget Fails(string unit, FailureClass failure, string message = the memory target was told to fail)
+    MemoryTarget FailsOnce(string unit, FailureClass failure = Transient, string message = the memory target was told to fail once)
+    MemoryTarget Reports(string unit, UnitPhase phase)
+    MemoryTarget Throws(string unit, Exception error, bool once = False)
+    TargetIdentity Identity { get; set; }
+    Task AwaitSettledAsync(UnitContext context)
+    Task CreateAsync(UnitContext context)
+    Task RemoveAsync(UnitContext context)
+    Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext context)
+    Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context)
+    Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
+    Task<TargetIdentity> ValidateAsync(TargetCredentials credentials, CancellationToken ct)
+    Task<UnitPhase> PhaseAsync(UnitContext context)
+    Task<bool> UpdateAsync(UnitContext context)
+    const string KindOption
+    int Revision { get; set; }
+    string Id { get; init; }
+
+sealed class Tyanor.Testing.RunHistoryContract : ContractSuite
+    .ctor(Func<IRunHistory> create)
+    virtual string Subject { get; }
+
+sealed class Tyanor.Testing.StateStoreContract : ContractSuite
+    .ctor(Func<IStateStore> create)
+    virtual string Subject { get; }
+
+sealed class Tyanor.Testing.UnitDriverContract : ContractSuite
+    .ctor(IUnitDriverFixture fixture)
+    virtual string Subject { get; }
+
+sealed record Tyanor.UnitContext : IEquatable<UnitContext>
+    .ctor(ProcedureUnit Unit, DeploymentRequest Request, Action<ProgressReport> Report, CancellationToken Cancellation)
+    .ctor(ProcedureUnit unit, DeploymentRequest request)
+    Action<ProgressReport> Report { get; init; }
+    CancellationToken Cancellation { get; init; }
+    DeploymentArtifact Artifact { get; }
+    DeploymentRequest Request { get; init; }
+    IReadOnlyDictionary<string, string> Options(string prefix)
+    ProcedureUnit Unit { get; init; }
+    string Label { get; }
+    string Name { get; }
+    string Option(string key)
+    string OwnOption(string key)
+    void Progress(string message, int percent = -1, ProgressStatus status = Info)
+    void ThrowIfCancelled()
+
+abstract class Tyanor.UnitKindDriver : IUnitDriver
+    IUnitDriver For(UnitContext context)
+    Task AwaitSettledAsync(UnitContext context)
+    Task CreateAsync(UnitContext context)
+    Task RemoveAsync(UnitContext context)
+    Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext context)
+    Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context)
+    Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
+    Task<UnitPhase> PhaseAsync(UnitContext context)
+    Task<bool> UpdateAsync(UnitContext context)
+    string Option { get; }
+
+sealed class Tyanor.UnitKindException : DefinitionException
+    .ctor(string message)
+
+enum Tyanor.UnitPhase
+    Broken = 4
+    Converging = 2
+    Missing = 0
+    Ready = 1
+    Unwinding = 3
+
+sealed record Tyanor.UnitState : IEquatable<UnitState>
+    .ctor(string Unit, IReadOnlyList<ResourceState> Resources, DateTimeOffset RecordedAt)
+    DateTimeOffset RecordedAt { get; init; }
+    IReadOnlyList<ResourceState> Resources { get; init; }
+    string Unit { get; init; }
+
+sealed record Tyanor.Validation : IEquatable<Validation>
+    .ctor(IReadOnlyList<ValidationProblem> Problems)
+    IReadOnlyList<ValidationProblem> Problems { get; init; }
+    bool Ok { get; }
+
+sealed record Tyanor.ValidationProblem : IEquatable<ValidationProblem>
+    .ctor(string Unit, string Problem)
+    string Problem { get; init; }
+    string Unit { get; init; }

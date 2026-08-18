@@ -54,6 +54,7 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D15](#d15--a-provider-written-elsewhere-is-a-first-class-provider-2026-08-09) | a provider written elsewhere is first-class | |
 | [D19](#d19--an-applications-own-step-is-a-unit-not-code-that-runs-afterwards-2026-08-09) | an application's own step is a unit | |
 | [D24](#d24--tyanor-ships-a-target-to-test-against-not-just-suites-to-test-with-2026-08-18) | a target to test against | it is a provider, not a mock |
+| [D27](#d27--the-public-surface-is-a-file-because-010-is-when-it-stops-being-free-2026-08-19) | the public surface is a checked-in file | found 2 defects on its first run |
 
 **What was built, and what it cost**
 
@@ -1215,3 +1216,46 @@ contract suites being run at all.
 **Revisit if** a real consumer is blocked by the `M.E.DI.Abstractions` reference — which would mean a
 platform where it is unavailable, not merely unwanted. Splitting it back out is a mechanical change to one
 `ItemGroup`; nothing else would move, because the namespaces never did.
+
+---
+
+## D27 — The public surface is a file, because 0.1.0 is when it stops being free (2026-08-19)
+
+Every shipped assembly's public API is rendered to text and compared against a baseline under
+`tests/ApiBaselines/`. A deliberate change is `TYANOR_UPDATE_API=1 dotnet test` and a committed diff.
+
+**Why now.** Before the first release the surface costs nothing to change. After it, a removed member or a
+changed signature breaks someone's build. Nothing in this repository could see an API change: the build
+succeeds, every test passes, and a `public` that should have been `internal` ships forever — at which point
+narrowing it is the breaking change, so it never happens.
+
+**It found two things on its first run**, which is the argument for it better than anything above.
+
+- **`CloudFormationPhases` and `AwsFailureClassifier` were public.** The AWS csproj says, in a comment, that
+  the phase table and the classifier "should NOT be public API", and grants `InternalsVisibleTo` to the test
+  project for exactly that reason. Both were `public` anyway. The local provider got the same decision right,
+  so this was drift between two providers that nothing compared. Now internal — a change that would have been
+  breaking one release later.
+- **`MemoryTarget` silently absorbed a kind it did not have.** A unit declaring `kind = "discovery"` with
+  nothing registered under that name got the memory behaviour instead of an error, while `LocalTarget` and
+  `AwsTarget` refuse it and name the kinds they do have. So an adopter who forgot to register their own units
+  on a new platform got a green test suite here and an exception in production — precisely inverting what a
+  test target is for (D24). **The test written to catch it could not fail:** it never awaited
+  `Assert.ThrowsAsync`, so it asserted a `Task` was non-null.
+
+Both are the shape this repository keeps finding: **behaviour defined by absence**, guarded by a check that
+cannot go red. The surface baseline is not a cleverer test, it is a check that turns absence into a line in a
+diff.
+
+**Decided against: a rule instead of a record.** It would have been easy to make this fail on any *new* public
+member and demand justification. That is the wrong instrument — additions are how a library grows, and a check
+that cries at every one gets suppressed. The baseline never says a change is wrong; it says a change happened,
+to a reviewer who can tell. **The reviewer was the part that was missing, not the opinion.**
+
+**What it deliberately does not catch.** Nullable reference annotations (reflection does not carry them
+usefully, so `string` → `string?` is invisible), and record boilerplate is skipped so a compiler upgrade does
+not read as an API change. It is a net, not a proof — and worth saying out loud, because a check believed to
+be exhaustive is worse than one known to have holes.
+
+**Per assembly, not per repository**, so a provider's API change fails the provider's own test project — and
+so a provider written outside this repo can copy `tests/Shared/ApiSurface.cs` and get the same thing (D15).

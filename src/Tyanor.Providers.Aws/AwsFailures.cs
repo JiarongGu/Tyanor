@@ -34,7 +34,7 @@ public sealed class AwsDeploymentException(string message) : Exception(message);
 /// exactly why none should be removed for looking redundant. Two of the credential codes differ only in
 /// which service emitted them.</para>
 /// </summary>
-public sealed class AwsFailureClassifier : IFailureClassifier
+internal sealed class AwsFailureClassifier : IFailureClassifier
 {
     /// <summary>
     /// Codes meaning "AWS rejected who we are". A pause, never a failure: everything provisioned so far is

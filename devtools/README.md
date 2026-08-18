@@ -151,7 +151,7 @@ dotnet nuget push "artifacts/*.nupkg" --source nuget.org --api-key …
   on nuget.org, and the XML documentation that is most of this library's value.
 
 Its own first version shelled out to `tar` to read a `.nupkg`, which cannot read a zip on every platform, so
-it reported all six packages as missing their README and docs when every one of them had both. It reads the
+it reported every package as missing its README and docs when all of them had both. It reads the
 zip's entry names directly now, and says so loudly if it cannot read a package at all rather than concluding
 the files are absent. A check that cannot read its input must not report an answer.
 

@@ -20,7 +20,8 @@ the matching ones **first**. The four today are short and all load-bearing:
   Tyanor does keep one set of deployment state. Read D12 first.)
 - **[`error-classification.md`](.claude/rules/error-classification.md)** — credentials / transient / hard.
 - **[`units-not-graphs.md`](.claude/rules/units-not-graphs.md)** — ordered list, reverse teardown, no DAG.
-- **[`provider-boundary.md`](.claude/rules/provider-boundary.md)** — Core names no vendor.
+- **[`provider-boundary.md`](.claude/rules/provider-boundary.md)** — the `Tyanor` namespace names no
+  vendor. Since D26 that is a namespace, not an assembly, so the compiler no longer helps.
 
 Reasoning behind each lives in [`docs/DECISIONS.md`](docs/DECISIONS.md). A decision there is not
 re-litigated per feature — but it *can* be overturned by appending a new entry that says why.
@@ -74,7 +75,10 @@ tests/
                         guide that is not in here — so the two cannot drift.
   Shared/               compiled into EVERY test project by tests/Directory.Build.props, with a global
                         using. Put a helper here rather than copying it per assembly — `Suites` was
-                        written three times before it was written once.
+                        written three times before it was written once. `ApiSurface` renders a shipped
+                        assembly's public API as text.
+  ApiBaselines/         one file per shipped assembly: its public surface, checked in. A diff here IS the
+                        API review. Regenerate with TYANOR_UPDATE_API=1 (D27).
   Tyanor.Providers.Local.Tests/   real files, real processes. A mocked filesystem would agree with
                                   whatever the driver believed, which is the opposite of a test.
   Tyanor.Providers.Aws.Tests/     the phase table and the classifier against the REAL strings; the driver's
@@ -157,6 +161,11 @@ commit is stamped into every package), and packages that actually contain their 
   is, not in a wiki.
 - **Comments say why, never what.** `// increment i` is noise; `// Attach: re-issuing here starts a second
   conflicting operation` is the reason the line exists.
+- **A public API change must show up in `tests/ApiBaselines/`.** The test fails, tells you what moved, and
+  writes the new surface beside the baseline. If the change is deliberate, `TYANOR_UPDATE_API=1 dotnet test`
+  and commit the diff — that diff is the review, and it is the only place an accidental `public` is visible.
+  It found two real defects the hour it was added (D27), both of the shape this repo keeps hitting: behaviour
+  defined by absence, guarded by a check that could not go red.
 - **Test the decisions, not the plumbing.** The reconcile table and the classifiers are where a silent bug
   hides — a wrong decision looks like a differently-ordered deployment, and `Attach` fails by *succeeding*
   at something it should never have started.
@@ -183,6 +192,7 @@ Four independent libraries; none depends on another.
 | How to USE the library, in order | `docs/guide.md` |
 | System shape | `docs/architecture/overview.md` |
 | How to add a provider | `.claude/skills/add-provider/SKILL.md` |
+| The public API, as a reviewable file | `tests/ApiBaselines/*.txt` |
 | What is left to build | `TASKS.md` |
 | What changed, and what broke | `CHANGELOG.md` |
 

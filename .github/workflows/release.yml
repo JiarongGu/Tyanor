@@ -2,7 +2,7 @@ name: Release
 
 # Manual-trigger only, like the sibling repositories. Cutting a release is a deliberate act you start from
 # the Actions tab — there is intentionally NO tag-push or release-published trigger, because a release here
-# publishes six packages to a permanent, immutable feed and that should never be a side effect of a push.
+# publishes three packages to a permanent, immutable feed and that should never be a side effect of a push.
 #
 # The order below is the whole design: verify against the exact commit, pack, push (the irreversible step),
 # and only THEN write the version bump and the tag. A failed release therefore burns no version and leaves

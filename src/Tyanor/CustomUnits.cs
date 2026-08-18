@@ -31,6 +31,12 @@ namespace Tyanor;
 /// </code>
 /// </example>
 ///
+/// <para><b>A target COPIES this when you construct it.</b> Registering a kind after the target exists changes
+/// nothing — every provider snapshots, so that a run's set of kinds cannot change underneath it, and so that a
+/// custom kind colliding with a built-in one is refused at the one moment somebody is there to read the
+/// exception. Build it, hand it over, and hand the same instance to every target you use: the step you wrote
+/// does not belong to the platform you first ran it on.</para>
+///
 /// <para><b>This is the develop-here-then-upstream path.</b> A step written in your application against
 /// <see cref="IUnitDriver"/>, passing the contract suites, is the same thing a built-in kind is. If it turns
 /// out to be general, it moves into a provider unchanged (<c>docs/DECISIONS.md</c> D15).</para>

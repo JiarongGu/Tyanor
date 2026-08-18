@@ -48,10 +48,16 @@ namespace Tyanor.Testing;
 /// </code>
 /// </example>
 ///
-/// <para><b>Unlike a real provider it has no REQUIRED kind.</b> <c>UnitKindDriver</c> refuses a unit that
-/// declares none, because guessing would deploy something the operator never described. Here the guess is a
-/// dictionary, so a unit that declares no kind gets the memory behaviour and only a declared one dispatches
-/// — which is what keeps the ordinary case a single line.</para>
+/// <para><b>Unlike a real provider it has no REQUIRED kind, and that is the only difference.</b>
+/// <c>UnitKindDriver</c> refuses a unit that declares none, because guessing would deploy something the
+/// operator never described. Here the guess is a dictionary, which is harmless — so a unit that declares no
+/// kind gets the memory behaviour, and that is what keeps the ordinary case a single line.</para>
+///
+/// <para>A unit that declares a kind this target does NOT have is refused, exactly as a real provider refuses
+/// it, and for exactly the reason above: the operator named a kind. Falling back to memory there was a real
+/// defect — an adopter who forgot to register their units on a new platform got a green test suite here and an
+/// exception in production, which inverts what this type is for. Its own test could not fail, which is why it
+/// survived.</para>
 ///
 /// <para><b>What it does not do:</b> it is not thread-safe across concurrent runs, because a test that needs
 /// that is testing the engine rather than using it.</para>
@@ -62,7 +68,7 @@ public sealed class MemoryTarget : IDeploymentTarget, IUnitDriver, IFailureClass
     public const string KindOption = "kind";
 
     private readonly Dictionary<string, int> _deployed = new(StringComparer.Ordinal);
-    private readonly CustomUnits? _custom;
+    private readonly Dictionary<string, IUnitDriver> _custom;
 
     /// <summary>A target that deploys to a dictionary, optionally hosting units of your own.</summary>
     /// <param name="custom">
@@ -72,17 +78,37 @@ public sealed class MemoryTarget : IDeploymentTarget, IUnitDriver, IFailureClass
     /// </param>
     public MemoryTarget(CustomUnits? custom = null)
     {
-        _custom = custom;
+        // COPIED, not held. UnitKindDriver.Register(CustomUnits) copies too, so a real provider never sees a
+        // kind added after it was built. A test target that DID see one would let a test pass here and then
+        // behave differently against AwsTarget — the single thing this type must never do (D24).
+        _custom = custom is null
+            ? new Dictionary<string, IUnitDriver>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, IUnitDriver>(custom, StringComparer.OrdinalIgnoreCase);
+
         Classifier = FailureClassifiers.Chain(this, custom?.Classifier);
     }
 
     /// <summary>The driver for one unit: yours when it declares a kind you registered, otherwise memory.</summary>
-    private IUnitDriver? Own(UnitContext context) =>
-        _custom is not null
-        && context.Option(KindOption) is { } kind
-        && _custom.TryGetValue(kind, out var driver)
-            ? driver
-            : null;
+    /// <exception cref="UnitKindException">It declares a kind that is not registered here.</exception>
+    private IUnitDriver? Own(UnitContext context)
+    {
+        if (context.Option(KindOption) is not { } kind) return null;     // no kind at all: memory, by design
+        if (_custom.TryGetValue(kind, out var driver)) return driver;
+
+        // A kind was DECLARED and is not registered. Falling back to memory behaviour here is the mistake this
+        // whole type exists to not make: the operator said "this is a discovery unit" and we would deploy a
+        // dictionary entry instead — quietly, and only on the target they test against. A real provider refuses
+        // and names what it has, so this refuses and names what it has.
+        throw new UnitKindException(
+            $"Unit '{context.Name}' declares {KindOption} '{kind}', which is not registered on this " +
+            $"MemoryTarget. It offers: {Available()}. A unit that declares NO kind gets the memory behaviour; " +
+            "one that names a kind is asking for that kind specifically.");
+    }
+
+    private string Available() =>
+        _custom.Count == 0
+            ? "none — no CustomUnits were handed to this MemoryTarget"
+            : string.Join(", ", _custom.Keys.Order());
 
     /// <summary>The id this target answers to. Change it to test wiring that selects by id.</summary>
     public string Id { get; init; } = "memory";

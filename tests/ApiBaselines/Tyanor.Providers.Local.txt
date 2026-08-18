@@ -1,0 +1,32 @@
+# Public API surface of Tyanor.Providers.Local. Generated — see tests/Shared/ApiSurface.cs.
+
+sealed class Tyanor.Providers.Local.LocalConfigurationException : DefinitionException
+    .ctor(string unit, string message)
+    string Unit { get; }
+
+sealed class Tyanor.Providers.Local.LocalDeploymentException : Exception
+    .ctor(string unit, string message, FailureClass failure)
+    FailureClass Failure { get; }
+    string Unit { get; }
+
+static class Tyanor.Providers.Local.LocalOptions
+    const int DefaultHealthSeconds
+    const string Arguments
+    const string Command
+    const string DirectoryKind
+    const string HealthPort
+    const string HealthSeconds
+    const string Kind
+    const string Path
+    const string ProcessKind
+    const string Source
+    const string Watch
+    const string WorkingDirectory
+
+sealed class Tyanor.Providers.Local.LocalTarget : IDeploymentTarget
+    .ctor(string root, CustomUnits custom = null)
+    IFailureClassifier Classifier { get; }
+    IUnitDriver Driver { get; }
+    Task<TargetIdentity> ValidateAsync(TargetCredentials credentials, CancellationToken ct)
+    string Id { get; }
+    string Root { get; }

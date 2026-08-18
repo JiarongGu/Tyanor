@@ -82,19 +82,56 @@ public class PlatformTransferTests
     }
 
     [Fact]
-    public void Forgetting_to_register_on_ONE_platform_says_so_rather_than_deploying_something_else()
+    public async Task Forgetting_to_register_on_ONE_platform_says_so_rather_than_deploying_something_else()
     {
         // The mistake platform transfer invites: the units are registered per target, so moving to a new
         // one means remembering to bring them. It is refused with the kinds that DO exist, which is the
         // difference between an error and a wrong deployment.
+        //
+        // This test did not `await` its ThrowsAsync, so it asserted that a Task was non-null and could not
+        // fail — and the defect it was written to catch was live the whole time: MemoryTarget silently gave a
+        // declared-but-unregistered kind the memory behaviour. Every target now refuses it, which is what
+        // makes a test that passes here mean anything about production.
         var forgot = new MemoryTarget();                       // …no CustomUnits handed over
 
-        var thrown = Assert.ThrowsAsync<UnitKindException>(() => forgot.Driver.PhaseAsync(
+        var thrown = await Assert.ThrowsAsync<UnitKindException>(() => forgot.Driver.PhaseAsync(
             new UnitContext(Register, new DeploymentRequest("acme",
                 new DeploymentArtifact(new Dictionary<string, string>()),
                 new Dictionary<string, string> { ["discovery.kind"] = "discovery" }))));
 
-        Assert.NotNull(thrown);
+        Assert.Contains("discovery", thrown.Message);          // the kind it asked for…
+        Assert.Contains("no CustomUnits", thrown.Message);     // …and why it did not get it
+    }
+
+    [Fact]
+    public async Task Registering_a_kind_AFTER_a_target_is_built_changes_nothing_on_either_platform()
+    {
+        // `CustomUnits` is a Dictionary, so it stays writable forever, and every provider therefore COPIES it
+        // at construction — a run's set of kinds cannot change underneath it, and the built-in collision is
+        // refused at the one moment somebody is there to read the exception.
+        //
+        // Pinned across both targets because the risk is not the behaviour, it is the DISAGREEMENT: the test
+        // target held the dictionary live while the shipped providers copied, so a late registration worked in
+        // a test and vanished in production. That is the one failure MemoryTarget must never cause (D24).
+        using var box = new Sandbox();
+        box.Publish("Server.dll", "v1");
+
+        var mine = new CustomUnits();                     // …deliberately empty at construction
+        var machine = new LocalTarget(box.Root, mine);
+        var elsewhere = new MemoryTarget(mine);
+
+        mine["discovery"] = new ServiceRegistry();        // too late, on purpose
+
+        // Named in the message so a failure says WHICH platform disagreed, which is the only useful thing a
+        // cross-target test can tell you.
+        foreach (var target in new IDeploymentTarget[] { machine, elsewhere })
+        {
+            var thrown = await Record.ExceptionAsync(() => target.Driver.PhaseAsync(
+                new UnitContext(Register, Request(box))));
+
+            Assert.True(thrown is UnitKindException,
+                $"{target.Id} accepted a kind registered after construction: {thrown?.GetType().Name ?? "no exception"}");
+        }
     }
 
     private static ProcedureRunner Runner(IDeploymentTarget target, Sandbox box) =>

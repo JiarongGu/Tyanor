@@ -1,0 +1,30 @@
+# Public API surface of Tyanor.Providers.Aws. Generated — see tests/Shared/ApiSurface.cs.
+
+sealed class Tyanor.Providers.Aws.AwsConfigurationException : DefinitionException
+    .ctor(string message)
+
+sealed class Tyanor.Providers.Aws.AwsDeploymentException : Exception
+    .ctor(string message)
+
+static class Tyanor.Providers.Aws.AwsOptions
+    const string Assets
+    const string Bucket
+    const string BucketFrom
+    const string Capabilities
+    const string ContentKind
+    const string DefaultCapabilities
+    const string InvalidateFrom
+    const string Kind
+    const string ParameterPrefix
+    const string Source
+    const string StackKind
+    const string Template
+
+sealed class Tyanor.Providers.Aws.AwsTarget : IDeploymentTarget, IDisposable
+    .ctor(TargetCredentials credentials, CustomUnits custom = null)
+    IFailureClassifier Classifier { get; }
+    IUnitDriver Driver { get; }
+    RegionEndpoint Region { get; }
+    Task<TargetIdentity> ValidateAsync(TargetCredentials credentials, CancellationToken ct)
+    string Id { get; }
+    void Dispose()

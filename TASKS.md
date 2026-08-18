@@ -29,8 +29,9 @@
 > driver's own control flow is covered offline (**D23**), so what remains is whether AWS accepts what we
 > build and answers the way the phase table believes.
 
-> **0.1.0 is the first release.** Cut with `npm run doctor` and `node devtools/dev.mjs release`; six
-> packages, versioned in lockstep from the repository-root `Directory.Build.props`.
+> **0.1.0 is the first release.** Cut with `npm run doctor` and `node devtools/dev.mjs release`; three
+> packages — `Tyanor`, `Tyanor.Providers.Local`, `Tyanor.Providers.Aws` — versioned in lockstep from the
+> repository-root `Directory.Build.props` (D26).
 >
 > **What a consumer gets, and what they do not.** The engine, both providers, the contract suites and a test
 > target are all real and covered. The AWS provider's SDK calls have still never reached AWS — that is the
@@ -125,6 +126,11 @@ invisible in hindsight:
 - **Whether a pause was actually resumable in practice**, not just in the record. That is the whole claim.
 - **Anything in `DeploymentRequest.Options` that wanted to be typed.** D4 says the untyped map stays; a
   real consumer straining against it is the evidence that would revisit that, and nothing else is.
+- **Every unit kind you had to register yourself, and whether it MOVED.** `CustomUnits` (D19) is the growth
+  path for a service Tyanor does not support, and the claim is that the step is yours rather than the
+  platform's — one registration, handed to every target. It is proved across `LocalTarget`, `AwsTarget` and
+  `MemoryTarget` in this repo, which is the weaker version of the claim. The real one is an adopter moving
+  their own step between platforms and not editing it. If they edit it, what they had to change is the defect.
 
 ### From adoption
 

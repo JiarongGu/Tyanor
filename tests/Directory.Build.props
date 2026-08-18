@@ -15,4 +15,15 @@
     <Compile Include="$(MSBuildThisFileDirectory)Shared\*.cs" LinkBase="Shared" />
     <Using Include="Tyanor.Tests.Support" />
   </ItemGroup>
+
+  <!-- Where the repository is, for the tests that read files that are part of the SOURCE rather than part of
+       a fixture — the API baselines. Stamped at build time rather than discovered by walking up from the
+       output directory, which is the usual trick and breaks as soon as anything runs the assembly from
+       somewhere else. -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadata">
+      <_Parameter1>RepoRoot</_Parameter1>
+      <_Parameter2>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
 </Project>

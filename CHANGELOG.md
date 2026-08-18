@@ -211,6 +211,22 @@ would not have failed, it would have silently certified.
 
 #### Broken, and fixed
 
+- **`MemoryTarget` silently deployed a dictionary entry for a unit kind it did not have.** A unit declaring
+  `kind = "discovery"` with nothing registered under that name got the memory behaviour, while `LocalTarget`
+  and `AwsTarget` refuse it and name the kinds they do have. So an adopter who forgot to bring their own units
+  to a new platform got a green test suite and an exception in production — inverting the point of a test
+  target (D24). **The test written to catch this could not fail**: it never awaited `Assert.ThrowsAsync`, so it
+  asserted that a `Task` was not null. Both fixed; a unit declaring NO kind still gets memory behaviour, which
+  is the case that keeps the ordinary usage one line.
+- **`MemoryTarget` held its `CustomUnits` live while every real provider copies at construction.** A kind
+  registered after the target was built therefore worked in a test and vanished in production. It copies now,
+  and one test asserts the behaviour across both providers and the test target — because the risk was never
+  the behaviour, it was the disagreement.
+- **`CloudFormationPhases` and `AwsFailureClassifier` were public**, in an assembly whose csproj comment says
+  the phase table and the classifier "should NOT be public API" and grants `InternalsVisibleTo` for exactly
+  that reason. The local provider got the same call right, so this was drift between two providers that
+  nothing compared. Now internal — one release later it would have been a breaking change.
+
 - `README.md`, `docs/architecture/overview.md` and `Reconcile`'s XML docs still claimed there was no state
   file and no plan/diff — both reversed by D12 several commits earlier.
 - **A destroy plan built without a state store reported "0 to destroy" and `IsDestructive` false**, for a run
@@ -324,6 +340,12 @@ would not have failed, it would have silently certified.
   one. `StackUnit` adds CloudFormation's stricter rule in its own words. D17.
 
 #### Internal
+
+- **The public API surface of every shipped assembly is a checked-in file** (`tests/ApiBaselines/`), rendered
+  and compared by a test. Nothing else here could see an API change: the build succeeds, the tests pass, and a
+  `public` that should have been `internal` ships permanently — after which narrowing it is itself the
+  breaking change. It is a record rather than a rule: a deliberate change is `TYANOR_UPDATE_API=1 dotnet test`
+  and a diff somebody reads. It found the three defects above within the hour. Reasoning in D27.
 
 - **The local test harness disabled the retry it was testing.** `Sandbox` built its runner with
   `RetryPolicy(Attempts: 1)` — no retry at all — while the provider it exercises classifies a sharing
