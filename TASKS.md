@@ -70,14 +70,26 @@ whether the plumbing is right.
 stack, plans, re-applies (the "No updates are to be performed" path, which resume depends on), refreshes and
 tears down.
 
-Everything testable without a cloud now IS tested — the phase table and classifier against the real strings,
-and the driver's own control flow against recording fakes (**D23**, which scopes D14's "never mock the SDK"
-to the question it was actually right about). What is left for this item is genuinely only what a fake cannot
-answer: whether AWS ACCEPTS the requests we build, and whether it answers the way the phase table believes.
+Everything testable without a cloud now IS tested, and that sentence was an overstatement until recently —
+the stack driver had never once been held to `UnitDriverContract`, because the only place it ran was inside
+this gated test. **The last mile is now exactly this list and nothing else:**
 
-Expect it to find something. A port that has never run never does exactly what it looks like it does — and
-the surface where it can still surprise us is now small and named, which is the difference between a gap and
-an unknown.
+| Verified offline | Left to the live run |
+|---|---|
+| the phase table, against every status the SDK enumerates | whether a real create settles into the status the table believes |
+| the classifier, against real error codes | whether AWS emits a code this list has never seen |
+| which request we build — fields, staging bucket, keys, capabilities | whether AWS **accepts** that request |
+| the driver's control flow: throttles, teardown re-runnability, event de-duplication, batching | rollback behaviour, `UPDATE_ROLLBACK_FAILED`, timing |
+| **both** unit kinds against `UnitDriverContract` | that the same contract holds against the real service |
+
+The offline contract runs against a fake that models exactly two things — a created stack can be described,
+a deleted one cannot — and deliberately none of the interesting statuses, so it cannot start certifying AWS's
+behaviour by accident. That is **D23** applied properly rather than as a blanket: what the suite asserts is
+our driver's behaviour, and the questions only a cloud can answer stay in the right-hand column.
+
+Expect the live run to find something anyway. A port that has never run never does exactly what it looks
+like it does — but the surface where it can surprise us is now small and named, which is the difference
+between a gap and an unknown.
 
 **Then the domain unit** — ACM certificate issuance and Route 53 validation, ~350 lines still in Aurelia
 (`Aws/AwsDomainSetup.cs`, `Domains/AwsRoute53DomainProvider.cs`). It maps onto the model well: a certificate

@@ -43,6 +43,23 @@ const constructs = (sources, suite) =>
   new RegExp(`new\\s+${suite}\\s*\\(`).test(sources) ||
   new RegExp(`\\b${suite}\\s+[A-Za-z_]\\w*\\s*=\\s*new\\s*\\(`).test(sources);
 
+/**
+ * Whether a file only runs when an environment variable says so — in which case, for an ordinary run, it
+ * runs never.
+ *
+ * This is the distinction that made the whole check overstate itself. `UnitDriverContract` was constructed
+ * for the AWS stack driver in exactly one place: inside the live deployment test, behind `TYANOR_LIVE_AWS`,
+ * which returns before doing anything when the variable is unset. Nothing has ever reached AWS from this
+ * repository, so that suite had run against that driver ZERO times — while this script cheerfully reported
+ * "4 unit kinds, each held to 2 contract suites", because it could not tell RUNNING a suite from NAMING one
+ * in a file that returns early.
+ *
+ * A gated file is not coverage; it is a promise about a run nobody has done. Deliberately blunt: a file that
+ * reads an environment variable at all stops counting, and the fix is to put the ungated suite in its own
+ * file — which is what it wanted to be anyway.
+ */
+const gated = (body) => /GetEnvironmentVariable/.test(body);
+
 const providers = existsSync(join(root, 'src'))
   ? readdirSync(join(root, 'src'))
       .filter((d) => cfg.providerPrefix && d.startsWith(cfg.providerPrefix))
@@ -58,16 +75,23 @@ for (const provider of providers) {
     continue;
   }
 
-  const sources = readdirSync(tests)
+  // Only the UNGATED files count. One that returns early on an environment variable proves nothing about
+  // an ordinary run, and reading it as coverage is what let a whole driver go unchecked.
+  const bodies = readdirSync(tests)
     .filter((f) => f.endsWith('.cs'))
-    .map((f) => readFileSync(join(tests, f), 'utf8'))
-    .join('\n');
+    .map((f) => readFileSync(join(tests, f), 'utf8'));
+
+  const sources = bodies.filter((body) => !gated(body)).join('\n');
 
   for (const suite of required)
     if (!constructs(sources, suite))
       problems.push(
-        `${provider}: never constructs ${suite} — the add-provider skill lists it as required, and the ` +
-        'one provider that skipped it turned out to be failing four of its checks');
+        bodies.some((body) => gated(body) && constructs(body, suite))
+          ? `${provider}: ${suite} is only constructed inside an environment-gated file, so an ordinary ` +
+            'run never reaches it. That is a promise about a run nobody has done, not coverage — move the ' +
+            'ungated suite into its own file'
+          : `${provider}: never constructs ${suite} — the add-provider skill lists it as required, and the ` +
+            'one provider that skipped it turned out to be failing four of its checks');
 
   // ── and every KIND, not just the provider ──────────────────────────────────────────────────────
   // `UnitDriverContract` tests ONE unit, so a provider with two kinds needs two fixtures — and the kind
@@ -79,9 +103,8 @@ for (const provider of providers) {
   // else in the suite does not count.
   const kinds = kindsOf(provider);
 
-  const contractFiles = readdirSync(tests)
-    .filter((f) => f.endsWith('.cs'))
-    .map((f) => readFileSync(join(tests, f), 'utf8'))
+  const contractFiles = bodies
+    .filter((body) => !gated(body))
     .filter((body) => constructs(body, 'UnitDriverContract'));
 
   kindsChecked += kinds.length;
@@ -89,8 +112,8 @@ for (const provider of providers) {
   for (const kind of kinds)
     if (!contractFiles.some((body) => body.includes(kind)))
       problems.push(
-        `${provider}: the unit kind ${kind} is never named in a file that runs UnitDriverContract — ` +
-        'one fixture per kind, because the suite tests one unit and the untested kind is the broken one');
+        `${provider}: the unit kind ${kind} is never named in an UNGATED file that runs UnitDriverContract ` +
+        '— one fixture per kind, because the suite tests one unit and the untested kind is the broken one');
 }
 
 /**

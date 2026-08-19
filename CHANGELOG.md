@@ -14,7 +14,7 @@ cleanups that no user ever met, because there was no previous version to meet th
 separate, because the reasoning is the point: most of those mistakes are ones a provider or storage backend
 written outside this repository can still make.
 
-Test counts quoted against a particular piece are what it brought with it. The suite as a whole is **686
+Test counts quoted against a particular piece are what it brought with it. The suite as a whole is **755
 tests**, none of which touch a cloud.
 
 ### What ships
@@ -83,9 +83,12 @@ Reasoning in `docs/DECISIONS.md` D26.
     bucket's per-account name, no-updates versus a real validation error, teardown re-runnability, event
     de-duplication, S3 key shape and content types, CDN invalidation, delete batching. Every one was
     mutation-checked: the behaviour was broken deliberately and the suite had to fail. D23.
-  - The content unit is held to `UnitDriverContract` offline, against an in-memory bucket. S3 has no state
-    machine to model — what you put is what you list — so the line D23 draws lets this one run without a
-    cloud where the stack driver's cannot.
+  - **Both** unit kinds are held to `UnitDriverContract` offline. The content unit runs against an in-memory
+    bucket; the stack unit against a CloudFormation fake that models exactly two things — a created stack can
+    be described, a deleted one cannot — and none of the interesting statuses. Every value either fake hands
+    back is a real string, and what the suite asserts is our driver's behaviour, never AWS's. The rollbacks,
+    the timing and whether a request is accepted at all stay behind `TYANOR_LIVE_AWS`, which is the line D23
+    actually draws.
   - **Not run against AWS.** Whether the SDK accepts what we build is unverified in this repo. The live
     test deploys a free single-resource stack and is gated behind `TYANOR_LIVE_AWS`.
 
@@ -373,6 +376,30 @@ would not have failed, it would have silently certified.
   `public` that should have been `internal` ships permanently — after which narrowing it is itself the
   breaking change. It is a record rather than a rule: a deliberate change is `TYANOR_UPDATE_API=1 dotnet test`
   and a diff somebody reads. It found the three defects above within the hour. Reasoning in D27.
+
+- **The AWS stack driver had never once been held to `UnitDriverContract`, and a check said otherwise.** The
+  suite was constructed for it in exactly one place — inside the live deployment test, behind
+  `TYANOR_LIVE_AWS`, which returns before doing anything when the variable is unset. Nothing has ever reached
+  AWS from this repository, so the largest driver in it had run those checks zero times, while `doctor`
+  reported "4 unit kinds, each held to 2 contract suites". The `providers` check could not tell RUNNING a
+  suite from NAMING one in a file that returns early, so a gated file counted as coverage; it no longer does,
+  and removing the new offline suite makes it say so.
+
+  The reason it stayed gated was half right and had been stretched: a fake would have to encode
+  CloudFormation's semantics, and a suite asserting those is this repository agreeing with itself. True of
+  the rollbacks and the timing — and not true of the contract, which asks only about *our* driver. That a
+  phase read changes nothing, that removing twice is fine, that an update over an unchanged deployment says
+  so, that outputs stop answering once the unit is gone: none of those is a question about AWS, and each
+  fails quietly. It now runs offline against a fake that models existence and nothing else, and a mutation of
+  the no-updates path makes it fail. **This is the D23 line applied properly rather than as a blanket.**
+
+- **`Plan.IsNoOp`'s only passing test used a state the API cannot produce.** It was pinned true against a
+  plan built by hand with zero steps — which `PlanAsync` never returns, because `Procedure` refuses a
+  procedure with no units. The property's real behaviour is deliberate and was pinned in the other direction
+  (an apply over a settled deployment is not a no-op, because a `Ready` unit plans as `Update` and only the
+  provider knows whether that changes anything), but the one reachable case where it IS true — a teardown of
+  something already gone — had no test, and the summary read as though it covered the apply. Both fixed: the
+  doc now says which direction it fires in and why the other cannot, and the real case has a test.
 
 - **…and then the gate itself turned out to have a hole, which no baseline could have shown.** The renderer
   dropped every user-defined operator, including implicit and explicit conversions — the sort of member added

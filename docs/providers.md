@@ -21,6 +21,7 @@ alternative is reading the provider's source, which is what everyone was doing b
   - [A `content` unit](#a-content-unit)
   - [The CloudFormation phase table](#the-cloudformation-phase-table)
   - [How AWS's failures are classified](#how-awss-failures-are-classified)
+- [What is verified, and where the last mile starts](#what-is-verified-and-where-the-last-mile-starts)
 - [What neither provider does](#what-neither-provider-does)
 
 ---
@@ -383,6 +384,23 @@ Each of these is a decision, not an omission, and each is cheaper to know now th
   twice, and both times the engine already had the answer.
 - **Neither is discovered from disk.** You register a target in your composition root, in one line
   ([D6](DECISIONS.md)). Writing your own is fully supported and is a different question from loading one.
+
+## What is verified, and where the last mile starts
+
+The local provider deploys real files and starts real processes in its own tests, so there is no gap between
+what is tested and what ships.
+
+The AWS provider is different and the difference is worth being exact about, because "ported" and "proven"
+are not the same word. **No request from this repository has reached AWS.** Everything up to that point is
+covered offline — the phase table against every status the SDK enumerates, the classifier against real error
+codes, which request each call builds, the driver's control flow, and **both** unit kinds against
+`UnitDriverContract`. What is left is only what a fake cannot answer without inventing it: whether AWS
+accepts what we send, and whether it answers the way the phase table believes.
+
+That last mile is deliberately not simulated. A fake that asserted a create settles into `CREATE_COMPLETE`,
+or that `UPDATE_ROLLBACK_FAILED` behaves as assumed, would be this repository agreeing with itself — so the
+fakes model only that a created stack exists and a deleted one does not, and the rest sits behind
+`TYANOR_LIVE_AWS` ([D23](DECISIONS.md)). The full split is in [`TASKS.md`](../TASKS.md), item 1.
 
 **Need something neither has?** A whole provider is a lot to write when what you have is one step. Register
 it as a unit kind inside the provider you are already using — see *Extending it* in

@@ -255,6 +255,136 @@ internal sealed class FakeSts : AmazonSecurityTokenServiceClient
     }
 }
 
+/// <summary>
+/// CloudFormation as a STORE rather than a script: a created stack exists, a deleted one does not.
+///
+/// <para><b>Why a second CloudFormation fake, and exactly where its honesty ends.</b>
+/// <see cref="FakeCloudFormation"/> replays a scripted sequence of statuses, which is right for asking "what
+/// does the driver do when it is told X" and useless for <c>UnitDriverContract</c> — that suite creates and
+/// destroys the same unit several times and asks what is true AFTERWARDS, which needs something that
+/// remembers.</para>
+///
+/// <para><b>It models exactly two things</b>, and both are the premise of any resource system rather than
+/// anything particular to CloudFormation: a stack that was created can be described, and one that was
+/// deleted cannot. Every value it hands back is a real CloudFormation string — <c>CREATE_COMPLETE</c>,
+/// <c>UPDATE_COMPLETE</c>, the <c>ValidationError</c> that means "no such stack", the
+/// <c>No updates are to be performed</c> message — and the mapping from those strings to a
+/// <see cref="UnitPhase"/> is pinned separately, against the SDK's own enumeration, by
+/// <c>CloudFormationPhaseTests</c>.</para>
+///
+/// <para><b>It deliberately models NONE of CloudFormation's interesting behaviour.</b> No rollback, no
+/// <c>UPDATE_ROLLBACK_FAILED</c>, no <c>REVIEW_IN_PROGRESS</c>, no timing, no drift, and no opinion about
+/// whether a template is valid. Those are the questions D23 says a fake can only answer by agreeing with
+/// whatever this code already believes, and they stay behind <c>TYANOR_LIVE_AWS</c>. What is being checked
+/// against this fake is never "does AWS do that" — it is "given an answer AWS really gives, does OUR driver
+/// hold the contract every driver is held to".</para>
+///
+/// <para>That distinction is the whole reason this class is safe to have. Read
+/// <c>StackDriverContractTests</c> for what it buys.</para>
+/// </summary>
+internal sealed class StatefulCloudFormation : AmazonCloudFormationClient
+{
+    private readonly Dictionary<string, Stacked> _stacks = new(StringComparer.Ordinal);
+
+    public StatefulCloudFormation() : base(Fake.Credentials, RegionEndpoint.USEast1) { }
+
+    /// <summary>Outputs every existing stack exposes. Gone when the stack is.</summary>
+    public Dictionary<string, string> Outputs { get; } = [];
+
+    /// <summary>
+    /// Bumped by a test to mean "the template changed". An update whose request is otherwise identical is a
+    /// no-op, which is what CloudFormation reports and what a resume depends on.
+    /// </summary>
+    /// <remarks>
+    /// Explicit rather than derived from the uploaded body, because the driver stages the template to a
+    /// DETERMINISTIC S3 url — so comparing urls would call every update a no-op, and comparing bodies would
+    /// mean this fake deciding what counts as a template change, which is CloudFormation's job and not
+    /// something this repository should be asserting on its behalf.
+    /// </remarks>
+    public int TemplateRevision { get; set; }
+
+    /// <summary>Resources <c>DescribeStackResources</c> reports for an existing stack.</summary>
+    public List<StackResource> Resources { get; } =
+    [
+        new() { PhysicalResourceId = "fake-topic-arn", ResourceType = "AWS::SNS::Topic", ResourceStatus = "CREATE_COMPLETE" },
+    ];
+
+    private sealed record Stacked(string Status, int Revision);
+
+    private bool Exists(string name) => _stacks.ContainsKey(name);
+
+    public override Task<DescribeStacksResponse> DescribeStacksAsync(
+        DescribeStacksRequest request, CancellationToken ct = default)
+    {
+        if (!_stacks.TryGetValue(request.StackName, out var stack))
+            // CloudFormation reports "no such stack" by REFUSING to describe it, not by a status.
+            throw new AmazonCloudFormationException($"Stack with id {request.StackName} does not exist")
+            { ErrorCode = "ValidationError" };
+
+        return Task.FromResult(new DescribeStacksResponse
+        {
+            Stacks =
+            [
+                new Stack
+                {
+                    StackName = request.StackName,
+                    StackStatus = stack.Status,
+                    Outputs = [.. Outputs.Select(o => new Output { OutputKey = o.Key, OutputValue = o.Value })],
+                },
+            ],
+        });
+    }
+
+    public override Task<CreateStackResponse> CreateStackAsync(CreateStackRequest request, CancellationToken ct = default)
+    {
+        _stacks[request.StackName] = new Stacked("CREATE_COMPLETE", TemplateRevision);
+        return Task.FromResult(new CreateStackResponse { StackId = "arn:fake:" + request.StackName });
+    }
+
+    public override Task<UpdateStackResponse> UpdateStackAsync(UpdateStackRequest request, CancellationToken ct = default)
+    {
+        if (!_stacks.TryGetValue(request.StackName, out var stack))
+            throw new AmazonCloudFormationException($"Stack with id {request.StackName} does not exist")
+            { ErrorCode = "ValidationError" };
+
+        // The real message, with the real code. CloudFormation gives this a `ValidationError` shared with
+        // genuine template errors, which is why the driver matches on the text and why that is pinned by
+        // CloudFormationPhaseTests rather than invented here.
+        if (stack.Revision == TemplateRevision)
+            throw new AmazonCloudFormationException("No updates are to be performed.")
+            { ErrorCode = "ValidationError" };
+
+        _stacks[request.StackName] = new Stacked("UPDATE_COMPLETE", TemplateRevision);
+        return Task.FromResult(new UpdateStackResponse { StackId = "arn:fake:" + request.StackName });
+    }
+
+    public override Task<DeleteStackResponse> DeleteStackAsync(DeleteStackRequest request, CancellationToken ct = default)
+    {
+        _stacks.Remove(request.StackName);
+        return Task.FromResult(new DeleteStackResponse());
+    }
+
+    public override Task<DescribeStackResourcesResponse> DescribeStackResourcesAsync(
+        DescribeStackResourcesRequest request, CancellationToken ct = default)
+    {
+        if (!Exists(request.StackName))
+            throw new AmazonCloudFormationException($"Stack with id {request.StackName} does not exist")
+            { ErrorCode = "ValidationError" };
+
+        return Task.FromResult(new DescribeStackResourcesResponse { StackResources = [.. Resources] });
+    }
+
+    public override Task<DescribeStackEventsResponse> DescribeStackEventsAsync(
+        DescribeStackEventsRequest request, CancellationToken ct = default)
+    {
+        if (!Exists(request.StackName))
+            throw new AmazonCloudFormationException($"Stack with id {request.StackName} does not exist")
+            { ErrorCode = "ValidationError" };
+
+        return Task.FromResult(new DescribeStackEventsResponse { StackEvents = [] });
+    }
+}
+
 /// <summary>Shared scaffolding for the fakes and the tests that drive them.</summary>
 internal static class Fake
 {

@@ -170,7 +170,22 @@ public sealed record Plan(
     /// </summary>
     public bool HasDrift => Drift.Count > 0;
 
-    /// <summary>Nothing to do — every unit is already as asked, no drift, no orphan, no run outstanding.</summary>
+    /// <summary>
+    /// Nothing to issue and nothing to wait on: no mutating step, no drift, no orphan, no run outstanding.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>An apply over a fully settled deployment is NOT a no-op, and that is deliberate.</b> A unit
+    /// that is <see cref="UnitPhase.Ready"/> plans as <see cref="ReconcileAction.Update"/>, which issues a
+    /// call — and only the provider knows whether that call will change anything. Reporting "nothing to do"
+    /// before asking would be the one promise this type refuses to make (see the note on
+    /// <see cref="Plan"/> about being a forecast). So on an apply this is false whenever anything is
+    /// deployed, and the honest question there is <see cref="HasDrift"/> plus the
+    /// <see cref="Summary"/> counts.</para>
+    /// <para><b>Where it genuinely fires is a TEARDOWN with nothing left to remove</b> — every unit already
+    /// <see cref="UnitPhase.Missing"/>, so every step is <see cref="ReconcileAction.Nothing"/>. That is worth
+    /// a distinct answer: it is how a caller tells "this destroy will take twelve things away" from "this
+    /// destroy has already happened", without reading the steps.</para>
+    /// </remarks>
     public bool IsNoOp =>
         Changes.Count == 0 && !HasWorkInFlight && ActiveRun is null && !HasDrift && !HasOrphans;
 

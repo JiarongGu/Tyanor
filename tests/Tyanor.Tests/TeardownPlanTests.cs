@@ -27,6 +27,27 @@ public class TeardownPlanTests
         new(target, new InMemoryRunHistory(), state);
 
     [Fact]
+    public async Task A_teardown_of_something_already_gone_is_the_one_real_NO_OP()
+    {
+        // The only way a plan from PlanAsync is ever IsNoOp, and it had no test: every unit Missing, so
+        // every step is Nothing, so nothing mutates.
+        //
+        // Worth pinning because the property's only passing test built a plan with ZERO STEPS by hand —
+        // a shape `Procedure` refuses to produce, since it requires at least one unit. So the assertion
+        // that IsNoOp can be true was true of a state the API cannot reach.
+        //
+        // The counterpart is pinned in CrossMachineTests: an APPLY over a settled deployment is NOT a
+        // no-op, because a Ready unit plans as Update and only the provider knows whether that changes
+        // anything. The two together are the whole of what this property means.
+        var plan = await Runner(new MemoryTarget()).PlanAsync(Site, Request(), RunKind.Destroy);
+
+        Assert.True(plan.IsNoOp);
+        Assert.Empty(plan.Changes);
+        Assert.All(plan.Steps, s => Assert.Equal(ReconcileAction.Nothing, s.Action));
+        Assert.False(plan.IsDestructive);            // and nothing to confirm, because nothing will go
+    }
+
+    [Fact]
     public void Removal_decides_only_two_things()
     {
         // Take it away, or notice it is already gone. There is no third answer, and in particular there is
