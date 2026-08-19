@@ -66,9 +66,39 @@ it touches, **remove the item**, then commit. Discovered work is added here, nev
 Two halves of finishing D14, in this order — the second is not worth designing until the first has told us
 whether the plumbing is right.
 
-**Run the live test.** `TYANOR_LIVE_AWS=1` plus key, secret and region. It deploys a free single-resource
-stack, plans, re-applies (the "No updates are to be performed" path, which resume depends on), refreshes and
-tears down.
+**Run the live test.** Four variables, one command:
+
+```bash
+TYANOR_LIVE_AWS=1 \
+TYANOR_LIVE_AWS_KEY=AKIA… \
+TYANOR_LIVE_AWS_SECRET=… \
+TYANOR_LIVE_AWS_REGION=ap-southeast-2 \
+dotnet test tests/Tyanor.Providers.Aws.Tests --filter FullyQualifiedName~AwsLiveDeploymentTests
+```
+
+```powershell
+$env:TYANOR_LIVE_AWS=1; $env:TYANOR_LIVE_AWS_KEY='AKIA…'
+$env:TYANOR_LIVE_AWS_SECRET='…'; $env:TYANOR_LIVE_AWS_REGION='ap-southeast-2'
+dotnet test tests/Tyanor.Providers.Aws.Tests --filter FullyQualifiedName~AwsLiveDeploymentTests
+```
+
+**With the gate on but a variable missing it FAILS rather than skipping** — silently doing nothing when
+somebody deliberately switched this on is how a live test comes to be believed without ever having run.
+
+**What it costs and what it touches.** Two tests. The first plans, creates, re-applies (the *No updates are
+to be performed* path that resume depends on), refreshes and tears down; the second runs the whole
+`UnitDriverContract` against the real service, creating and destroying the stack several times. The stack
+holds one `AWS::SSM::Parameter` — free, and not globally named, so nothing collides and nothing survives.
+Each run uses a fresh random prefix, and a staging bucket `{prefix}-deploy-{account}` is created for the
+template.
+
+**What it needs permission to do:** CloudFormation create/describe/delete, `s3:CreateBucket` and
+`PutObject` for staging, `ssm:PutParameter`/`DeleteParameter`, and `sts:GetCallerIdentity`. Use a scratch
+account, not one holding anything.
+
+**If it fails, that is the point.** Everything it exercises is offline-covered already *except* the two
+questions in the right-hand column below, so a failure here is information about AWS rather than about the
+control flow — which is what makes it worth running rather than reading.
 
 Everything testable without a cloud now IS tested, and that sentence was an overstatement until recently —
 the stack driver had never once been held to `UnitDriverContract`, because the only place it ran was inside

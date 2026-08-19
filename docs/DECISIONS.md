@@ -65,6 +65,7 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D14](#d14--the-aws-port-keeps-the-knowledge-and-leaves-the-application-behind-2026-08-08) | the AWS port — **never run against AWS** | ⚠ scoped by D23 |
 | [D23](#d23--a-fake-cannot-tell-you-what-aws-does-it-can-tell-you-what-we-do-2026-08-18--scopes-d14) | fakes for our control flow, a cloud for their semantics | scopes D14 |
 | [D29](#d29--a-sync-converges-in-both-directions-and-a-unit-owns-what-it-fills-2026-08-20) | a sync converges; a unit owns what it fills | a deleted page served for ever |
+| [D30](#d30--only-against-the-real-thing-is-a-claim-about-the-question-not-the-provider-2026-08-20--scopes-d15-d23) | the gate is per QUESTION, not per provider | scopes D15, D23 |
 
 ---
 
@@ -613,6 +614,12 @@ that none of our own code has to satisfy drifts into describing something nobody
 needs something real to point it at. The AWS driver contract runs only behind `TYANOR_LIVE_AWS`, for the
 same reason the live deployment test does.
 
+> ⚠ **That last sentence stopped being true.** **D30** runs the driver contract for BOTH AWS unit kinds
+> offline, against a fake that models existence and nothing else. The sentence was right that a contract
+> needs something real to point at, and wrong that "real" had to mean AWS — which is what kept an entire
+> driver unchecked. Left as written, with this note, because that is how a reader tells a claim that was
+> overtaken from one that was never made.
+
 ---
 
 ## D16 — The gate goes in front of the destructive direction too (2026-08-09)
@@ -1003,6 +1010,12 @@ this was cheap, and would not be true after 1.0.
 
 ## D23 — A fake cannot tell you what AWS does; it can tell you what WE do (2026-08-18) — scopes D14
 
+> ⚠ **Sharpened by D30.** This entry is right, and it was applied to the wrong noun: read together with
+> D15 it was taken to mean *a cloud provider's driver cannot be contract-tested offline*, which left the AWS
+> stack driver held to `UnitDriverContract` exactly never. The line below is drawn per QUESTION — "does AWS
+> do that" versus "does our driver do that" — and almost every contract check is the second kind. D30 has
+> the table.
+
 D14 said mocking the SDK proves nothing, and used that to leave the AWS driver's behaviour untested. The
 first half is true. The conclusion was too wide, and the gap it left was the largest untested surface in the
 repository — a provider whose every code path outside two pure functions had never been executed by anything.
@@ -1336,3 +1349,54 @@ question and was answered wrongly rather than approximately.
 **The generalizable part**, for a provider written elsewhere: if your unit removes everything on a teardown,
 it owns the namespace, and a sync that does not prune is claiming otherwise on the one path where nobody
 checks.
+
+---
+
+## D30 — "Only against the real thing" is a claim about the QUESTION, not the provider (2026-08-20) — scopes D15, D23
+
+The `UnitDriverContract` runs against both AWS unit kinds **offline**. It previously ran against the stack
+driver only behind `TYANOR_LIVE_AWS` — which, since nothing from this repository has ever reached AWS, meant
+it had never run at all.
+
+**How it hid.** D15 said a contract "checks behaviour against a real target, so a provider still needs
+something real to point it at", and concluded the AWS one runs only behind the live gate. D23 said a fake
+cannot tell you what AWS does. Both are true. Put together they read as *the AWS driver cannot be
+contract-tested offline*, and that conclusion follows from neither — but it was load-bearing for a year of
+`doctor` runs reporting "4 unit kinds, each held to 2 contract suites", because the check counted a gated
+file as coverage. **Two correct statements composed into a wrong one, and nothing could see it.**
+
+**The distinction that resolves it.** D23's line is drawn per QUESTION, not per provider:
+
+| The question | Who can answer | Where it lives |
+|---|---|---|
+| Does CloudFormation settle a create into `CREATE_COMPLETE`? | a real deployment | `TYANOR_LIVE_AWS` |
+| Will AWS accept the request we build? | a real deployment | `TYANOR_LIVE_AWS` |
+| Does a phase read change anything? | our code | offline |
+| Does removing twice throw? | our code | offline |
+| Does an update over an unchanged deployment report no change? | our code | offline |
+| Do outputs stop answering once the unit is gone? | our code | offline |
+
+Every check in `UnitDriverContract` is in the lower half. None asks what AWS does; all ask what our driver
+does when handed an answer AWS really gives. Reading D23 as *a cloud provider cannot be contract-tested*
+applies the right rule to the wrong noun.
+
+**What makes the fake safe.** `StatefulCloudFormation` models exactly two things — a created stack can be
+described, a deleted one cannot — and every value it returns is a real CloudFormation string. It models NO
+rollback, no `UPDATE_ROLLBACK_FAILED`, no `REVIEW_IN_PROGRESS`, no timing, no drift, and no opinion about
+whether a template is valid. That is deliberate and is the whole safety property: a fake that cannot express
+CloudFormation's interesting behaviour cannot accidentally start certifying it. The mapping from status
+strings to phases stays where it was, pinned against the SDK's own enumeration.
+
+**Decided against: leaving it gated and calling the gap "the last mile."** The last mile is supposed to be
+what only a cloud can answer. Nineteen checks about our own control flow are not that, and calling them that
+made "we are covered apart from the AWS call" an overstatement nobody could measure.
+
+**The check now enforces it.** `providers.mjs` no longer counts a contract suite constructed inside a file
+that reads an environment variable. A gated run is a promise about a run nobody has done; deleting the
+offline suite makes the check say so by name.
+
+**The lesson worth keeping**, because it is not about AWS: when two true constraints compose into "this
+cannot be tested", the composition is the thing to check. `TASKS.md` already carried the warning — *when "it
+can only be tested against the real thing" gets said again, check whether it is a fact about the target or
+about a hard-coded constant* — and this is the same failure with a different ending: a fact about the
+**question**, mistaken for a fact about the provider.
