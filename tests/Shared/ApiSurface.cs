@@ -78,10 +78,24 @@ internal static class ApiSurface
             .Append(". Generated — see tests/Shared/ApiSurface.cs.\n");
 
         foreach (var type in assembly.GetExportedTypes().OrderBy(t => t.FullName, StringComparer.Ordinal))
-        {
-            text.Append('\n').Append(Declaration(type)).Append('\n');
-            foreach (var member in Members(type)) text.Append("    ").Append(member).Append('\n');
-        }
+            text.Append('\n').Append(Render(type));
+
+        return text.ToString();
+    }
+
+    /// <summary>
+    /// One type's declaration and members, as they appear in a baseline.
+    /// </summary>
+    /// <remarks>
+    /// Separate from the assembly walk so the renderer itself can be tested against a type built to probe
+    /// it. A gate is only worth what its own tests are worth, and this one had a hole that no baseline
+    /// could have shown: a rendering rule that drops something renders a smaller file, and a smaller file
+    /// is exactly what a baseline records without complaint.
+    /// </remarks>
+    internal static string Render(Type type)
+    {
+        var text = new StringBuilder().Append(Declaration(type)).Append('\n');
+        foreach (var member in Members(type)) text.Append("    ").Append(member).Append('\n');
 
         return text.ToString();
     }
@@ -135,10 +149,24 @@ internal static class ApiSurface
 
     private static bool Interesting(MemberInfo member)
     {
-        // Anything the compiler wrote. Backing fields and closures carry '<' in the name; accessors are
-        // reported through their property or event instead, where `get`/`set`/`init` is more legible.
-        if (member.Name.Contains('<') || member is MethodInfo { IsSpecialName: true } and not { Name: "op_" }) return false;
-        if (member is MethodInfo { IsSpecialName: true }) return false;
+        // Backing fields and closures carry '<' in the name.
+        if (member.Name.Contains('<')) return false;
+
+        // Accessors are special-name and are reported through their property or event instead, where
+        // `get`/`set`/`init` is more legible.
+        //
+        // An OPERATOR is special-name too, and is real public surface: a user-defined conversion that ships
+        // can never be taken back, and it is precisely the sort of thing added without anyone thinking of it
+        // as API. So `op_` is kept here and the record-generated pair is dropped by NAME below.
+        //
+        // This used to read `and not { Name: "op_" }`, which matches a member called exactly "op_" — no
+        // member ever is — so the exclusion was inert, every operator was dropped, and the `op_Equality`
+        // entry in the boilerplate list below was unreachable. A baseline could not have caught it: a
+        // rendering rule that drops something renders a smaller file, and a smaller file is what the
+        // baseline then records.
+        if (member is MethodInfo { IsSpecialName: true }
+            && !member.Name.StartsWith("op_", StringComparison.Ordinal)) return false;
+
         if (member is Type) return true;      // a nested public type; listed in full on its own line too
 
         // Record and value boilerplate. Its presence is implied by `record`, and listing it would turn a

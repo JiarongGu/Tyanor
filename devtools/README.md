@@ -100,6 +100,13 @@ shapes (AWS keys, private-key blocks, JWTs, bearer tokens) rather than the word 
 all noise. Tuned to be slightly noisy and cheap to silence: a false positive costs one
 `tyanor:allow-secret` comment, and the opposite tuning is the one that leaks.
 
+**The limit, stated rather than left to be discovered: it reads by EXTENSION**, so a `.env` — the single
+most likely place for a real credential — is never opened, and its unquoted `KEY=value` lines would not
+match these patterns anyway. That gap is closed by `.gitignore` instead, which is the stronger answer for
+this particular file: not committed at all beats scanned and hopefully caught. Widen the patterns only
+with a real finding in hand; a scanner that looks like it covers a format it cannot read is worse than one
+that says where it stops.
+
 ### `test` (inside `doctor`)
 
 Reports **every** test project's summary, not the first. With one test project those are the same thing;

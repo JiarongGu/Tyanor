@@ -77,11 +77,7 @@ for (const provider of providers) {
   // A kind is a `public const string XxxKind = "…"` beside the provider. Requiring the CONSTANT to appear
   // in a file that also builds the driver contract is what ties the two together — a kind named anywhere
   // else in the suite does not count.
-  const kinds = [...readFileSync(optionsOf(provider), 'utf8')
-    // `\w+Kind`, not `\w*Kind`: the latter also matched the option NAME — `public const string Kind =
-    // "kind"` — which then "passed" because the literal Kind is a substring of DirectoryKind. A check that
-    // counts six kinds where there are four is a check that is not reading what it thinks it is.
-    .matchAll(/public\s+const\s+string\s+(\w+Kind)\s*=/g)].map((m) => m[1]);
+  const kinds = kindsOf(provider);
 
   const contractFiles = readdirSync(tests)
     .filter((f) => f.endsWith('.cs'))
@@ -97,11 +93,28 @@ for (const provider of providers) {
         'one fixture per kind, because the suite tests one unit and the untested kind is the broken one');
 }
 
-/** A provider's options file, where its kinds are declared. Empty when it has none. */
-function optionsOf(provider) {
+/**
+ * A provider's declared unit kinds, from the options file beside it.
+ *
+ * NO options file means NO declared kinds, and that is a legitimate provider rather than a mistake: one
+ * whose units are all the same thing — every CloudFormation unit is a stack — implements `IUnitDriver`
+ * directly and never declares a kind at all. Such a provider is still held to the suites above; there is
+ * simply nothing per-kind to check.
+ *
+ * This used to return a path to a file called `.no-options` for that case, which `readFileSync` then threw
+ * on — so the shape the framework explicitly supports crashed the check with an ENOENT stack trace instead
+ * of a sentence. A gate that dies on a legal input is a gate people learn to skip.
+ */
+function kindsOf(provider) {
   const dir = join(root, 'src', provider);
   const options = readdirSync(dir).find((f) => f.endsWith('Options.cs'));
-  return options ? join(dir, options) : join(dir, '.no-options');
+  if (!options) return [];
+
+  // `\w+Kind`, not `\w*Kind`: the latter also matched the option NAME — `public const string Kind =
+  // "kind"` — which then "passed" because the literal Kind is a substring of DirectoryKind. A check that
+  // counts six kinds where there are four is a check that is not reading what it thinks it is.
+  return [...readFileSync(join(dir, options), 'utf8')
+    .matchAll(/public\s+const\s+string\s+(\w+Kind)\s*=/g)].map((m) => m[1]);
 }
 
 if (problems.length === 0) {
