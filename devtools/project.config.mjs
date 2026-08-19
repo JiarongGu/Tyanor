@@ -79,6 +79,7 @@ export default {
   compiledSamples: [
     { doc: 'docs/guide.md', project: 'tests/Tyanor.Docs.Tests' },
     { doc: 'docs/adoption.md', project: 'tests/Tyanor.Docs.Tests' },
+    { doc: 'docs/providers.md', project: 'tests/Tyanor.Docs.Tests' },
   ],
 
   /**
@@ -88,7 +89,7 @@ export default {
    */
   requiredDocs: [
     'README.md', 'LICENSE', 'CHANGELOG.md',
-    'docs/guide.md', 'docs/adoption.md', 'docs/architecture/overview.md',
+    'docs/guide.md', 'docs/adoption.md', 'docs/providers.md', 'docs/architecture/overview.md',
   ],
 
   /** Paths the scanners never read (generated, vendored, or its own fixtures). */

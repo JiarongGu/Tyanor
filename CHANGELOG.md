@@ -14,7 +14,7 @@ cleanups that no user ever met, because there was no previous version to meet th
 separate, because the reasoning is the point: most of those mistakes are ones a provider or storage backend
 written outside this repository can still make.
 
-Test counts quoted against a particular piece are what it brought with it. The suite as a whole is **642
+Test counts quoted against a particular piece are what it brought with it. The suite as a whole is **686
 tests**, none of which touch a cloud.
 
 ### What ships
@@ -348,6 +348,24 @@ would not have failed, it would have silently certified.
   and pinned by a new contract check — *"A credential error beside a SIBLING in an aggregate still
   classifies"* — so an implementation written outside this repository is held to it too.
 
+- **A page deleted from a website was never taken down, and the tool said the site was current.** The AWS
+  `content` unit uploaded what the build produced and nothing else: it never removed objects the build had
+  stopped producing, and its change check asked only *is every local file up there?*, which a bucket holding
+  those files plus every deleted page satisfies. So the update reported no change, the plan called the
+  deployment current, and the deleted page went on being served — permanently, because nothing else ever
+  looks at it. A sync now makes the bucket **be** the build in both directions, pruning after the upload so
+  an interruption leaves the site stale rather than half-gone. The local provider had always done this to
+  its own files, which is what made the gap visible: one concept, two providers, only one of them
+  implementing it.
+
+  The prune brought one new way to lose a site, so it is guarded: **a build that produced no files at all is
+  refused**, rather than converged on by emptying the bucket. An empty directory does describe an empty site,
+  but a build step that failed quietly should not take a live website with it. The local provider needs no
+  such guard — each build lands in its own release directory and the marker only moves once the copy is
+  done, so an empty build costs one unused release and leaves what is serving untouched. D29, which also
+  has the generalizable version: if your unit removes everything on a teardown, it owns the namespace, and a
+  sync that does not prune is claiming otherwise on the one path where nobody checks.
+
 #### Internal
 
 - **The public API surface of every shipped assembly is a checked-in file** (`tests/ApiBaselines/`), rendered
@@ -355,6 +373,16 @@ would not have failed, it would have silently certified.
   `public` that should have been `internal` ships permanently — after which narrowing it is itself the
   breaking change. It is a record rather than a rule: a deliberate change is `TYANOR_UPDATE_API=1 dotnet test`
   and a diff somebody reads. It found the three defects above within the hour. Reasoning in D27.
+
+- **…and then the gate itself turned out to have a hole, which no baseline could have shown.** The renderer
+  dropped every user-defined operator, including implicit and explicit conversions — the sort of member added
+  without anyone thinking of it as API, and impossible to withdraw once shipped. The exclusion meant to keep
+  them tested for a member named exactly `"op_"`, which no member ever is, so it was inert and the
+  `op_Equality` entry in the boilerplate list below it was unreachable. **A baseline cannot check its own
+  renderer**: a rendering rule that drops something produces a smaller file, and a smaller file is exactly
+  what the baseline then records, agrees with for ever, and reports green. So the renderer now has tests of
+  its own, against a type built to probe it — an operator is recorded, a conversion is recorded, a record's
+  generated equality operators are not, and a property is still reported once through the property.
 
 - **The local test harness disabled the retry it was testing.** `Sandbox` built its runner with
   `RetryPolicy(Attempts: 1)` — no retry at all — while the provider it exercises classifies a sharing
@@ -379,6 +407,26 @@ would not have failed, it would have silently certified.
   `error-classification.md` calls reading only the outermost exception the most common way a classifier goes
   quietly wrong, so it is now a function rather than a thing to remember. It is also where the aggregate
   defect above got fixed for everyone at once.
+- **`UnitContext.RequirePart(option)` finishes what `DeploymentArtifact.RequirePart` started.** Three unit
+  kinds across the two providers each wrote the same two steps — read the option naming a part, then resolve
+  it — and each wrote its own sentence for the first step, so an operator who forgot `source` was told three
+  different things depending on where they deployed. That is precisely the defect the resolution below it was
+  extracted to fix, one level up, and a fourth provider would have written a fourth sentence. The unified
+  message also does something none of the three did: it names the parts the artifact actually carries, so the
+  operator is told what they could have written. It throws `ArtifactException` rather than a provider's own
+  type deliberately — an unset part option is not a fact about the provider, and `UnitProblems` collects it
+  either way, so validation still reports it offline.
+- **The "a live run record cannot be deleted" refusal was written twice and had already drifted.** One store
+  told the operator what to do about it and the other stopped at the fact, so which sentence they got
+  depended on where their history happened to live — and D20 exists to make a third store easy, which would
+  have meant a third sentence. It is now `RunRecord.RefuseDeleteWhileLive()`. A method rather than a line in
+  the interface docs, because this is a rule an implementation satisfies by OMISSION: a store that simply
+  deletes passes every test that does not think to check, and the cost is stranded work with nothing left to
+  say it is happening.
+- **The local `directory` unit hashed the source tree twice on every changed deploy.** A fingerprint is a
+  full read of every file in the tree, and the update computed one to decide whether to redeploy and then
+  threw it away, so the materialize computed it again — doubling the I/O of the most expensive thing that
+  unit does, on exactly the path where there IS a new build. Computed once and carried.
 
 Not API, but the reasons are the kind that get rediscovered expensively.
 
@@ -388,6 +436,12 @@ Not API, but the reasons are the kind that get rediscovered expensively.
   is re-read by whoever changes the API, while an adoption document is read once, by someone new, who cannot
   tell that the sample they are copying stopped compiling two releases ago. Adding another such document is
   one line in `compiledSamples`.
+- **`docs/providers.md` — every setting the two shipped providers read, and what each will not do.** The
+  option names, defaults, phase tables, what each unit owns and produces, what a removal takes away, and both
+  classifiers' real error codes existed only in the source and in scattered samples, so the way to find out
+  whether `health.seconds` had a default was to read `ProcessUnit`. It is compiled like the other two, which
+  matters more here than anywhere: the page is almost entirely option *names*, and a renamed constant is the
+  one change nothing about a document would otherwise notice.
 - **`DeploymentTargets` and `StorageBackends` were the same registry twice** — a case-insensitive dictionary,
   a blank key refused, a duplicate refused rather than resolved by order, a failure that names what IS
   registered. Two independent arrivals at one shape is the signal `UnitKindDriver` was extracted on (D15), so
@@ -401,6 +455,22 @@ Not API, but the reasons are the kind that get rediscovered expensively.
   now tests against the shipped `MemoryTarget`. Keeping a private equivalent beside a public one would have
   been the same duplication this release keeps removing — and if the shipped target is not good enough for
   our own engine tests, it is not good enough for a consumer's.
+- **The `providers` check crashed on a provider shape the framework explicitly supports.** A provider whose
+  units are all the same kind of thing implements `IUnitDriver` directly and declares no kinds at all —
+  `UnitKindDriver`'s own documentation says so. Given one, the check called `readFileSync` on a sentinel path
+  named `.no-options` and died with a raw Node stack trace instead of a sentence. A gate that dies on a legal
+  input is a gate people learn to skip.
+- **`.gitignore` now keeps credentials out by construction** — `.env`, `.pem`, `.pfx`, `credentials`. The
+  `sensitive` scan reads by extension, so a `.env` was never opened, and its unquoted `KEY=value` lines would
+  not have matched the patterns anyway. This repo's live AWS test takes real keys from the environment, which
+  makes a `.env` beside it the obvious convenience and the obvious way to publish a key permanently. Not
+  committed at all beats scanned and hopefully caught; the limit is now stated in `devtools/README.md` rather
+  than left to be discovered.
+- **`architecture/overview.md` credited the wrong decision for the Terraform verbs** — D16, which is the
+  destroy-gets-a-plan entry, rather than D22, which is the rename. Exactly the rot D22 was written to record:
+  it exists because that rename shipped as a refactor and left three documents citing names that no longer
+  existed. `doctor` checks that every cited `D<n>` exists, not that it is the right one, so this is the class
+  of error only reading catches.
 - **`LICENSE`** — MIT was claimed in the README and in every package, and the file was not there. `doctor`'s
   new `docs` check is what noticed, and now keeps noticing.
 - **Packages carry their metadata**: repository and project URLs, tags, the README, and symbol packages.

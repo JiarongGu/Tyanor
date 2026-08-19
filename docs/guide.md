@@ -20,6 +20,7 @@ a deployment you can resume.
 - [6. Ask what it produced](#6-ask-what-it-produced)
 - [7. Drift, and repairing it](#7-drift-and-repairing-it)
 - [8. Tearing it down](#8-tearing-it-down)
+- [Reading the run log](#reading-the-run-log)
 - [Where state lives](#where-state-lives)
 - [Wiring it into an application](#wiring-it-into-an-application)
 - [Testing your own deployment code](#testing-your-own-deployment-code)
@@ -40,6 +41,9 @@ dotnet add package Tyanor.Providers.Local                 # …and at least one 
 | `Tyanor` | **Always.** The engine, the state stores, DI wiring, the contract suites. |
 | `Tyanor.Providers.Local` | deploy to a machine: files, a process, a health check |
 | `Tyanor.Providers.Aws` | CloudFormation stacks, S3/CloudFront content |
+
+Every setting either provider reads is in [`providers.md`](providers.md) — the reference to keep open once
+you get past this page.
 
 That is the whole list. Three packages, shipping in lockstep at one version, and they need **.NET 10** — a
 project on net8 cannot reference them, which is worth knowing before the restore tells you.
@@ -162,6 +166,20 @@ if (plan.HasStalledRun) Console.WriteLine("a previous run stopped; this will con
 Two different questions, deliberately not conflated: **steps are units** (what this run will do) and
 **counts are resources** (what will change in your infrastructure).
 
+Read the counts precisely, because one of them is easy to over-read. On an **apply** they are a comparison
+of state against reality, not a forecast of destruction:
+
+| | On an apply | On a destroy |
+|---|---|---|
+| `ToAdd` | exists in the provider, not in state — it will be adopted | 0 |
+| `ToChange` | in state, and its fingerprint no longer matches | 0 |
+| `ToDestroy` | **already gone** — recorded, but no longer in the provider | what this run will take away |
+
+So `3 to destroy` on an apply does not mean the apply will destroy three things; it means three things state
+knew about have already been deleted outside Tyanor, and applying will put them back. The gate for *this
+will take something away* is `plan.IsDestructive`, which is a teardown with something left to remove or a
+unit the provider will not update in place — and that is the one to wire a confirmation to.
+
 ```csharp
 var outcome = await runner.ApplyAsync(procedure, request, report: Console.WriteLine);
 ```
@@ -202,6 +220,53 @@ it rather than opening a second record.
 
 Cancelling leaves the run live on purpose: the provider is still converging out there, and marking it failed
 would hide work genuinely in flight.
+
+### Telling a wrong definition from a wrong world
+
+The three classes above are all about the *provider*. There is a fourth situation and it is not one of them:
+**you configured this wrongly**. A unit that names no template, an artifact part the build never wrote, a
+`bucketFrom` that does not parse — nothing on the target has been touched, and retrying re-reads the same
+definition and reaches the same conclusion.
+
+Those all derive from one type, so a UI can tell them apart without matching on message text:
+
+```
+DefinitionException                catch this to mean "fix your configuration; nothing is lost"
+├── ArtifactException              a part is not in the artifact, or points at nothing on disk
+├── UnitKindException              the unit declares no kind, or one this provider does not have
+├── AwsConfigurationException      a stack name CloudFormation would refuse, a reference that will not parse
+└── LocalConfigurationException    no command, a port that is not a number
+```
+
+A provider's *other* failures — `AwsDeploymentException`, `LocalDeploymentException` — are deliberately not
+under it. "CloudFormation rolled your stack back" and "you have not said which template to use" go to
+different places in a UI, and only one of them is worth a support conversation.
+
+**Which call surfaces one depends on whether there is a run to record it against**, and this is the part
+worth knowing before you write the error handling:
+
+| Call | A definition error arrives as |
+|---|---|
+| `ValidateAsync` | **a reported problem, never a throw** — this is the gate, and it returns all of them at once |
+| `ApplyAsync`, `DestroyAsync` | a terminal `OperationOutcome`: `Ok` false, `Resumable` false, the message in `Error` |
+| `PlanAsync`, `OutputsAsync`, `RefreshAsync` | **a thrown exception** — a read has no run record to put it in |
+
+So the ordinary shape is to validate first and let that be where configuration problems are reported, and to
+wrap a plan if you are planning a procedure nobody has validated:
+
+```csharp
+try
+{
+    var preview = await runner.PlanAsync(procedure, request);
+    Console.WriteLine(preview.Summary);
+}
+catch (DefinitionException e)
+{
+    // Nothing was touched. This belongs on the screen where they fix the procedure, not on the one
+    // that says a deployment failed.
+    Console.Error.WriteLine(e.Message);
+}
+```
 
 ## 6. Ask what it produced
 
@@ -284,6 +349,46 @@ narrowing can do is leave something out — which the plan shows. An unknown nam
 
 It narrows a **destroy** too. Preview that one.
 
+## Reading the run log
+
+Everything above drives a deployment. This is how you show one — the history is what an operator's
+"deployment status" screen is made of, and `ProcedureRunner` writes to it without ever being asked to read
+it back for you.
+
+```csharp
+foreach (var run in await history.RecentAsync(20))
+    Console.WriteLine($"{run.StartedAt:g}  {run.Procedure}/{run.Prefix}  {run.Kind}  {run.Status}");
+```
+
+A `RunRecord` is a record of **intent** — that a run was attempted, with what, and how it ended. It never
+grows a list of created resources; that is what state is for, and mixing them is the mirror coming back in
+disguise.
+
+The one question worth asking before starting new work is whether something is already outstanding:
+
+```csharp
+if (await history.LiveAsync(procedure.Name, request.Prefix) is { } live)
+    Console.WriteLine($"{live.Id} is {live.Status} — applying continues it rather than starting a new one");
+```
+
+**Live means `Running` or `Paused`, and both are resumable.** With a shared history that record may belong
+to another machine, and adopting it is still right: the alternative is two competing records of one
+deployment, which is precisely what `plan.HasStalledRun` exists to reveal.
+
+**A live record cannot be deleted**, in any store, and that is a rule rather than an implementation detail:
+it is the operator's only handle on work that may still be converging, so deleting it strands that work with
+nothing left to say it is happening. `DeleteAsync` on one throws; on a finished run, and on a run that was
+never there, it does what you would expect.
+
+| Field | Worth knowing |
+|---|---|
+| `Id` | stable across a pause and its resume — resuming continues a run, it does not start one |
+| `StartedAt` | when the **attempt** began, not when the last resume did |
+| `FinishedAt` | null while still live |
+| `Reason` | set iff `Paused`. Open-ended: a provider may add its own |
+| `Error` | provider or engine detail for a stop |
+| `IsLive` | `Running` or `Paused` |
+
 ## Where state lives
 
 Two stores, deliberately separate. What Tyanor *owns* has to stay true; the run log is an append-only
@@ -310,6 +415,21 @@ are not coordinated. Divergence is shown, not resolved — resolving it depends 
 
 For a test or a one-shot CI run, `InMemoryRunHistory` and `InMemoryStateStore` exist. Choosing them is
 choosing to give up resume and safe teardown, which is why neither is ever a default.
+
+### What Tyanor thinks it owns
+
+State is readable directly, which is the answer to "what would a teardown remove?" — Terraform's
+`state show`:
+
+```csharp
+var owned = await state.GetAsync(procedure.Name, request.Prefix);
+foreach (var unit in owned.Units)
+    Console.WriteLine($"{unit.Unit}: {unit.Resources.Count} resources, last read {unit.RecordedAt:g}");
+```
+
+Never null: "no state" and "an empty deployment" are the same thing to a plan, so an undeployed procedure
+comes back empty rather than absent. `RecordedAt` is when Tyanor last looked, and judging whether that is
+stale is yours — `RefreshAsync` is how you make it not be.
 
 ## Wiring it into an application
 
@@ -514,10 +634,16 @@ Writing a whole provider: [`../.claude/skills/add-provider/SKILL.md`](../.claude
 - **On AWS, drift is CloudFormation-known drift.** `DetectStackDrift` is a paid asynchronous call per stack,
   far too expensive per plan — so a resource edited in the console reads as unchanged. The local provider
   content-hashes what it deployed and does catch it.
+- **A `content` unit owns its whole bucket.** A sync removes what the build no longer produces, and a destroy
+  empties the lot. Point it at a bucket holding anything else and it takes that too — give it one of its own,
+  which is what `bucketFrom` naming a stack's output produces.
+- **A unit's directory is the unit's.** The local provider prunes old releases under it and a remove deletes
+  it entirely, so anything your application writes — logs, data, uploads — belongs outside it.
 - **Publish-style steps are irreversible** and nothing has been added for them yet: a destroy over one would
   call a remove that must lie or throw. Known, deliberately unbuilt — see D21.
 
 ---
 
+Every setting the shipped providers read: [`providers.md`](providers.md).
 Putting this into an application that already deploys: [`adoption.md`](adoption.md).
 Why any of this is the way it is: [`DECISIONS.md`](DECISIONS.md).

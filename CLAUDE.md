@@ -71,8 +71,8 @@ src/
   Tyanor.Providers.*/   one per target. The ONLY place vendor vocabulary exists.
 tests/
   Tyanor.Tests/         pure tests for the decision logic. Always-on, no cloud, no mocks of an SDK.
-  Tyanor.Docs.Tests/    every C# sample in docs/guide.md, compiled. `doctor` refuses a fence in the
-                        guide that is not in here — so the two cannot drift.
+  Tyanor.Docs.Tests/    every C# sample in the consumer-facing docs, compiled. `doctor` refuses a fence
+                        in one of them that is not in here — so the two cannot drift.
   Shared/               compiled into EVERY test project by tests/Directory.Build.props, with a global
                         using. Put a helper here rather than copying it per assembly — `Suites` was
                         written three times before it was written once. `ApiSurface` renders a shipped
@@ -142,8 +142,8 @@ claim changed deliberately, change the claim. Do not silence the check. (D26 is 
 properly: the dependency-free claim genuinely stopped being true, so the check became a narrower one that
 still fails, rather than a check that was deleted.)
 
-**The guide's and the adoption doc's samples are compiled.** Every C# fence in `docs/guide.md` and
-`docs/adoption.md` must appear verbatim in `tests/Tyanor.Docs.Tests`, which builds — so a renamed method
+**The samples in the three consumer-facing documents are compiled.** Every C# fence in `docs/guide.md`,
+`docs/adoption.md` and `docs/providers.md` must appear verbatim in `tests/Tyanor.Docs.Tests`, which builds — so a renamed method
 breaks the build rather than rotting quietly in a document a newcomer is trusting. Edit one and you must edit
 the other; that is the point. Adding another such document is one line in `compiledSamples`.
 
@@ -192,6 +192,7 @@ Four independent libraries; none depends on another.
 | Why a decision was made | `docs/DECISIONS.md` |
 | How to USE the library, in order | `docs/guide.md` |
 | How to ADOPT it into an app that already deploys | `docs/adoption.md` |
+| Every setting a shipped provider reads | `docs/providers.md` |
 | System shape | `docs/architecture/overview.md` |
 | How to add a provider | `.claude/skills/add-provider/SKILL.md` |
 | The public API, as a reviewable file | `tests/ApiBaselines/*.txt` |

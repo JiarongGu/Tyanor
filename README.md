@@ -205,8 +205,6 @@ the right answer depends on facts Tyanor does not have ([D12](docs/DECISIONS.md)
 
 ## Layout
 
-| | |
-|---|---|
 **Three packages** ([D26](docs/DECISIONS.md)):
 
 | | |
@@ -235,6 +233,7 @@ needed a change to it, and there is no `if (provider == …)` anywhere outside a
 |---|---|
 | [`docs/guide.md`](docs/guide.md) | **Start here** — install to a resumable deployment, in order |
 | [`docs/adoption.md`](docs/adoption.md) | Putting it into an application that already deploys somehow |
+| [`docs/providers.md`](docs/providers.md) | Every setting each shipped provider reads, and what it will not do |
 | [`docs/architecture/overview.md`](docs/architecture/overview.md) | The whole model in one page |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Why each load-bearing choice was made, and against what |
 | [`.claude/skills/add-provider/SKILL.md`](.claude/skills/add-provider/SKILL.md) | Writing a provider |

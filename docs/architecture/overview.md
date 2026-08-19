@@ -1,7 +1,8 @@
 # Architecture
 
-What the system IS. For what to *do* with it, in order, see [`../guide.md`](../guide.md); for why each
-choice was made, [`../DECISIONS.md`](../DECISIONS.md).
+What the system IS. For what to *do* with it, in order, see [`../guide.md`](../guide.md); for every setting
+the shipped providers read, [`../providers.md`](../providers.md); for why each choice was made,
+[`../DECISIONS.md`](../DECISIONS.md).
 
 ## The whole model in one page
 
@@ -67,7 +68,7 @@ that never comes back.
 
 ## The six things an operator does
 
-Deliberately Terraform's verbs, because they name the same jobs (D16):
+Deliberately Terraform's verbs, because they name the same jobs (D22):
 
 | | Touches the provider? | |
 |---|---|---|

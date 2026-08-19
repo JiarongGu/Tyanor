@@ -125,6 +125,23 @@ internal static class GuideSamples
         }
     }
 
+    // ── telling a wrong definition from a wrong world ────────────────────────────────────────────
+    private static async Task PlanSomethingNobodyValidated(
+        ProcedureRunner runner, Procedure procedure, DeploymentRequest request)
+    {
+        try
+        {
+            var preview = await runner.PlanAsync(procedure, request);
+            Console.WriteLine(preview.Summary);
+        }
+        catch (DefinitionException e)
+        {
+            // Nothing was touched. This belongs on the screen where they fix the procedure, not on the one
+            // that says a deployment failed.
+            Console.Error.WriteLine(e.Message);
+        }
+    }
+
     // ── 6. Ask what it produced ──────────────────────────────────────────────────────────────────
     private static async Task AskWhatItProduced(ProcedureRunner runner, Procedure procedure, DeploymentRequest request)
     {
@@ -172,6 +189,28 @@ internal static class GuideSamples
     private static async Task NarrowIt(ProcedureRunner runner, Procedure procedure, DeploymentRequest request)
     {
         await runner.ApplyAsync(procedure.Only("runtime"), request);     // Terraform's -target
+    }
+
+    // ── Reading the run log ──────────────────────────────────────────────────────────────────────
+    private static async Task ListRecentRuns(IRunHistory history)
+    {
+        foreach (var run in await history.RecentAsync(20))
+            Console.WriteLine($"{run.StartedAt:g}  {run.Procedure}/{run.Prefix}  {run.Kind}  {run.Status}");
+    }
+
+    private static async Task IsAnythingOutstanding(
+        IRunHistory history, Procedure procedure, DeploymentRequest request)
+    {
+        if (await history.LiveAsync(procedure.Name, request.Prefix) is { } live)
+            Console.WriteLine($"{live.Id} is {live.Status} — applying continues it rather than starting a new one");
+    }
+
+    // ── What Tyanor thinks it owns ───────────────────────────────────────────────────────────────
+    private static async Task WhatIsOwned(IStateStore state, Procedure procedure, DeploymentRequest request)
+    {
+        var owned = await state.GetAsync(procedure.Name, request.Prefix);
+        foreach (var unit in owned.Units)
+            Console.WriteLine($"{unit.Unit}: {unit.Resources.Count} resources, last read {unit.RecordedAt:g}");
     }
 
     // ── Wiring it into an application ────────────────────────────────────────────────────────────

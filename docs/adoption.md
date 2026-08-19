@@ -2,9 +2,10 @@
 
 How to put Tyanor into an application that already exists, and already deploys somehow.
 
-[`guide.md`](guide.md) teaches the API in the order you meet it. This is the other question — the one a guide
-cannot answer, because it is about *your* situation: what to move first, what to decide before writing any
-code, what to do about infrastructure that is already running, and how to know it actually worked.
+[`guide.md`](guide.md) teaches the API in the order you meet it, and [`providers.md`](providers.md) is the
+settings reference you will want open beside this page. This is the other question — the one neither can
+answer, because it is about *your* situation: what to move first, what to decide before writing any code,
+what to do about infrastructure that is already running, and how to know it actually worked.
 
 > Every C# sample below is compiled on every build, from this file's own text — the same rule the guide is
 > held to. If one is wrong, the build is broken. See `tests/Tyanor.Docs.Tests`.
@@ -38,8 +39,20 @@ says against what you know is deployed. A plan that disagrees with reality means
 got right yet, and finding that out *now* costs nothing.
 
 **3. Apply into a throwaway prefix.** The prefix is what keeps two deployments of one procedure apart, so
-`"yourname-test"` gives you a complete parallel deployment beside production. Apply it, tear it down, apply it
-again. The third one is the interesting one, because it is the resume path.
+`"yourname-test"` gives you a complete parallel deployment beside production. Then run this exact sequence,
+because each step exercises a path the one before it does not:
+
+| | Proves |
+|---|---|
+| apply | it deploys |
+| apply **again**, with nothing changed | **the resume path** — every unit reads `Ready`, updates report no change, and the run is a no-op |
+| destroy | it comes apart in reverse, and leaves nothing |
+| destroy **again** | a teardown is re-runnable, which is how an interrupted one is finished |
+| apply | it rebuilds from nothing after having existed |
+
+The second row is the one worth dwelling on. A driver whose update always reports a change looks perfect on
+the first apply and redoes finished work on every resume afterwards — and the plan will have claimed a
+redeploy would change things when it would not.
 
 **4. Move production over, narrowed.** `procedure.Only("web")` deploys one unit. Move the least dangerous unit
 first, leave the rest on the old path, and widen once each is boring.
@@ -103,7 +116,8 @@ var artifact = new DeploymentArtifact(new Dictionary<string, string>
 ```
 
 Nothing in Tyanor knows that `"infrastructure"` is a CloudFormation assembly. Only the AWS provider does, and
-only because a unit's `template` option said so.
+only because a unit's `template` option said so. Which options each provider reads, and what each does with
+the part it is handed, is [`providers.md`](providers.md).
 
 If a step of your pipeline genuinely has to run at deploy time — a migration, a smoke test — that is a unit,
 not a reason to move synthesis. The next section is how.
@@ -280,6 +294,16 @@ expect:
 the work so far is kept. A UI that shows "Deployment failed" for an expired token teaches people to fear the
 button, which is the exact failure `FailureClass` exists to prevent.
 
+**And a wrong configuration must not read as a failed deployment.** Everything derived from
+`DefinitionException` means *you have configured this wrongly, and nothing was touched* — a different screen,
+a different tone, and not a support conversation. The guide has
+[the taxonomy and which calls surface it](guide.md#5-when-it-stops); the short version is that
+`ValidateAsync` reports these rather than throwing, which is why it is the gate to put first.
+
+**The history is the status screen.** `RecentAsync` for what has happened, `LiveAsync` for whether anything
+is outstanding right now — see [reading the run log](guide.md#reading-the-run-log). A live record cannot be
+deleted, in any store, so a "clear history" button is safe to offer.
+
 ## Proving the resume before you rely on it
 
 Resume is the claim Tyanor makes, so it is the claim to test in your application rather than take on trust.
@@ -347,6 +371,7 @@ A checklist you can actually run, in the order that finds problems earliest:
 - [ ] `PlanAsync` against the real target agrees with what you know is deployed.
 - [ ] An apply into a scratch prefix succeeds, and a second apply straight after reports no changes.
 - [ ] A destroy of that prefix leaves nothing, and running it a second time is fine.
+- [ ] A misconfigured unit reaches the operator as a configuration problem, not as a failed deployment.
 - [ ] Killing the process mid-apply and re-running finishes the deployment.
 - [ ] A pause reaches the operator as *resumable*, with the work kept — not as "failed".
 - [ ] State and history are in locations that outlive the machine, the workspace, and an upgrade.
@@ -357,8 +382,9 @@ suites, no shortcut.
 
 ---
 
-Next: [`guide.md`](guide.md) for the API in order, [`DECISIONS.md`](DECISIONS.md) for why any of it is like
-this, and [`architecture/overview.md`](architecture/overview.md) for the shape in one page.
+Next: [`guide.md`](guide.md) for the API in order, [`providers.md`](providers.md) for every setting the
+shipped providers read, [`DECISIONS.md`](DECISIONS.md) for why any of it is like this, and
+[`architecture/overview.md`](architecture/overview.md) for the shape in one page.
 
 **Found something the docs did not answer?** That is exactly what
 [`TASKS.md`](../TASKS.md) asks adopters to write down — the specific question you had is the fix.
