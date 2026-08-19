@@ -171,8 +171,8 @@ internal sealed class StackUnit(
     /// calling AWS, so a whole site's configuration can be checked before an account exists.
     /// </summary>
     /// <remarks>
-    /// <para>Every check here is the apply's own: the same <see cref="Part"/> resolution, the same
-    /// stack-name rule. The one thing it cannot check is whether the template itself is valid
+    /// <para>Every check here is the apply's own: the same <see cref="UnitContext.RequirePart"/> resolution,
+    /// the same stack-name rule. The one thing it cannot check is whether the template itself is valid
     /// CloudFormation — that needs CloudFormation, and pretending otherwise would be the sort of
     /// half-answer that stops being read.</para>
     /// <para><see cref="Capabilities"/> is deliberately NOT checked. It cannot fail offline — any string
@@ -183,11 +183,11 @@ internal sealed class StackUnit(
     public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context) =>
         new UnitProblems()
             .Check(() => Name(context))
-            .Check(() => Part(context, AwsOptions.Template, ArtifactPart.File))
+            .Check(() => context.RequirePart(AwsOptions.Template, ArtifactPart.File))
             .Check(() =>
             {
                 if (context.Option(AwsOptions.Assets) is not null)
-                    Part(context, AwsOptions.Assets, ArtifactPart.Directory);
+                    context.RequirePart(AwsOptions.Assets, ArtifactPart.Directory);
             })
             .Found();
 
@@ -282,7 +282,7 @@ internal sealed class StackUnit(
     /// </remarks>
     private async Task<string> StageAsync(UnitContext context)
     {
-        var template = Part(context, AwsOptions.Template, ArtifactPart.File);
+        var template = context.RequirePart(AwsOptions.Template, ArtifactPart.File);
         var bucket = $"{context.Request.Prefix}-deploy-{await account.IdAsync(context.Cancellation)}".ToLowerInvariant();
         await EnsureBucketAsync(bucket, context.Cancellation);
 
@@ -290,7 +290,7 @@ internal sealed class StackUnit(
         // renaming one here would produce a stack that cannot find its own Lambda code.
         if (context.Option(AwsOptions.Assets) is not null)
         {
-            var assets = Part(context, AwsOptions.Assets, ArtifactPart.Directory);
+            var assets = context.RequirePart(AwsOptions.Assets, ArtifactPart.Directory);
             foreach (var file in Directory.EnumerateFiles(assets, "*", SearchOption.AllDirectories))
             {
                 context.ThrowIfCancelled();
@@ -390,18 +390,4 @@ internal sealed class StackUnit(
     private static List<Tag> Tags(UnitContext context) =>
         context.Request.Tags?.Select(kv => new Tag { Key = kv.Key, Value = kv.Value }).ToList() ?? [];
 
-    /// <summary>
-    /// Resolve an artifact part named by an option. Both failures are terminal and are raised before anything
-    /// is uploaded: the operator named a part that is not in the artifact, or one pointing at nothing.
-    /// </summary>
-    private static string Part(UnitContext context, string option, ArtifactPart expect)
-    {
-        var name = context.Option(option)
-            ?? throw new AwsConfigurationException(
-                $"Unit '{context.Name}' names no '{option}' — say which part of the artifact it is.");
-
-        // Core's, not ours: the first two providers each wrote this check, identically, so an operator got a
-        // different sentence about the same mistake depending on where they deployed.
-        return context.Artifact.RequirePart(name, expect);
-    }
 }

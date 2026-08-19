@@ -75,10 +75,9 @@ public sealed class FileRunHistory : IRunHistory
         {
             var found = all.FirstOrDefault(d => d.Id == id);
             if (found is null) return false;                         // already gone — deleting is idempotent
-            if (found.ToRecord().IsLive)
-                throw new InvalidOperationException(
-                    $"Run '{id}' is {found.Status} and may still be converging in the provider. " +
-                    "Finish or resume it before deleting the record.");
+
+            // The framework's refusal, not ours, so every store says the same sentence about it.
+            found.ToRecord().RefuseDeleteWhileLive();
             all.Remove(found);
             return true;
         }, ct);

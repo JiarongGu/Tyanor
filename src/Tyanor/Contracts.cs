@@ -50,9 +50,7 @@ public sealed record DeploymentArtifact(IReadOnlyDictionary<string, string> Part
     public string RequirePart(string name, ArtifactPart expect = ArtifactPart.Any)
     {
         var path = Part(name)
-            ?? throw new ArtifactException(
-                $"The artifact has no part named '{name}'. It carries: " +
-                $"{string.Join(", ", Parts.Keys.OrderBy(k => k, StringComparer.Ordinal).DefaultIfEmpty("nothing"))}.");
+            ?? throw new ArtifactException($"The artifact has no part named '{name}'. It carries: {Describe()}.");
 
         var ok = expect switch
         {
@@ -69,6 +67,14 @@ public sealed record DeploymentArtifact(IReadOnlyDictionary<string, string> Part
 
         return path;
     }
+
+    /// <summary>What this artifact carries, for a message. Never an empty string.</summary>
+    /// <remarks>
+    /// Internal because it exists for two error messages and is not a question anyone else asks —
+    /// <see cref="Parts"/> is already public for anyone who wants the names themselves.
+    /// </remarks>
+    internal string Describe() =>
+        string.Join(", ", Parts.Keys.OrderBy(k => k, StringComparer.Ordinal).DefaultIfEmpty("nothing"));
 }
 
 /// <summary>What an artifact part has to be on disk.</summary>

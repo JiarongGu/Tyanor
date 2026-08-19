@@ -302,6 +302,7 @@ sealed record Tyanor.RunRecord : IEquatable<RunRecord>
     string Id { get; init; }
     string Prefix { get; init; }
     string Procedure { get; init; }
+    void RefuseDeleteWhileLive()
 
 enum Tyanor.RunStatus
     Failed = 3
@@ -443,6 +444,7 @@ sealed record Tyanor.UnitContext : IEquatable<UnitContext>
     string Name { get; }
     string Option(string key)
     string OwnOption(string key)
+    string RequirePart(string option, ArtifactPart expect = Any)
     void Progress(string message, int percent = -1, ProgressStatus status = Info)
     void ThrowIfCancelled()
 

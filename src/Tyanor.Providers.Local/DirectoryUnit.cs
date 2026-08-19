@@ -45,7 +45,8 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
     /// <inheritdoc/>
     public Task CreateAsync(UnitContext context)
     {
-        Materialize(context);
+        var source = Source(context);
+        Materialize(context, source, Fingerprints.OfDirectory(source)!);
         return Task.CompletedTask;
     }
 
@@ -55,19 +56,28 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
     /// </summary>
     public Task<bool> UpdateAsync(UnitContext context)
     {
+        // Hashed once and kept. A fingerprint is a full read of every file in the tree, and this used to
+        // compute it here and then again inside the materialize below — doubling the I/O of the most
+        // expensive thing this unit does, on exactly the path where there IS a new build to deploy.
+        var source = Source(context);
+        var build = Fingerprints.OfDirectory(source)!;
+
         var marker = Records.Read<UnitMarker>(LocalPaths.Marker(root, context));
         var release = LocalPaths.CurrentRelease(root, context);
 
         // Two questions, and both have to be no. "Is there a new build?" is the one people expect; "has
         // anyone edited what I deployed?" is the one that makes the tool worth trusting, because a
         // hand-patched server that survives every redeploy is how a machine drifts away from its recipe.
+        //
+        // Ordered so the cheap comparison short-circuits the second hash: a new build never pays to read
+        // the release it is about to replace.
         if (marker is not null
             && release is not null
-            && marker.Source == Fingerprints.OfDirectory(Source(context))
+            && marker.Source == build
             && marker.Content == Fingerprints.OfDirectory(release))
             return Task.FromResult(false);
 
-        Materialize(context);
+        Materialize(context, source, build);
         return Task.FromResult(true);
     }
 
@@ -120,10 +130,11 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
         return Task.FromResult<IReadOnlyDictionary<string, string>>(outputs);
     }
 
-    private void Materialize(UnitContext context)
+    /// <param name="context">The unit.</param>
+    /// <param name="source">Where the files come from, already resolved.</param>
+    /// <param name="build">Its fingerprint, already computed — this names the release directory.</param>
+    private void Materialize(UnitContext context, string source, string build)
     {
-        var source = Source(context);
-        var build = Fingerprints.OfDirectory(source)!;
         var path = LocalPaths.Unit(root, context);
         var release = Path.Combine(path, LocalPaths.Releases, build);
 
@@ -211,18 +222,13 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
     }
 
     /// <summary>
-    /// Where this unit's files come from. Both failures are terminal and are raised before anything on disk
-    /// is touched — the operator named something that is not there, and no amount of retrying conjures it.
+    /// Where this unit's files come from. Every failure is terminal and is raised before anything on disk is
+    /// touched — the operator named something that is not there, and no amount of retrying conjures it.
     /// </summary>
-    private static string Source(UnitContext context)
-    {
-        var name = context.Option(LocalOptions.Source)
-            ?? throw new LocalConfigurationException(context.Name,
-                $"Unit '{context.Name}' is a directory but names no '{LocalOptions.Source}' — " +
-                "say which part of the artifact it is made of.");
-
-        // Core's check, not ours: the AWS provider wrote the same one, and an operator should not get a
-        // different sentence about the same mistake depending on where they deployed.
-        return context.Artifact.RequirePart(name, ArtifactPart.Directory);
-    }
+    /// <remarks>
+    /// Core's resolution, not ours. The AWS provider wrote the same two steps twice more, each with its own
+    /// wording, so an operator got a different sentence about one mistake depending on where they deployed.
+    /// </remarks>
+    private static string Source(UnitContext context) =>
+        context.RequirePart(LocalOptions.Source, ArtifactPart.Directory);
 }

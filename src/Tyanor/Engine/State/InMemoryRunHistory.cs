@@ -59,9 +59,10 @@ public sealed class InMemoryRunHistory : IRunHistory
         lock (_gate)
         {
             if (!_runs.TryGetValue(id, out var r)) return Task.CompletedTask;
-            if (r.IsLive)
-                throw new InvalidOperationException(
-                    $"Run '{id}' is {r.Status} and may still be converging in the provider.");
+
+            // The framework's refusal, not ours. This store's own wording had already drifted from the file
+            // store's, so which sentence an operator got depended on where their history happened to live.
+            r.RefuseDeleteWhileLive();
             _runs.Remove(id);
             _order.Remove(id);
         }

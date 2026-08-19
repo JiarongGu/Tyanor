@@ -62,6 +62,30 @@ public sealed record RunRecord(
     /// stop can be re-entered at all, rather than whether a record is still open.
     /// </remarks>
     public bool IsLive => Status is RunStatus.Running or RunStatus.Paused;
+
+    /// <summary>
+    /// Refuse to discard this record while it is <see cref="IsLive"/> — the guard every
+    /// <see cref="IRunHistory.DeleteAsync"/> owes, written once.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The run is running or paused.</exception>
+    /// <remarks>
+    /// <para>Both shipped histories wrote this themselves, and they had already drifted: one told the
+    /// operator what to do about it and the other stopped at the fact, so which sentence they got depended
+    /// on where their history happened to live. That is the same defect
+    /// <see cref="DeploymentArtifact.RequirePart"/> was extracted to fix — and a third store, which
+    /// <c>docs/DECISIONS.md</c> D20 exists to make easy, would have written a third sentence.</para>
+    /// <para>A method rather than a note in the interface docs because the rule is one an implementation
+    /// satisfies by OMISSION: a store that simply deletes passes every test that does not think to check,
+    /// and the cost is stranded work with nothing left to say it is happening.</para>
+    /// </remarks>
+    public void RefuseDeleteWhileLive()
+    {
+        if (!IsLive) return;
+
+        throw new InvalidOperationException(
+            $"Run '{Id}' is {Status} and may still be converging in the provider. Finish or resume it " +
+            "before deleting the record.");
+    }
 }
 
 /// <summary>

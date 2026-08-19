@@ -228,6 +228,47 @@ public class ArtifactPartTests : IDisposable
         Assert.Contains("nothing", error.Message);
     }
 
+    // ── the option that NAMES the part ───────────────────────────────────────────────────────────
+    // The step above RequirePart, which every unit kind in both providers wrote for itself with its own
+    // wording. Three sentences for one mistake is the defect RequirePart already fixed one level down.
+
+    private static UnitContext Context(DeploymentArtifact artifact, params (string Key, string Value)[] options) =>
+        new(new ProcedureUnit("runtime", "Application files"),
+            new DeploymentRequest("acme", artifact, options.ToDictionary(o => o.Key, o => o.Value)));
+
+    [Fact]
+    public void The_part_an_option_names_comes_back()
+        => Assert.Equal(_dir,
+            Context(Artifact(), ("runtime.source", "bundle")).RequirePart("source", ArtifactPart.Directory));
+
+    [Fact]
+    public void An_option_that_is_not_set_names_the_parts_that_COULD_be_chosen()
+    {
+        // What none of the three hand-written versions did: an operator who forgot the option was told the
+        // option was missing and left to guess what it should have said.
+        var error = Assert.Throws<ArtifactException>(() => Context(Artifact()).RequirePart("source"));
+
+        Assert.Contains("'source'", error.Message);
+        Assert.Contains("runtime", error.Message);       // which unit
+        Assert.Contains("bundle", error.Message);        // …and what it could have named
+    }
+
+    [Fact]
+    public void An_unset_part_option_is_a_DEFINITION_error_so_validation_reports_it()
+        // Rather than throwing at the first unconfigured unit, which is the behaviour validation replaces.
+        => Assert.IsAssignableFrom<DefinitionException>(
+            Assert.Throws<ArtifactException>(() => Context(Artifact()).RequirePart("source")));
+
+    [Fact]
+    public void The_option_is_read_per_unit_falling_back_to_the_shared_one()
+    {
+        // A part option is NOT a unit's address — several units legitimately deploy the same bundle — so it
+        // reads through the ordinary fallback rather than OwnOption.
+        Assert.Equal(_dir, Context(Artifact(), ("source", "bundle")).RequirePart("source"));
+        Assert.EndsWith("template.json",
+            Context(Artifact(), ("source", "bundle"), ("runtime.source", "template")).RequirePart("source"));
+    }
+
     public void Dispose()
     {
         try { Directory.Delete(_dir, recursive: true); } catch (IOException) { /* temp */ }

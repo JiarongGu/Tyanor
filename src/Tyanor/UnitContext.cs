@@ -66,6 +66,40 @@ public sealed record UnitContext(
     /// <summary>The artifact being deployed.</summary>
     public DeploymentArtifact Artifact => Request.Artifact;
 
+    /// <summary>
+    /// The artifact part this unit's <paramref name="option"/> names — the whole of "which part of the
+    /// build is this unit made of?", in one call.
+    /// </summary>
+    /// <param name="option">The setting naming the part: <c>"source"</c>, <c>"template"</c>, <c>"assets"</c>.</param>
+    /// <param name="expect">What the part has to be on disk, checked for the same reason
+    /// <see cref="DeploymentArtifact.RequirePart"/> checks it.</param>
+    /// <exception cref="ArtifactException">
+    /// The option is not set, the artifact does not carry what it names, or that part is not what
+    /// <paramref name="expect"/> says. Always terminal, and always raised before anything is touched.
+    /// </exception>
+    /// <remarks>
+    /// <para><b>Here because it was written three times.</b> Every unit kind in both shipped providers
+    /// reached the same two steps — read an option, then <see cref="DeploymentArtifact.RequirePart"/> — and
+    /// each wrote its own sentence for the first one, so an operator who forgot <c>source</c> was told three
+    /// different things depending on where they deployed. That is the defect
+    /// <see cref="DeploymentArtifact.RequirePart"/> was extracted to fix, one level down; this is the rest of
+    /// it. A fourth provider written outside this repository would have written a fourth sentence.</para>
+    /// <para>It throws <see cref="ArtifactException"/> rather than a provider's own configuration type
+    /// deliberately: an unset part option is not a fact about the provider, and a consumer telling
+    /// "you configured this wrongly" from "the cloud said no" catches <see cref="DefinitionException"/>,
+    /// which this is. <see cref="UnitProblems.Check"/> therefore collects it, so
+    /// <see cref="IUnitDriver.ValidateAsync"/> reports it offline instead of throwing.</para>
+    /// </remarks>
+    public string RequirePart(string option, ArtifactPart expect = ArtifactPart.Any)
+    {
+        var name = Option(option)
+            ?? throw new ArtifactException(
+                $"Unit '{Name}' names no '{option}', so nothing says which part of the artifact it is made " +
+                $"of. Set it to one of: {Artifact.Describe()}.");
+
+        return Artifact.RequirePart(name, expect);
+    }
+
     /// <summary>Say something to whoever is watching.</summary>
     /// <param name="message">Plain language, for a person. Not an exception message, not a status code.</param>
     /// <param name="percent">0–100 through THIS unit, or -1 when there is no honest fraction.</param>
