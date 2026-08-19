@@ -273,17 +273,18 @@ public sealed class MemoryTarget : IDeploymentTarget, IUnitDriver, IFailureClass
     // ── IFailureClassifier ───────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Recognise only this target's own faults, and walk the chain to find one — the same shape every real
+    /// Recognise only this target's own faults, found anywhere in the chain — the same shape every real
     /// classifier has, so an engine test exercises the real code path rather than a shortcut.
     /// </summary>
     /// <param name="error">The error.</param>
-    public FailureClass? Classify(Exception error)
-    {
-        for (Exception? e = error; e is not null; e = e.InnerException)
-            if (e is MemoryFaultException fault) return fault.Failure;
-
-        return null;    // unrecognised — the engine treats it as Hard, which is the safe default
-    }
+    /// <remarks>
+    /// Through <see cref="FailureClassifiers.Walk"/> like the shipped providers, rather than a loop of its
+    /// own. This was the THIRD hand-written copy of that walk, which is what settled the question of whether
+    /// it belonged in the framework — and an unrecognised error still returns null, which the engine treats
+    /// as <see cref="FailureClass.Hard"/>.
+    /// </remarks>
+    public FailureClass? Classify(Exception error) =>
+        FailureClassifiers.Walk(error, e => e is MemoryFaultException fault ? fault.Failure : null);
 
     // ── IUnitDriver ──────────────────────────────────────────────────────────────────────────────
 

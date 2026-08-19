@@ -25,6 +25,9 @@ net8 cannot reference these at all. Nothing in the source needs anything newer t
 deliberate floor rather than a technical one — see [D28](docs/DECISIONS.md).
 
 **New here? [`docs/guide.md`](docs/guide.md)** walks from nothing to a deployment you can resume.
+**Already deploying somehow? [`docs/adoption.md`](docs/adoption.md)** is how to move onto it without a
+rewrite — what to decide first, what to do about infrastructure that already exists, and how to know it
+worked.
 
 ## What it is
 
@@ -231,6 +234,7 @@ needed a change to it, and there is no `if (provider == …)` anywhere outside a
 | | |
 |---|---|
 | [`docs/guide.md`](docs/guide.md) | **Start here** — install to a resumable deployment, in order |
+| [`docs/adoption.md`](docs/adoption.md) | Putting it into an application that already deploys somehow |
 | [`docs/architecture/overview.md`](docs/architecture/overview.md) | The whole model in one page |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Why each load-bearing choice was made, and against what |
 | [`.claude/skills/add-provider/SKILL.md`](.claude/skills/add-provider/SKILL.md) | Writing a provider |

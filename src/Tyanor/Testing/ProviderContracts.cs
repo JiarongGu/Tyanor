@@ -427,6 +427,26 @@ public sealed class FailureClassifierContract(IFailureClassifierFixture fixture)
             return Ok;
         }),
 
+        ("A credential error beside a SIBLING in an aggregate still classifies", _ =>
+        {
+            // The check above passes with an aggregate holding ONE inner, because AggregateException.
+            // InnerException returns that one — so a classifier walking only `e.InnerException` looks correct
+            // right up until something fails alongside something else. Anything awaiting several operations
+            // together produces exactly that, and the credential error is then not first.
+            //
+            // The cost of missing it is the worst one this class of code has: unrecognised means Hard, so the
+            // run ENDS instead of pausing, and every unit already deployed is discarded — for want of looking
+            // one element to the right. FailureClassifiers.Walk does it for you.
+            foreach (var error in fixture.CredentialErrors)
+            {
+                var beside = new AggregateException("several operations failed", new UnheardOfException(), error);
+                if (fixture.Classifier.Classify(beside) != FailureClass.Credentials)
+                    return Fail($"{Describe(error)} was not found beside another exception in an " +
+                                "AggregateException — walk every InnerExceptions entry, not just the first");
+            }
+            return Ok;
+        }),
+
         ("Classifying never throws", _ =>
         {
             // It runs while another failure is being handled. Throwing here replaces the real error with this

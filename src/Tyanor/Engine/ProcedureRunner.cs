@@ -63,8 +63,7 @@ public sealed class ProcedureRunner(
         foreach (var unit in kind == RunKind.Apply ? procedure.Forward() : procedure.Reverse())
         {
             ct.ThrowIfCancellationRequested();
-            // A plan is read-only, so nothing a driver says here is shown: progress belongs to a run.
-            var context = new UnitContext(unit, request, Ignore, ct);
+            var context = Silent(unit, request, ct);
 
             var phase = await WithRetryAsync(() => target.Driver.PhaseAsync(context), ct);
             steps.Add(new PlannedStep(unit, phase,
@@ -131,7 +130,7 @@ public sealed class ProcedureRunner(
             ct.ThrowIfCancellationRequested();
             // No retry: there is nothing transient about a definition, and nothing here should be reaching a
             // provider to fail transiently in the first place.
-            var found = await target.Driver.ValidateAsync(new UnitContext(unit, request, Ignore, ct));
+            var found = await target.Driver.ValidateAsync(Silent(unit, request, ct));
             problems.AddRange(found.Select(p => new ValidationProblem(unit.Name, p)));
         }
 
@@ -161,7 +160,7 @@ public sealed class ProcedureRunner(
         foreach (var unit in procedure.Forward())
         {
             ct.ThrowIfCancellationRequested();
-            var context = new UnitContext(unit, request, Ignore, ct);
+            var context = Silent(unit, request, ct);
             foreach (var (key, value) in await WithRetryAsync(() => target.Driver.OutputsAsync(context), ct))
                 outputs[key] = value;
         }
@@ -192,7 +191,7 @@ public sealed class ProcedureRunner(
         foreach (var unit in procedure.Forward())
         {
             ct.ThrowIfCancellationRequested();
-            var context = new UnitContext(unit, request, Ignore, ct);
+            var context = Silent(unit, request, ct);
             var actual = await WithRetryAsync(() => target.Driver.RefreshAsync(context), ct);
             current = current.With(unit.Name, actual);
         }
@@ -236,6 +235,18 @@ public sealed class ProcedureRunner(
 
     /// <summary>Progress is optional — a script or a test may not want it. Nothing else changes.</summary>
     private static void Ignore(ProgressReport _) { }
+
+    /// <summary>
+    /// A context for one unit with progress going nowhere — what every READ-ONLY pass uses.
+    /// </summary>
+    /// <remarks>
+    /// Plan, validate, outputs and refresh all narrate nothing on purpose: progress belongs to a run, and a
+    /// plan that reported lines would make a read look like a deployment. The two-argument
+    /// <see cref="UnitContext"/> constructor cannot serve here because it also drops the caller's
+    /// cancellation token, and these are the passes most worth being able to stop.
+    /// </remarks>
+    private static UnitContext Silent(ProcedureUnit unit, DeploymentRequest request, CancellationToken ct) =>
+        new(unit, request, Ignore, ct);
 
     /// <summary>
     /// Units state records that the procedure no longer declares.
@@ -411,7 +422,7 @@ public sealed class ProcedureRunner(
         var current = await state.GetAsync(procedure.Name, request.Prefix, ct);
         var resources = removed
             ? []                                            // torn down: the unit owns nothing now
-            : await WithRetryAsync(() => target.Driver.RefreshAsync(new UnitContext(unit, request, Ignore, ct)), ct);
+            : await WithRetryAsync(() => target.Driver.RefreshAsync(Silent(unit, request, ct)), ct);
         await state.SaveAsync(current.With(unit.Name, resources), ct);
     }
 

@@ -76,18 +76,12 @@ internal sealed class LocalFailureClassifier : IFailureClassifier
     private const int PermissionDenied = 13; // EACCES
 
     /// <inheritdoc/>
-    public FailureClass? Classify(Exception error)
-    {
-        // Walk the WHOLE chain. .NET wraps freely — a Win32Exception from Process.Start arrives inside an
-        // InvalidOperationException often enough that reading only the outermost would call every one of
-        // them hard, which is how a classifier goes quietly wrong.
-        for (Exception? e = error; e is not null; e = e.InnerException)
-        {
-            var known = Single(e);
-            if (known is not null) return known;
-        }
-        return null;    // unrecognised — the engine treats it as Hard, which is the safe default
-    }
+    /// <remarks>
+    /// The WHOLE chain, via the framework's walk. .NET wraps freely — a <see cref="Win32Exception"/> from
+    /// <c>Process.Start</c> arrives inside an <see cref="InvalidOperationException"/> often enough that
+    /// reading only the outermost would call every one of them hard.
+    /// </remarks>
+    public FailureClass? Classify(Exception error) => FailureClassifiers.Walk(error, Single);
 
     private static FailureClass? Single(Exception e) => e switch
     {

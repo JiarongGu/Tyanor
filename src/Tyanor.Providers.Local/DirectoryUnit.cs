@@ -106,18 +106,8 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
     /// The checks are not written twice: this runs the same <see cref="Source"/> the apply runs and collects
     /// the refusal. Two copies of a rule is two rules, and they diverge the first time one is edited.
     /// </remarks>
-    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
-    {
-        try
-        {
-            Source(context);
-            return Task.FromResult<IReadOnlyList<string>>([]);
-        }
-        catch (DefinitionException e)
-        {
-            return Task.FromResult<IReadOnlyList<string>>([e.Message]);
-        }
-    }
+    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context) =>
+        new UnitProblems().Check(() => Source(context)).Found();
 
     /// <summary>Where the files ended up, so a consumer can point something at them.</summary>
     public Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext context)

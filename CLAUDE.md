@@ -142,9 +142,10 @@ claim changed deliberately, change the claim. Do not silence the check. (D26 is 
 properly: the dependency-free claim genuinely stopped being true, so the check became a narrower one that
 still fails, rather than a check that was deleted.)
 
-**The guide's samples are compiled.** Every C# fence in `docs/guide.md` must appear verbatim in
-`tests/Tyanor.Docs.Tests`, which builds — so a renamed method breaks the build rather than rotting quietly in
-a document a newcomer is trusting. Edit one and you must edit the other; that is the point.
+**The guide's and the adoption doc's samples are compiled.** Every C# fence in `docs/guide.md` and
+`docs/adoption.md` must appear verbatim in `tests/Tyanor.Docs.Tests`, which builds — so a renamed method
+breaks the build rather than rotting quietly in a document a newcomer is trusting. Edit one and you must edit
+the other; that is the point. Adding another such document is one line in `compiledSamples`.
 
 Cutting a release is `doctor`, then `node devtools/dev.mjs release` — the second answers "is this
 shippable right now?", which is mostly about things `doctor` has no reason to care about: a clean tree (the
@@ -190,6 +191,7 @@ Four independent libraries; none depends on another.
 | Enforced conventions | `.claude/rules/*.md` (indexed in `RULES_INDEX.md`) |
 | Why a decision was made | `docs/DECISIONS.md` |
 | How to USE the library, in order | `docs/guide.md` |
+| How to ADOPT it into an app that already deploys | `docs/adoption.md` |
 | System shape | `docs/architecture/overview.md` |
 | How to add a provider | `.claude/skills/add-provider/SKILL.md` |
 | The public API, as a reviewable file | `tests/ApiBaselines/*.txt` |

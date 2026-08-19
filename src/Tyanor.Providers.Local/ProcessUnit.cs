@@ -237,21 +237,12 @@ internal sealed class ProcessUnit(string root) : IUnitDriver
     /// Each is resolved separately on purpose: an operator with both a missing command and an unparseable
     /// port should be told both, not told one and then the other on the next attempt.
     /// </remarks>
-    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
-    {
-        var problems = new List<string>();
-
-        foreach (var check in (Action[])[
-            () => Command(context),
-            () => Port(context),
-            () => Grace(context)])
-        {
-            try { check(); }
-            catch (DefinitionException e) { problems.Add(e.Message); }
-        }
-
-        return Task.FromResult<IReadOnlyList<string>>(problems);
-    }
+    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context) =>
+        new UnitProblems()
+            .Check(() => Command(context))
+            .Check(() => Port(context))
+            .Check(() => Grace(context))
+            .Found();
 
     /// <summary>Where the server is answering, when it was given a port to answer on.</summary>
     public Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext context)

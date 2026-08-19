@@ -145,6 +145,7 @@ enum Tyanor.FailureClass
     Transient = 1
 
 static class Tyanor.FailureClassifiers
+    static FailureClass? Walk(Exception error, Func<Exception, FailureClass?> classify)
     static IFailureClassifier Chain(IFailureClassifier[] classifiers)
 
 interface Tyanor.IDeploymentTarget
@@ -466,6 +467,12 @@ enum Tyanor.UnitPhase
     Missing = 0
     Ready = 1
     Unwinding = 3
+
+sealed class Tyanor.UnitProblems
+    .ctor()
+    Task<IReadOnlyList<string>> Found()
+    UnitProblems Add(string problem)
+    UnitProblems Check(Action resolve)
 
 sealed record Tyanor.UnitState : IEquatable<UnitState>
     .ctor(string Unit, IReadOnlyList<ResourceState> Resources, DateTimeOffset RecordedAt)

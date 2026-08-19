@@ -180,21 +180,16 @@ internal sealed class StackUnit(
     /// here made validation look like it covered one more thing than it did, which is the way a check
     /// stops being trusted.</para>
     /// </remarks>
-    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
-    {
-        var problems = new List<string>();
-
-        foreach (var check in (Action[])[
-            () => Name(context),
-            () => Part(context, AwsOptions.Template, ArtifactPart.File),
-            () => { if (context.Option(AwsOptions.Assets) is not null) Part(context, AwsOptions.Assets, ArtifactPart.Directory); }])
-        {
-            try { check(); }
-            catch (DefinitionException e) { problems.Add(e.Message); }
-        }
-
-        return Task.FromResult<IReadOnlyList<string>>(problems);
-    }
+    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context) =>
+        new UnitProblems()
+            .Check(() => Name(context))
+            .Check(() => Part(context, AwsOptions.Template, ArtifactPart.File))
+            .Check(() =>
+            {
+                if (context.Option(AwsOptions.Assets) is not null)
+                    Part(context, AwsOptions.Assets, ArtifactPart.Directory);
+            })
+            .Found();
 
     /// <summary>
     /// The stack's CloudFormation outputs — the URLs and endpoints it was written to expose.

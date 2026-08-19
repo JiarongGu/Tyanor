@@ -73,8 +73,7 @@ public class MemoryTargetTests
     private static readonly Procedure Site = new("site",
         [new ProcedureUnit("db", "Database"), new ProcedureUnit("api", "API")]);
 
-    private static DeploymentRequest Request() =>
-        new("acme", new DeploymentArtifact(new Dictionary<string, string>()));
+    private static DeploymentRequest Request() => Requests.Bare();
 
     private static ProcedureRunner Runner(MemoryTarget target, IStateStore? state = null) =>
         new(target, new InMemoryRunHistory(), state, new RetryPolicy(Attempts: 1));

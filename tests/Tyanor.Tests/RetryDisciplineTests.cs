@@ -19,8 +19,7 @@ public class RetryDisciplineTests
 {
     private static readonly Procedure One = new("site", [new ProcedureUnit("db", "Database")]);
 
-    private static DeploymentRequest Request() =>
-        new("acme", new DeploymentArtifact(new Dictionary<string, string>()));
+    private static DeploymentRequest Request() => Requests.Bare();
 
     private static ProcedureRunner Runner(MemoryTarget target, int attempts) =>
         new(target, new InMemoryRunHistory(), null,
@@ -101,8 +100,7 @@ public class ProviderCallTests
     private static readonly Procedure Site = new("site",
         [new ProcedureUnit("db", "Database"), new ProcedureUnit("api", "API")]);
 
-    private static DeploymentRequest Request() =>
-        new("acme", new DeploymentArtifact(new Dictionary<string, string>()));
+    private static DeploymentRequest Request() => Requests.Bare();
 
     [Fact]
     public async Task A_TEARDOWN_does_not_ask_what_a_removed_unit_owns

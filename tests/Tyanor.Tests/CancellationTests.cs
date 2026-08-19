@@ -20,8 +20,7 @@ public sealed class CancellationTests : IDisposable
     private static readonly Procedure Site = new("site",
         [new ProcedureUnit("db", "Database"), new ProcedureUnit("api", "API"), new ProcedureUnit("web", "Website")]);
 
-    private static DeploymentRequest Request() =>
-        new("acme", new DeploymentArtifact(new Dictionary<string, string>()));
+    private static DeploymentRequest Request() => Requests.Bare();
 
     /// <summary>A REAL file history, because the in-memory one ignores the token and hid this.</summary>
     private FileRunHistory History() => new(Path.Combine(_dir, "runs.json"));

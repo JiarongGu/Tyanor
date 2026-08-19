@@ -143,23 +143,19 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     /// </remarks>
     public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
     {
-        var problems = new List<string>();
+        var problems = new UnitProblems()
+            .Check(() => Source(context))
+            .Check(() => Reference(context, AwsOptions.BucketFrom))
+            .Check(() => Reference(context, AwsOptions.InvalidateFrom));
 
-        foreach (var check in (Action[])[
-            () => Source(context),
-            () => Reference(context, AwsOptions.BucketFrom),
-            () => Reference(context, AwsOptions.InvalidateFrom)])
-        {
-            try { check(); }
-            catch (DefinitionException e) { problems.Add(e.Message); }
-        }
-
+        // No resolver raises this one: it is the absence of BOTH options together, so there is nothing to
+        // call whose refusal would say it.
         if (context.Option(AwsOptions.Bucket) is null && context.Option(AwsOptions.BucketFrom) is null)
             problems.Add(
                 $"Names no destination bucket. Set '{AwsOptions.Bucket}', or '{AwsOptions.BucketFrom}' to " +
                 "\"{unit}:{OutputKey}\" naming a stack that exports one.");
 
-        return Task.FromResult<IReadOnlyList<string>>(problems);
+        return problems.Found();
     }
 
     /// <summary>

@@ -4,6 +4,10 @@ How to actually use Tyanor, in the order you will need it. The [README](../READM
 [`architecture/overview.md`](architecture/overview.md) says how it is shaped; this walks you from nothing to
 a deployment you can resume.
 
+> **Already have a deployment that works?** Read [`adoption.md`](adoption.md) instead — the questions that
+> matter then are which unit to move first, what to do about infrastructure that already exists, and where
+> state belongs in CI. This page assumes a blank sheet.
+
 > Every C# sample below is compiled on every build, from this file's own text. If one is wrong, the build
 > is broken — see `tests/Tyanor.Docs.Tests`.
 
@@ -427,6 +431,12 @@ classification. The one thing you must supply is the thing the engine cannot gue
 answering *has this already happened?* A step that can answer is skipped when it is done. A step that cannot
 is a script, and belongs outside the procedure.
 
+Two helpers exist so you do not write what both shipped providers had to. `UnitProblems` collects what your
+own resolvers refuse, so `ValidateAsync` reports every problem instead of throwing at the first — call the
+same resolver the apply calls, because two copies of a rule is two rules. `FailureClassifiers.Walk` finds
+your exception however deeply a provider nested it. [`adoption.md`](adoption.md) has a worked driver using
+both.
+
 #### If you know CI/CD plugins
 
 This is that idea, with two deliberate differences:
@@ -498,7 +508,9 @@ Writing a whole provider: [`../.claude/skills/add-provider/SKILL.md`](../.claude
 - **`ValidateAsync` making a network call** turns an offline gate into an online one for everybody. Don't.
 - **`PhaseAsync` repairing something** makes the plan a lie and the apply a surprise. It must be read-only.
 - **A classifier reading only the outermost exception** calls an expired token a hard failure and throws away
-  a deployment that was intact. Walk the whole `InnerException` chain, and classify on codes, not messages.
+  a deployment that was intact. Use `FailureClassifiers.Walk`, which walks the chain for you — including every
+  branch of an `AggregateException`, where following `InnerException` alone silently sees only the first. And
+  classify on codes, not messages.
 - **On AWS, drift is CloudFormation-known drift.** `DetectStackDrift` is a paid asynchronous call per stack,
   far too expensive per plan — so a resource edited in the console reads as unchanged. The local provider
   content-hashes what it deployed and does catch it.
@@ -507,4 +519,5 @@ Writing a whole provider: [`../.claude/skills/add-provider/SKILL.md`](../.claude
 
 ---
 
+Putting this into an application that already deploys: [`adoption.md`](adoption.md).
 Why any of this is the way it is: [`DECISIONS.md`](DECISIONS.md).

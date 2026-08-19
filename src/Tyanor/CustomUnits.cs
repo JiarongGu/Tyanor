@@ -58,30 +58,3 @@ public sealed class CustomUnits : Dictionary<string, IUnitDriver>
     /// </remarks>
     public IFailureClassifier? Classifier { get; init; }
 }
-
-/// <summary>Reading an error by asking several classifiers in turn.</summary>
-public static class FailureClassifiers
-{
-    /// <summary>
-    /// The first classifier that recognises an error decides it; nulls in the list are skipped.
-    /// </summary>
-    /// <param name="classifiers">Asked in order. A provider's own belongs first — it knows its SDK.</param>
-    /// <remarks>
-    /// "Not mine" is a real answer, which is what makes chaining work at all: a classifier returning null is
-    /// passing rather than voting, so the next one gets its turn and an error nobody claims still lands on
-    /// <see cref="FailureClass.Hard"/> the way it should.
-    /// </remarks>
-    public static IFailureClassifier Chain(params IFailureClassifier?[] classifiers) =>
-        new Chained([.. classifiers.Where(c => c is not null).Cast<IFailureClassifier>()]);
-
-    private sealed class Chained(IReadOnlyList<IFailureClassifier> classifiers) : IFailureClassifier
-    {
-        public FailureClass? Classify(Exception error)
-        {
-            foreach (var classifier in classifiers)
-                if (classifier.Classify(error) is { } known) return known;
-
-            return null;
-        }
-    }
-}

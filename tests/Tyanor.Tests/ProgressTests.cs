@@ -16,8 +16,7 @@ namespace Tyanor.Tests;
 /// </summary>
 public class ProgressTests
 {
-    private static DeploymentRequest Request() =>
-        new("acme", new DeploymentArtifact(new Dictionary<string, string>()));
+    private static DeploymentRequest Request() => Requests.Bare();
 
     private static ProcedureRunner Runner(MemoryTarget target) => new(target, new InMemoryRunHistory());
 

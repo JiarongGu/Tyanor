@@ -339,6 +339,15 @@ would not have failed, it would have silently certified.
   (case-insensitively — `Api` and `api` are one directory on Windows), no units at all, and a weight below
   one. `StackUnit` adds CloudFormation's stricter rule in its own words. D17.
 
+- **A credential error sitting BESIDE another exception in an `AggregateException` classified as hard**, so
+  the run ended instead of pausing and every unit already deployed was discarded. Both shipped classifiers
+  walked the chain with `e = e.InnerException`, which on an aggregate returns only its FIRST inner exception
+  — so any sibling was invisible. The contract suite did not catch it because its own check wrapped a single
+  error in an aggregate, where following one link happens to be correct. Anything awaiting several operations
+  together produces the shape that breaks it. Fixed by `FailureClassifiers.Walk`, which opens every branch,
+  and pinned by a new contract check — *"A credential error beside a SIBLING in an aggregate still
+  classifies"* — so an implementation written outside this repository is held to it too.
+
 #### Internal
 
 - **The public API surface of every shipped assembly is a checked-in file** (`tests/ApiBaselines/`), rendered
@@ -358,8 +367,27 @@ would not have failed, it would have silently certified.
   lands in a DIFFERENT directory from the running one, and pruning clears the rest once nothing holds them
   — with the service stopped, so there is no timing to lose.
 
+- **Every unit kind in both providers wrote the same `ValidateAsync` by hand** — a list, a loop over
+  `(Action[])[…]`, a `catch (DefinitionException)` adding the message, a `Task.FromResult` to match the
+  signature. Four copies, which is twice over the bar `UnitKindDriver` and `Registry<T>` were extracted on,
+  and the standing question in `CLAUDE.md` answered itself: a provider written elsewhere would have to copy
+  it. Now `UnitProblems` — `new UnitProblems().Check(() => Command(context)).Found()`. It catches
+  `DefinitionException` and nothing else, deliberately: a resolver reaching for the network during a check
+  documented to touch nothing is a defect, and swallowing it would report a clean procedure.
+- **`FailureClassifiers.Walk` is the exception-chain walk written once**, after `LocalFailureClassifier`,
+  `AwsFailureClassifier` and `MemoryTarget` had each written it — the third arrival being what settled it.
+  `error-classification.md` calls reading only the outermost exception the most common way a classifier goes
+  quietly wrong, so it is now a function rather than a thing to remember. It is also where the aggregate
+  defect above got fixed for everyone at once.
+
 Not API, but the reasons are the kind that get rediscovered expensively.
 
+- **Six test files had written the same two-line `Request()` helper**, now `Requests.Bare()` in
+  `tests/Shared` — the same "written three times before it was written once" that produced `Suites`.
+- **`docs/adoption.md` is compiled like the guide.** An adoption document rots faster than a guide: a guide
+  is re-read by whoever changes the API, while an adoption document is read once, by someone new, who cannot
+  tell that the sample they are copying stopped compiling two releases ago. Adding another such document is
+  one line in `compiledSamples`.
 - **`DeploymentTargets` and `StorageBackends` were the same registry twice** — a case-insensitive dictionary,
   a blank key refused, a duplicate refused rather than resolved by order, a failure that names what IS
   registered. Two independent arrivals at one shape is the signal `UnitKindDriver` was extracted on (D15), so

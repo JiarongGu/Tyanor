@@ -112,9 +112,97 @@ public interface IFailureClassifier
     /// in which case the engine treats it as <see cref="FailureClass.Hard"/>.
     /// </summary>
     /// <remarks>
-    /// Walk the whole <see cref="Exception.InnerException"/> chain. Providers routinely wrap the
-    /// informative exception inside a generic one, and a classifier that only reads the outermost will
-    /// call an expired token a hard failure.
+    /// Walk the whole <see cref="Exception.InnerException"/> chain — <see cref="FailureClassifiers.Walk"/>
+    /// does it for you. Providers routinely wrap the informative exception inside a generic one, and a
+    /// classifier that only reads the outermost will call an expired token a hard failure.
     /// </remarks>
     FailureClass? Classify(Exception error);
+}
+
+/// <summary>
+/// The two things every <see cref="IFailureClassifier"/> needs and neither should write itself: reading an
+/// error by asking several classifiers in turn, and looking past the exception a provider happened to throw
+/// on the outside.
+/// </summary>
+public static class FailureClassifiers
+{
+    /// <summary>
+    /// The first classifier that recognises an error decides it; nulls in the list are skipped.
+    /// </summary>
+    /// <param name="classifiers">Asked in order. A provider's own belongs first — it knows its SDK.</param>
+    /// <remarks>
+    /// "Not mine" is a real answer, which is what makes chaining work at all: a classifier returning null is
+    /// passing rather than voting, so the next one gets its turn and an error nobody claims still lands on
+    /// <see cref="FailureClass.Hard"/> the way it should.
+    /// </remarks>
+    public static IFailureClassifier Chain(params IFailureClassifier?[] classifiers) =>
+        new Chained([.. classifiers.Where(c => c is not null).Cast<IFailureClassifier>()]);
+
+    /// <summary>
+    /// Ask <paramref name="classify"/> about <paramref name="error"/> and about every exception nested
+    /// inside it, and return the first answer that is not "not mine".
+    /// </summary>
+    /// <param name="error">The exception as it arrived.</param>
+    /// <param name="classify">
+    /// Reads ONE exception — a <c>switch</c> on type and error code. Returns null for anything it does not
+    /// recognise, and is asked again about the next one in.
+    /// </param>
+    /// <returns>The first class any nested exception is recognised as, or null when none is.</returns>
+    /// <remarks>
+    /// <para><b>This is the rule <c>.claude/rules/error-classification.md</c> calls the most common way a
+    /// classifier goes quietly wrong, so it is written once rather than remembered.</b> Providers wrap
+    /// freely — a <c>Win32Exception</c> from <c>Process.Start</c> arrives inside an
+    /// <see cref="InvalidOperationException"/>, and the AWS SDK nests its own — and a classifier reading only
+    /// the outermost calls an expired token a hard failure, throwing away a deployment that was intact. Both
+    /// shipped classifiers hand-wrote this loop; a third written outside this repository would have had to
+    /// write it too, which is the standing test in <c>CLAUDE.md</c> for what belongs in the framework.</para>
+    /// <para><b><see cref="AggregateException"/> is opened fully, not followed by one link.</b>
+    /// <see cref="Exception.InnerException"/> on one gives only its FIRST inner exception, so a chain walk
+    /// silently ignores every sibling — and an aggregate is exactly what a task-based provider call path adds
+    /// on top. A credential failure sitting second in that list read as unrecognised, which the engine turns
+    /// into <see cref="FailureClass.Hard"/>: the run ends instead of pausing, and the work already done is
+    /// discarded for want of looking one element to the right.</para>
+    /// <para>Siblings are visited in their own order, and depth-first, so the innermost cause of the first
+    /// branch is reached before the second branch is opened — the specific exception is nearly always the
+    /// nested one, and it should win over a general sibling.</para>
+    /// </remarks>
+    public static FailureClass? Walk(Exception error, Func<Exception, FailureClass?> classify)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        ArgumentNullException.ThrowIfNull(classify);
+
+        var pending = new Stack<Exception>();
+        pending.Push(error);
+
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            if (classify(current) is { } known) return known;
+
+            if (current is AggregateException aggregate)
+            {
+                // Pushed in reverse so they POP in the order the provider declared them. An aggregate's own
+                // InnerException duplicates its first entry, so this branch is exclusive.
+                for (var i = aggregate.InnerExceptions.Count - 1; i >= 0; i--)
+                    pending.Push(aggregate.InnerExceptions[i]);
+            }
+            else if (current.InnerException is { } inner)
+            {
+                pending.Push(inner);
+            }
+        }
+
+        return null;    // unrecognised — the engine treats it as Hard, which is the safe default
+    }
+
+    private sealed class Chained(IReadOnlyList<IFailureClassifier> classifiers) : IFailureClassifier
+    {
+        public FailureClass? Classify(Exception error)
+        {
+            foreach (var classifier in classifiers)
+                if (classifier.Classify(error) is { } known) return known;
+
+            return null;
+        }
+    }
 }

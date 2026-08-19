@@ -59,34 +59,36 @@ internal sealed class AwsFailureClassifier : IFailureClassifier
     ];
 
     /// <inheritdoc/>
-    public FailureClass? Classify(Exception error)
+    /// <remarks>
+    /// <para>The whole chain, via the framework's walk. The AWS SDK wraps its own exceptions, and a
+    /// task-based call path adds an <see cref="AggregateException"/> on top — a classifier reading only the
+    /// outermost calls an expired token a hard failure and throws away a deployment that was entirely
+    /// fine.</para>
+    /// <para>Anything this does not recognise returns null, and the engine treats that as
+    /// <see cref="FailureClass.Hard"/> — the safe default, and where a malformed template, a quota needing a
+    /// human and an unverified account all correctly land, because no amount of retrying or
+    /// re-authenticating resolves any of them.</para>
+    /// </remarks>
+    public FailureClass? Classify(Exception error) => FailureClassifiers.Walk(error, Single);
+
+    /// <summary>One exception, read on its codes. Null means "not mine" — see the walk above.</summary>
+    private static FailureClass? Single(Exception e)
     {
-        // The whole chain. The AWS SDK wraps its own exceptions, and a task-based call path adds an
-        // AggregateException on top — a classifier reading only the outermost calls an expired token a hard
-        // failure and throws away a deployment that was entirely fine.
-        for (Exception? e = error; e is not null; e = e.InnerException)
+        if (e is AmazonServiceException aws)
         {
-            if (e is AmazonServiceException aws)
-            {
-                var code = aws.ErrorCode ?? "";
-                if (CredentialCodes.Contains(code)) return FailureClass.Credentials;
+            var code = aws.ErrorCode ?? "";
+            if (CredentialCodes.Contains(code)) return FailureClass.Credentials;
 
-                // Retryable is the SDK's own verdict and it is checked first, because it knows about codes
-                // this list has never seen.
-                if (aws.Retryable is not null
-                    || TransientCodes.Contains(code)
-                    || (int)aws.StatusCode >= 500
-                    || aws.StatusCode == HttpStatusCode.TooManyRequests)
-                    return FailureClass.Transient;
-            }
-
-            // Below the SDK: the network itself. Not AWS refusing, just not arriving.
-            if (e is HttpRequestException or SocketException or TimeoutException) return FailureClass.Transient;
+            // Retryable is the SDK's own verdict and it is checked first, because it knows about codes
+            // this list has never seen.
+            if (aws.Retryable is not null
+                || TransientCodes.Contains(code)
+                || (int)aws.StatusCode >= 500
+                || aws.StatusCode == HttpStatusCode.TooManyRequests)
+                return FailureClass.Transient;
         }
 
-        // Not ours. The engine treats that as Hard, which is the safe default — and it is where a malformed
-        // template, a quota needing a human, and an unverified account all correctly land, because no amount
-        // of retrying or re-authenticating resolves any of them.
-        return null;
+        // Below the SDK: the network itself. Not AWS refusing, just not arriving.
+        return e is HttpRequestException or SocketException or TimeoutException ? FailureClass.Transient : null;
     }
 }

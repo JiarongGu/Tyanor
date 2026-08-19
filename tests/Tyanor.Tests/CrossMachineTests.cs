@@ -28,8 +28,7 @@ public sealed class CrossMachineTests : IDisposable
     private static readonly Procedure Site = new("site",
         [new ProcedureUnit("db", "Database"), new ProcedureUnit("api", "API")]);
 
-    private static DeploymentRequest Request() =>
-        new("acme", new DeploymentArtifact(new Dictionary<string, string>()));
+    private static DeploymentRequest Request() => Requests.Bare();
 
     public void Dispose()
     {

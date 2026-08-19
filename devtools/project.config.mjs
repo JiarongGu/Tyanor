@@ -71,15 +71,25 @@ export default {
    * Documents whose C# samples must exist verbatim inside a project that COMPILES. A fenced code block is
    * the part of a document nothing can invalidate, so the guide is checked against a real project rather
    * than trusted. Ignoring indentation, the two hold the same text.
+   *
+   * `adoption.md` is held to the same rule for a sharper reason than the guide is. A guide gets re-read by
+   * whoever changes the API; an adoption document is read ONCE, by someone new, who has no way to tell that
+   * the sample they are copying stopped compiling two releases ago.
    */
-  compiledSamples: [{ doc: 'docs/guide.md', project: 'tests/Tyanor.Docs.Tests' }],
+  compiledSamples: [
+    { doc: 'docs/guide.md', project: 'tests/Tyanor.Docs.Tests' },
+    { doc: 'docs/adoption.md', project: 'tests/Tyanor.Docs.Tests' },
+  ],
 
   /**
    * Documents something in this repository promises exist — the package metadata names the licence, the
    * README points at the guide. `docs` fails if one goes missing, which is the way a promise quietly stops
    * being kept.
    */
-  requiredDocs: ['README.md', 'LICENSE', 'CHANGELOG.md', 'docs/guide.md', 'docs/architecture/overview.md'],
+  requiredDocs: [
+    'README.md', 'LICENSE', 'CHANGELOG.md',
+    'docs/guide.md', 'docs/adoption.md', 'docs/architecture/overview.md',
+  ],
 
   /** Paths the scanners never read (generated, vendored, or its own fixtures). */
   ignore: ['bin', 'obj', 'node_modules', '.git', 'artifacts', 'TestResults'],
