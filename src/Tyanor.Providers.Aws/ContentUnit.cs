@@ -55,22 +55,33 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     /// Re-sync, and report whether anything actually moved.
     /// </summary>
     /// <remarks>
-    /// Files are compared by name and SIZE, never by content: comparing bodies means downloading them, and
-    /// the operator asked for a deployment rather than a bandwidth bill. So an edit that preserves a file's
-    /// byte count is not noticed — stated plainly, because the alternative is an operator discovering it.
-    /// Reporting false here is what stops a redeploy of an unchanged build from invalidating a CDN for
-    /// nothing.
+    /// <para>Files are compared by name and SIZE, never by content: comparing bodies means downloading them,
+    /// and the operator asked for a deployment rather than a bandwidth bill. So an edit that preserves a
+    /// file's byte count is not noticed — stated plainly, because the alternative is an operator discovering
+    /// it. Reporting false here is what stops a redeploy of an unchanged build from invalidating a CDN for
+    /// nothing.</para>
+    /// <para><b>Both directions, and the second one was missing.</b> This used to ask only whether every
+    /// local file was up there, which is satisfied by a bucket holding those files AND every page the build
+    /// stopped producing. So deleting a page from a site never removed it: the update reported no change, a
+    /// plan said the deployment was current, and the deleted page went on being served — for ever, since
+    /// nothing else ever looks. Comparing the sets means an extra key is a change like any other.</para>
     /// </remarks>
     public async Task<bool> UpdateAsync(UnitContext context)
     {
         var bucket = await BucketAsync(context);
         var deployed = bucket is null ? null : await ObjectsAsync(bucket, context.Cancellation);
+        var local = LocalFiles(context);
 
+        // Set equality: same count, and every local file present at the same size. Keys are unique on both
+        // sides, so that is enough — and the count is what notices a file the build no longer produces.
         if (deployed is not null
-            && LocalFiles(context).All(f => deployed.TryGetValue(f.Key, out var size) && size == f.Value))
+            && deployed.Count == local.Count
+            && local.All(f => deployed.TryGetValue(f.Key, out var size) && size == f.Value))
             return false;
 
-        await SyncAsync(context);
+        // Handing over what was just read saves a second LIST, and is the listing the prune must diff
+        // against: everything uploaded below is by definition wanted, so a pre-upload view is the right one.
+        await SyncAsync(context, deployed);
         return true;
     }
 
@@ -93,7 +104,18 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
         var deployed = await ObjectsAsync(bucket, context.Cancellation);
         if (deployed is null || deployed.Count == 0) return;
 
-        foreach (var batch in deployed.Keys.Chunk(1000))       // DeleteObjects takes at most 1000 at a time
+        await DeleteAsync(bucket, deployed.Keys, context);
+    }
+
+    /// <summary>Delete objects in the batches S3 accepts.</summary>
+    /// <remarks>
+    /// <c>DeleteObjects</c> takes at most 1000 keys, and a website with more than that is ordinary. Shared
+    /// with the prune below rather than written twice — the batching is the part that is easy to omit and
+    /// impossible to notice omitting until a site is large enough to matter.
+    /// </remarks>
+    private async Task DeleteAsync(string bucket, IEnumerable<string> keys, UnitContext context)
+    {
+        foreach (var batch in keys.Chunk(1000))
         {
             context.ThrowIfCancelled();
             await s3.DeleteObjectsAsync(new DeleteObjectsRequest
@@ -174,7 +196,14 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
         return (parts[0], parts[1]);
     }
 
-    private async Task SyncAsync(UnitContext context)
+    /// <summary>
+    /// Make the bucket be the build: upload everything, then remove whatever the build no longer produces.
+    /// </summary>
+    /// <param name="context">The unit.</param>
+    /// <param name="deployed">
+    /// What was in the bucket BEFORE this sync, when the caller has already read it. Null re-reads it.
+    /// </param>
+    private async Task SyncAsync(UnitContext context, Dictionary<string, long>? deployed = null)
     {
         var bucket = await BucketAsync(context)
             ?? throw new AwsConfigurationException(
@@ -188,17 +217,37 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
         // the same reason the engine cannot do it for us: the work is inside a create, where a provider
         // with a control plane would have nothing to do.
         var files = Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).ToList();
+
+        // A build that produced NOTHING is a build that did not run, and this is the last moment anyone can
+        // say so cheaply. Converging on it would be defensible — an empty directory does describe an empty
+        // site — but the prune below would then empty a live website because a build step failed quietly,
+        // which is not a trade worth making silently.
+        //
+        // The local provider needs no such guard, and the difference is real rather than an inconsistency:
+        // there each build lands in its OWN release directory and the marker only moves once the copy is
+        // done, so an empty build costs one unused release and leaves what is serving untouched. Here there
+        // is one namespace and it is the one being served.
+        if (files.Count == 0)
+            throw new AwsConfigurationException(
+                $"Unit '{context.Name}' is content, and the artifact part it names is an empty directory " +
+                $"('{source}'). Nothing would be uploaded and everything currently in '{bucket}' would be " +
+                "removed as no longer produced. Build first.");
+
         var uploaded = 0;
+        var wanted = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var file in files)
         {
             context.ThrowIfCancelled();
+            var key = Path.GetRelativePath(source, file).Replace('\\', '/');
+            wanted.Add(key);
+
             try
             {
                 await s3.PutObjectAsync(new PutObjectRequest
                 {
                     BucketName = bucket,
-                    Key = Path.GetRelativePath(source, file).Replace('\\', '/'),
+                    Key = key,
                     FilePath = file,
                     ContentType = ContentTypes.Of(file),
                 }, context.Cancellation);
@@ -222,6 +271,8 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
                     (int)(100.0 * uploaded / files.Count));
         }
 
+        await PruneAsync(context, bucket, wanted, deployed);
+
         // Without this the files are up and the CDN keeps serving the old ones until they expire, which
         // looks exactly like a deployment that silently did nothing.
         if (await ResolveAsync(context, AwsOptions.InvalidateFrom) is { } distribution)
@@ -238,6 +289,34 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
                 },
             }, context.Cancellation);
         }
+    }
+
+    /// <summary>
+    /// Remove what is in the bucket and no longer in the build.
+    /// </summary>
+    /// <param name="context">The unit.</param>
+    /// <param name="bucket">The destination.</param>
+    /// <param name="wanted">Every key this sync just uploaded.</param>
+    /// <param name="deployed">What was there beforehand, or null to read it now.</param>
+    /// <remarks>
+    /// <para><b>After the upload, never before.</b> An interruption then leaves the site with both the old
+    /// files and the new ones — stale, and serving. Pruning first would leave it with neither.</para>
+    /// <para><b>It prunes the whole bucket, because that is what this unit fills.</b> A sync writes keys at
+    /// the root, <see cref="RemoveAsync"/> empties the lot, and <see cref="PhaseAsync"/> reads an empty
+    /// bucket as <see cref="UnitPhase.Missing"/> — all three already say this unit owns the bucket's
+    /// contents. Point it at a bucket holding anything else and this takes that too; give it one of its own,
+    /// which is what <c>bucketFrom</c> naming a stack's output produces.</para>
+    /// </remarks>
+    private async Task PruneAsync(
+        UnitContext context, string bucket, HashSet<string> wanted, Dictionary<string, long>? deployed)
+    {
+        deployed ??= await ObjectsAsync(bucket, context.Cancellation);
+
+        var stale = deployed?.Keys.Where(k => !wanted.Contains(k)).ToList();
+        if (stale is null || stale.Count == 0) return;
+
+        context.Progress($"{context.Label}: removing {stale.Count} files the build no longer produces…");
+        await DeleteAsync(bucket, stale, context);
     }
 
     /// <summary>Object key → size, or null when the bucket itself is not there.</summary>
@@ -267,14 +346,13 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
                 StringComparer.Ordinal);
     }
 
-    private static string Source(UnitContext context)
-    {
-        var name = context.Option(AwsOptions.Source)
-            ?? throw new AwsConfigurationException(
-                $"Unit '{context.Name}' is content but names no '{AwsOptions.Source}'.");
-
-        return context.Artifact.RequirePart(name, ArtifactPart.Directory);
-    }
+    /// <summary>
+    /// The directory of files this unit syncs. Core's resolution, not ours — see
+    /// <see cref="UnitContext.RequirePart"/> for why the sentence an operator gets about a missing part
+    /// belongs in one place.
+    /// </summary>
+    private static string Source(UnitContext context) =>
+        context.RequirePart(AwsOptions.Source, ArtifactPart.Directory);
 
     private async Task<string?> BucketAsync(UnitContext context)
         => context.Option(AwsOptions.Bucket)

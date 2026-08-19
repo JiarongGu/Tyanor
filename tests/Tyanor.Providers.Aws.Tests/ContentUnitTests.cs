@@ -204,6 +204,93 @@ public class ContentUnitTests
         Assert.True(await rig.Unit.UpdateAsync(Context(rig, ToBucket("site-bucket"))));
     }
 
+    // ── what the build no longer produces ────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task A_DELETED_page_is_noticed_even_though_every_remaining_file_matches()
+    {
+        // The direction that was missing. Asking only "is every local file up there?" is satisfied by a
+        // bucket holding those files AND every page the build stopped producing — so the update reported no
+        // change, a plan called the deployment current, and the deleted page went on being served.
+        using var rig = Build(("index.html", "hi"));
+        rig.S3.Buckets["site-bucket"] = new Dictionary<string, long> { ["index.html"] = 2, ["gone.html"] = 9 };
+
+        Assert.True(await rig.Unit.UpdateAsync(Context(rig, ToBucket("site-bucket"))));
+    }
+
+    [Fact]
+    public async Task A_DELETED_page_stops_being_served()
+    {
+        // Nothing else ever looks at it: a phase read only asks whether the bucket has anything in it, and a
+        // refresh only counts. If a sync does not take it away, nothing does — for ever.
+        using var rig = Build(("index.html", "hi"));
+        rig.S3.Buckets["site-bucket"] = new Dictionary<string, long> { ["index.html"] = 2, ["gone.html"] = 9 };
+
+        await rig.Unit.UpdateAsync(Context(rig, ToBucket("site-bucket")));
+
+        Assert.Contains("gone.html", rig.S3.Deleted);
+        Assert.Equal(["index.html"], rig.S3.Buckets["site-bucket"].Keys.Order());
+    }
+
+    [Fact]
+    public async Task The_bucket_ends_up_as_exactly_what_the_build_produced()
+    {
+        // The whole claim in one assertion: added, changed and removed, in one sync.
+        using var rig = Build(("index.html", "a longer page than before"), ("new.html", "hi"));
+        rig.S3.Buckets["site-bucket"] = new Dictionary<string, long> { ["index.html"] = 2, ["old.html"] = 9 };
+
+        await rig.Unit.UpdateAsync(Context(rig, ToBucket("site-bucket")));
+
+        Assert.Equal(["index.html", "new.html"], rig.S3.Buckets["site-bucket"].Keys.Order());
+    }
+
+    [Fact]
+    public async Task A_file_that_is_still_produced_is_never_deleted()
+    {
+        // The prune runs AFTER the upload and diffs against what was there BEFORE it, so a key that was
+        // just written must never appear in it. Getting this backwards deletes the site it just deployed.
+        using var rig = Build(("index.html", "hi"));
+        rig.S3.Buckets["site-bucket"] = new Dictionary<string, long> { ["index.html"] = 999 };
+
+        await rig.Unit.UpdateAsync(Context(rig, ToBucket("site-bucket")));
+
+        Assert.Empty(rig.S3.Deleted);
+        Assert.Contains("index.html", rig.S3.Buckets["site-bucket"]);
+    }
+
+    [Fact]
+    public async Task A_large_prune_is_batched_the_way_S3_requires()
+    {
+        // DeleteObjects takes at most 1000 keys, and a website with more than that is ordinary. Shared with
+        // the teardown rather than written twice, so this is the check on the shared piece.
+        using var rig = Build(("index.html", "hi"));
+        rig.S3.Buckets["site-bucket"] = Enumerable.Range(0, 1500)
+            .ToDictionary(i => $"stale/{i}.html", _ => 4L);
+
+        await rig.Unit.UpdateAsync(Context(rig, ToBucket("site-bucket")));
+
+        Assert.Equal(2, rig.S3.DeleteBatches);
+        Assert.Equal(1500, rig.S3.Deleted.Count);
+    }
+
+    [Fact]
+    public async Task A_build_that_produced_NOTHING_is_refused_rather_than_emptying_the_site()
+    {
+        // Converging on an empty directory is defensible — it does describe an empty site — but the prune
+        // would then take a live website away because a build step failed quietly. The last cheap moment to
+        // say so is here, before anything is uploaded or deleted.
+        using var rig = Build();                             // an artifact part that exists and is empty
+        rig.S3.Buckets["site-bucket"] = new Dictionary<string, long> { ["index.html"] = 2 };
+
+        var thrown = await Assert.ThrowsAsync<AwsConfigurationException>(
+            () => rig.Unit.UpdateAsync(Context(rig, ToBucket("site-bucket"))));
+
+        Assert.Contains("Build first", thrown.Message);
+        Assert.IsAssignableFrom<DefinitionException>(thrown);
+        Assert.Empty(rig.S3.Deleted);                        // and it took nothing away on the way out
+        Assert.Contains("index.html", rig.S3.Buckets["site-bucket"]);
+    }
+
     // ── the bucket comes from another unit ───────────────────────────────────────────────────────
 
     [Fact]

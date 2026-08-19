@@ -64,6 +64,7 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D13](#d13--the-abstraction-was-tested-against-a-second-shape-before-aws-was-ported-2026-08-08) | the local provider, built before AWS on purpose | |
 | [D14](#d14--the-aws-port-keeps-the-knowledge-and-leaves-the-application-behind-2026-08-08) | the AWS port — **never run against AWS** | ⚠ scoped by D23 |
 | [D23](#d23--a-fake-cannot-tell-you-what-aws-does-it-can-tell-you-what-we-do-2026-08-18--scopes-d14) | fakes for our control flow, a cloud for their semantics | scopes D14 |
+| [D29](#d29--a-sync-converges-in-both-directions-and-a-unit-owns-what-it-fills-2026-08-20) | a sync converges; a unit owns what it fills | a deleted page served for ever |
 
 ---
 
@@ -1290,3 +1291,48 @@ surface that accidentally differed between the two.
 
 **Said out loud in the README and the guide**, because the alternative is an adopter discovering it from a
 restore error.
+
+---
+
+## D29 — A sync converges in both directions, and a unit owns what it fills (2026-08-20)
+
+The AWS `content` unit now removes objects the build no longer produces. It did not, and the way that
+failed is the reason this is a decision rather than a fix.
+
+**The defect.** A sync uploaded every local file and stopped. Its change check asked *is every local file up
+there?* — which a bucket holding those files **plus every page the build had stopped producing** satisfies.
+So the update reported no change, a plan called the deployment current, and a deleted page went on being
+served. Permanently: a phase read only asks whether the bucket has anything in it and a refresh only counts,
+so nothing else in the system was ever going to look. The local provider had pruned its own stale files from
+the first commit, which is what made this visible — one concept, two providers, one implementation.
+
+**Decided for: converge.** A unit is a description of a desired state, and *the files that are there* is as
+much part of that as *the files that are new*. Reconcile is already the whole model; a sync that only ever
+adds is not reconciling, it is appending.
+
+**Decided against: making the removal opt-in**, which is what `aws s3 sync --delete` does. That is the right
+default for a general-purpose file-copying tool, where the destination is somebody else's directory. It is
+the wrong one here, because this unit already claims the bucket in three other places — a removal empties
+the whole thing, a phase read calls an empty bucket `Missing`, and a refresh reports an empty bucket as
+owning nothing. An opt-in flag would have made the unit's ownership depend on which of four behaviours you
+had configured, when the other three were never optional.
+
+**What it costs, and the guard that buys it back.** Pruning introduces one new way to lose a site: a build
+step that quietly produces nothing now empties a live bucket instead of harmlessly re-uploading nothing. So
+a build with no files at all is **refused** — an empty directory does describe an empty site, but not
+plausibly enough to spend a website on. This is the same species as `RequirePart`'s "Build first.", one step
+further in: the part exists and is a directory, and is still not a build.
+
+**The asymmetry with the local provider is real, not an inconsistency.** `DirectoryUnit` prunes stale files
+with no such guard, because there each build lands in its own release directory and the marker only moves
+once the copy has finished — an empty build costs one unused release and leaves what is serving untouched.
+There is one namespace on S3 and it is the one being served. The guard belongs where the blast radius is.
+
+**What this does not claim.** Files are still compared by name and size, never by content, so an edit that
+preserves a byte count is still invisible; comparing bodies means downloading them. That limit was already
+stated and is unchanged — what changed is that a file's *absence* is now noticed, which is a different
+question and was answered wrongly rather than approximately.
+
+**The generalizable part**, for a provider written elsewhere: if your unit removes everything on a teardown,
+it owns the namespace, and a sync that does not prune is claiming otherwise on the one path where nobody
+checks.
