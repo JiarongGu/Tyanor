@@ -134,10 +134,10 @@ is done, attached to when someone else's run has it in flight, resumed after a c
 before it happens.
 
 ```csharp
-internal sealed class SmokeTestUnit(HttpClient http) : IUnitDriver
+internal sealed class SmokeTestUnit(HttpClient http) : StepUnitDriver
 {
     // The method that is not optional. Everything else the engine does follows from being able to ask this.
-    public async Task<UnitPhase> PhaseAsync(UnitContext context)
+    public override async Task<UnitPhase> PhaseAsync(UnitContext context)
     {
         try
         {
@@ -150,24 +150,15 @@ internal sealed class SmokeTestUnit(HttpClient http) : IUnitDriver
         }
     }
 
-    // This unit MAKES nothing — the check is the whole of it, and the engine's wait does the waiting.
-    public Task CreateAsync(UnitContext context) => Task.CompletedTask;
-
-    public Task<bool> UpdateAsync(UnitContext context) => Task.FromResult(false);
-
-    public Task RemoveAsync(UnitContext context) => Task.CompletedTask;
-
-    public async Task AwaitSettledAsync(UnitContext context)
+    // The check IS the whole of it — a step has no control plane to hand work to, so this is where it runs.
+    public override async Task CreateAsync(UnitContext context)
     {
         if (await PhaseAsync(context) is not UnitPhase.Ready)
             throw new SmokeTestFailed($"{context.Label}: {Url(context)} is not answering.");
     }
 
-    public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context) =>
-        Task.FromResult<IReadOnlyList<ResourceState>>([]);      // it owns nothing, which is a fact
-
     // Resolve exactly what the apply resolves, and REPORT the refusal instead of throwing it.
-    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context) =>
+    public override Task<IReadOnlyList<string>> ValidateAsync(UnitContext context) =>
         new UnitProblems().Check(() => Url(context)).Found();
 
     private static string Url(UnitContext context) =>
@@ -176,7 +167,19 @@ internal sealed class SmokeTestUnit(HttpClient http) : IUnitDriver
 }
 ```
 
-Three things in there are the whole convention, and each is worth a sentence:
+**`StepUnitDriver` is why that is three methods and not seven.** A unit that deploys infrastructure needs all
+six of `IUnitDriver`'s — something to update, something to remove, a control plane to wait on, resources to
+report. A step has none of that: it answers *has this already happened?* and it does the thing. The other
+four are the same four lines every time, and they were written that way six times in this repository before
+the base class existed — including here, in the example somebody adopting copies first. Implement
+`IUnitDriver` directly when your unit really does own something; reach for this when it does not.
+
+The one pairing to get right is **`PhaseAsync` and `RemoveAsync` must agree**. The default remove does
+nothing, which is correct here because a smoke test stops reporting `Ready` on its own once the endpoint
+stops answering. If your phase is a *latch* — a row you wrote, a flag you set — override the remove to clear
+it, or a destroy will leave the unit claiming to still be deployed. `UnitDriverContract` catches exactly that.
+
+Three more things in there are the whole convention, and each is worth a sentence:
 
 - **`OwnOption`, not `Option`.** A URL is this unit's identity. A procedure-wide `"url"` would not be a
   sensible default for every smoke test, it would be every one of them checking the same address.
@@ -360,8 +363,9 @@ Each of these is stated rather than hidden, and each is a decision you should ma
 - **A publish-style step is irreversible and nothing has been built for it.** A destroy over one would call a
   remove that must lie or throw. Known and deliberately unbuilt — bring the real case rather than a
   hypothetical one.
-- **`MemoryTarget` hosts one kind of unit**, so a `CustomUnits` step cannot be registered in it. Test one of
-  those against the provider it belongs to, or directly with `UnitDriverContract`.
+- **`MemoryTarget` is not safe across concurrent runs.** A test that needs that is testing the engine rather
+  than using it. It *does* host your own `CustomUnits` steps — that is how you drive one through a whole
+  procedure before it ever meets a cloud.
 
 ## You have adopted it when
 

@@ -66,6 +66,7 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D23](#d23--a-fake-cannot-tell-you-what-aws-does-it-can-tell-you-what-we-do-2026-08-18--scopes-d14) | fakes for our control flow, a cloud for their semantics | scopes D14 |
 | [D29](#d29--a-sync-converges-in-both-directions-and-a-unit-owns-what-it-fills-2026-08-20) | a sync converges; a unit owns what it fills | a deleted page served for ever |
 | [D30](#d30--only-against-the-real-thing-is-a-claim-about-the-question-not-the-provider-2026-08-20--scopes-d15-d23) | the gate is per QUESTION, not per provider | scopes D15, D23 |
+| [D31](#d31--the-seams-are-the-product-so-their-cost-is-a-feature-2026-08-20--amends-d24) | **the seams are the product** — pause, backend contract, `StepUnitDriver` | amends D24 |
 
 ---
 
@@ -1123,6 +1124,12 @@ first customers are the shipped implementations".
 `UnitDriverContract`. And it is not safe across concurrent runs, because a test that needs that is testing
 the engine rather than using it.
 
+> ⚠ **The first half stopped being true, and D31 says why it mattered.** `MemoryTarget` takes `CustomUnits`
+> and has done for some time; six tests drive units through it. The sentence above survived into
+> `guide.md` and `adoption.md` as well, so all three told an adopter that the one harness for developing a
+> unit before it meets a cloud did not support their unit — which is the opposite of true, and the exact
+> thing D19's develop-here-then-upstream loop needs. The concurrency limit is unchanged.
+
 ---
 
 ## D25 — State answers three questions, and one of them had no code (2026-08-18)
@@ -1400,3 +1407,57 @@ cannot be tested", the composition is the thing to check. `TASKS.md` already car
 can only be tested against the real thing" gets said again, check whether it is a fact about the target or
 about a hard-coded constant* — and this is the same failure with a different ending: a fact about the
 **question**, mistaken for a fact about the provider.
+
+---
+
+## D31 — The seams are the product, so their cost is a feature (2026-08-20) — amends D24
+
+Tyanor cannot ship a provider for every service on day one. An adopting application has to be able to build
+what it needs **ahead of us**, run it in production, and hand it back if it generalizes — so the seams are
+not a nicety around the engine, they are the thing being shipped. That reframes what counts as a defect in
+one: not only *is it possible*, but *what does it cost*, and *can somebody find out they got it wrong*.
+
+Reviewed against that, four things were wrong, and only one of them was a missing feature.
+
+**A capability that was documented and unreachable.** `PauseReason` has always said a provider or a
+procedure may introduce its own reason — a DNS validation pending, a manual approval gate. Nothing could:
+the engine produced `credentials` and `transient` from the three failure classes and `external` only on
+cancellation, so no driver could cause one. The deferred ACM/Route 53 unit's entire model is "manual DNS is
+a pause that resumes", and an adopter writing it first would have found the door painted on.
+`UnitPausedException` opens it.
+
+**Decided against a fourth `FailureClass`.** The three classes are a provider's reading of an ERROR, and
+each answers "what should the operator do next" (D2). A pause is not an error: nothing went wrong, the work
+already done is correct, and what is missing is a person or the passage of time. A fourth class would have
+made every classifier's switch wrong — including the ones written outside this repository — to describe
+something no classifier is looking at. It is also never retried, excluded in the engine rather than trusted
+to each classifier, because asking somebody to approve a release five times in four seconds is worse than
+not asking.
+
+**A seam with no contract.** D20 says write the backend you need and hold it to the suites — but
+`StateStoreContract` and `RunHistoryContract` cover the stores a backend OPENS, not the backend: reading a
+descriptor, answering to a kind, keeping two locations apart. So the part that is actually the adopter's was
+the part nobody could check. `StorageBackendContract` composes the other two, so passing it means both the
+resolution and the stores are held. A backend that genuinely cannot do one half says so with
+`NotSupportedException` and the suite accepts it — but not for both, because something storing neither is
+not a backend and a contract satisfiable by refusing everything is worse than none.
+
+**A cost nobody had counted.** `IUnitDriver` has six required methods because a unit that deploys
+infrastructure needs six. A step — a check, a gate, a migration — needs two, and writes the same four
+one-line stubs. That had happened in six places here, including the worked example `adoption.md` puts in
+front of somebody adopting for the first time. `StepUnitDriver` is those four defaults plus the two the
+interface leaves as default members, which an editor will not offer as an `override`. The saving is small
+per unit and the point is the FIRST one: four more chances to return null instead of empty, and four more
+reasons for a step to stay a script that runs after the procedure instead of a unit inside it.
+
+**And one that was simply false.** D24 said `MemoryTarget` hosts one kind of unit, so a `CustomUnits` step
+cannot be registered in it. It takes `CustomUnits`, six tests drive units through it, and the sentence had
+been copied into `guide.md` and `adoption.md` — so all three told an adopter that the only harness for
+developing a unit before it meets a cloud did not support their unit. **The worst kind of documentation
+defect: not out of date, but confidently wrong about the capability the reader came for.** D19's whole
+develop-here-then-upstream loop runs through that harness.
+
+**The standing question this adds**, beside the one in `CLAUDE.md` about what an implementer would have to
+copy: *how many methods does the smallest useful version take, and what happens when they get one wrong?*
+The first answer should be small, and the second should be a contract check rather than a silent
+misbehaviour in production.

@@ -188,7 +188,7 @@ The same shape resolved three separate questions, which is why it is the thing t
 | I need | Write | Register |
 |---|---|---|
 | a whole new target | `IDeploymentTarget` + `IUnitDriver` (D15) | `cfg.AddTarget(…)` |
-| one step of my own | `IUnitDriver` (D19) | `new AwsTarget(creds, new CustomUnits { … })` |
+| one step of my own | `StepUnitDriver` (D19, D31) | `new AwsTarget(creds, new CustomUnits { … })` |
 | state somewhere else | `IStorageBackend` (D20) | `cfg.AddStorage(…)` |
 
 **Build it where you need it, prove it with the contract suites in `Tyanor.Testing`, upstream it if it

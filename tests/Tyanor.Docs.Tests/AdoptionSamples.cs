@@ -100,10 +100,10 @@ internal static class AdoptionSamples
 /// <para>It is the document's central sample, so it is a real driver rather than a sketch: every member the
 /// interface needs, resolving its one setting the way the convention says.</para>
 /// </summary>
-internal sealed class SmokeTestUnit(HttpClient http) : IUnitDriver
+internal sealed class SmokeTestUnit(HttpClient http) : StepUnitDriver
 {
     // The method that is not optional. Everything else the engine does follows from being able to ask this.
-    public async Task<UnitPhase> PhaseAsync(UnitContext context)
+    public override async Task<UnitPhase> PhaseAsync(UnitContext context)
     {
         try
         {
@@ -116,24 +116,15 @@ internal sealed class SmokeTestUnit(HttpClient http) : IUnitDriver
         }
     }
 
-    // This unit MAKES nothing — the check is the whole of it, and the engine's wait does the waiting.
-    public Task CreateAsync(UnitContext context) => Task.CompletedTask;
-
-    public Task<bool> UpdateAsync(UnitContext context) => Task.FromResult(false);
-
-    public Task RemoveAsync(UnitContext context) => Task.CompletedTask;
-
-    public async Task AwaitSettledAsync(UnitContext context)
+    // The check IS the whole of it — a step has no control plane to hand work to, so this is where it runs.
+    public override async Task CreateAsync(UnitContext context)
     {
         if (await PhaseAsync(context) is not UnitPhase.Ready)
             throw new SmokeTestFailed($"{context.Label}: {Url(context)} is not answering.");
     }
 
-    public Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context) =>
-        Task.FromResult<IReadOnlyList<ResourceState>>([]);      // it owns nothing, which is a fact
-
     // Resolve exactly what the apply resolves, and REPORT the refusal instead of throwing it.
-    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context) =>
+    public override Task<IReadOnlyList<string>> ValidateAsync(UnitContext context) =>
         new UnitProblems().Check(() => Url(context)).Found();
 
     private static string Url(UnitContext context) =>

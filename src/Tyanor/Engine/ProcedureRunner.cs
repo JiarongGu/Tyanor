@@ -334,6 +334,18 @@ public sealed class ProcedureRunner(
             await Finish(record with { Status = RunStatus.Paused, Reason = PauseReason.External });
             throw;
         }
+        catch (UnitPausedException paused)
+        {
+            // A pause the DRIVER asked for, and the only path by which a provider reaches PauseReason's open
+            // end. Caught before the general handler because it is not an error to be classified: nothing
+            // went wrong, the work so far is correct, and what is needed is a person or the passage of time.
+            //
+            // The message is the instruction — "add these DNS records, then resume" — so it is carried into
+            // both the record and the outcome rather than replaced with wording of ours.
+            report(new ProgressReport(procedure.Name, paused.Message, -1));
+            await Finish(record with { Status = RunStatus.Paused, Reason = paused.Reason, Error = paused.Message });
+            return OperationOutcome.Paused(paused.Reason, paused.Message);
+        }
         catch (Exception ex)
         {
             var outcome = OperationOutcome.From(target.Classifier.Classify(ex) ?? FailureClass.Hard, ex.Message);
@@ -384,6 +396,10 @@ public sealed class ProcedureRunner(
                 // here and let the recreate below be the real attempt.
                 try { await target.Driver.AwaitSettledAsync(context); }
                 catch (OperationCanceledException) { throw; }
+                // A deliberate pause is not the failure this was waiting for. Swallowing it would carry on
+                // and REMAKE a unit whose driver just said a person has to act first — the one outcome a
+                // pause exists to prevent.
+                catch (UnitPausedException) { throw; }
                 catch { /* settled into a failed state, which is exactly what we were waiting for */ }
                 goto case ReconcileAction.Recreate;
 
@@ -460,6 +476,11 @@ public sealed class ProcedureRunner(
         {
             try { return await op(); }
             catch (OperationCanceledException) { throw; }
+            // A deliberate pause is never retried, whatever a classifier makes of it. It is not an error, so
+            // there is nothing to ride out — and asking a person to approve something five times in four
+            // seconds is worse than not asking. Excluded HERE rather than trusted to every classifier,
+            // including the ones written outside this repository.
+            catch (UnitPausedException) { throw; }
             catch (Exception ex) when (attempt < _retry.Attempts && target.Classifier.Classify(ex) == FailureClass.Transient)
             {
                 await Task.Delay(_retry.DelayFor(attempt), ct);

@@ -246,7 +246,7 @@ The same answer resolved three separate questions, so it is the one to reach for
 | You need | You write | You register |
 |---|---|---|
 | a whole new target | `IDeploymentTarget` + `IUnitDriver` | `cfg.AddTarget(…)` |
-| one step of your own | `IUnitDriver` | `new AwsTarget(creds, new CustomUnits { … })` |
+| one step of your own | `StepUnitDriver` — two methods | `new AwsTarget(creds, new CustomUnits { … })` |
 | state somewhere else | `IStorageBackend` | `cfg.AddStorage(…)` |
 
 **Build it where you need it, prove it with the contract suites, upstream it if it generalizes.** The built-in

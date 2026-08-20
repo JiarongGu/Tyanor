@@ -233,6 +233,20 @@ internal static class GuideSamples
         Assert.True((await runner.ApplyAsync(procedure, request)).Ok);
     }
 
+    /// <summary>The half that matters when a step exists before Tyanor supports what it talks to.</summary>
+    private static void HostYourOwnUnits(HttpClient http)
+    {
+        var target = new MemoryTarget(new CustomUnits { ["migration"] = new VerifyMigrationUnit(http) });
+
+        _ = target;
+    }
+
+    // ── stopping for a person ────────────────────────────────────────────────────────────────────
+    private static void PauseForAPerson(UnitContext context) =>
+        throw new UnitPausedException(
+            new PauseReason("approval"),
+            $"{context.Label}: waiting for someone to approve this release. Resume once they have.");
+
     private static async Task TestAPause(ProcedureRunner runner, Procedure procedure, DeploymentRequest request)
     {
         var target = new MemoryTarget().Fails("api", FailureClass.Credentials, "the token expired");
@@ -349,4 +363,22 @@ internal sealed class VerifyMigrationUnit(HttpClient http) : IUnitDriver
 internal sealed class MyClassifier : IFailureClassifier
 {
     public FailureClass? Classify(Exception error) => null;
+}
+
+/// <summary>
+/// Two methods, not six — the guide's <c>StepUnitDriver</c> sample, compiled.
+/// </summary>
+/// <remarks>
+/// A top-level type rather than a nested one, because the fence in the guide is a whole class declaration
+/// and the check compares text: nesting it would indent every line and stop it matching.
+/// </remarks>
+internal sealed class CacheWarm(HttpClient http) : StepUnitDriver
+{
+    public override async Task<UnitPhase> PhaseAsync(UnitContext context) =>
+        (await http.GetAsync(context.OwnOption("url"), context.Cancellation)).IsSuccessStatusCode
+            ? UnitPhase.Ready
+            : UnitPhase.Missing;
+
+    public override Task CreateAsync(UnitContext context) =>
+        http.GetAsync(context.OwnOption("url"), context.Cancellation);
 }

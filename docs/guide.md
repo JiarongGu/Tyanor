@@ -518,9 +518,19 @@ simulates another provider's semantics, so it cannot teach you a wrong belief ab
 deliberate exception is `Reports(...)`: `Converging` and `Broken` are states a real target reaches by timing
 or by failing, which a test cannot arrange. Everything else is the truth about what is in the dictionary.
 
-Two limits, stated rather than discovered: it hosts one kind of unit, so a `CustomUnits` step cannot be
-registered in it — test one of those against the provider it belongs to, or directly with
-`UnitDriverContract`. And it is not safe across concurrent runs.
+**It hosts your own units too**, which is the half of this that matters when you are building a step before
+Tyanor supports the service it talks to. Register them exactly as you would in a real provider, and drive the
+whole procedure — plan, apply, pause, resume, destroy — before it ever meets a cloud:
+
+```csharp
+var target = new MemoryTarget(new CustomUnits { ["migration"] = new VerifyMigrationUnit(http) });
+```
+
+A unit that declares **no** kind gets the memory behaviour, which is what keeps the ordinary case one line. A
+unit that declares a kind this target does not have is refused, exactly as a real provider refuses it.
+
+One limit, stated rather than discovered: it is not safe across concurrent runs, because a test that needs
+that is testing the engine rather than using it.
 
 ## Extending it
 
@@ -530,7 +540,7 @@ it generalizes.
 | You need | Write | Register |
 |---|---|---|
 | a whole new target | `IDeploymentTarget` + `IUnitDriver` | `cfg.AddTarget(…)` |
-| one step of your own | `IUnitDriver` | `new AwsTarget(creds, new CustomUnits { … })` |
+| one step of your own | `StepUnitDriver` — two methods | `new AwsTarget(creds, new CustomUnits { … })` |
 | state somewhere else | `IStorageBackend` | `cfg.AddStorage(…)` |
 
 ### One step of your own
@@ -551,11 +561,54 @@ classification. The one thing you must supply is the thing the engine cannot gue
 answering *has this already happened?* A step that can answer is skipped when it is done. A step that cannot
 is a script, and belongs outside the procedure.
 
-Two helpers exist so you do not write what both shipped providers had to. `UnitProblems` collects what your
-own resolvers refuse, so `ValidateAsync` reports every problem instead of throwing at the first — call the
-same resolver the apply calls, because two copies of a rule is two rules. `FailureClassifiers.Walk` finds
-your exception however deeply a provider nested it. [`adoption.md`](adoption.md) has a worked driver using
-both.
+**Start from `StepUnitDriver` and you write two methods, not six.** `IUnitDriver` asks for six because a unit
+that deploys *infrastructure* needs six — something to update, something to remove, a control plane to wait
+on, resources to report. A step has none of that, so the base class supplies those four and you override the
+two that carry meaning:
+
+```csharp
+internal sealed class CacheWarm(HttpClient http) : StepUnitDriver
+{
+    public override async Task<UnitPhase> PhaseAsync(UnitContext context) =>
+        (await http.GetAsync(context.OwnOption("url"), context.Cancellation)).IsSuccessStatusCode
+            ? UnitPhase.Ready
+            : UnitPhase.Missing;
+
+    public override Task CreateAsync(UnitContext context) =>
+        http.GetAsync(context.OwnOption("url"), context.Cancellation);
+}
+```
+
+The one pairing to get right: **`PhaseAsync` and `RemoveAsync` must agree.** The default remove does nothing,
+which is correct for a step that leaves nothing behind. If your phase is a *latch* — a row you wrote, a flag
+you set — override the remove to clear it, or a destroy leaves the unit claiming to still be deployed.
+`UnitDriverContract` catches exactly that.
+
+Three more helpers exist so you do not write what both shipped providers had to. `UnitProblems` collects what
+your own resolvers refuse, so `ValidateAsync` reports every problem instead of throwing at the first — call
+the same resolver the apply calls, because two copies of a rule is two rules. `FailureClassifiers.Walk` finds
+your exception however deeply a provider nested it. And `context.RequirePart("source")` resolves the artifact
+part an option names, refusing with one sentence that lists what the artifact does carry.
+[`adoption.md`](adoption.md) has a worked driver using them.
+
+#### Stopping for a person
+
+Some steps are not finished when the code stops running: an approval gate, a DNS record somebody has to add,
+a change window. Throw `UnitPausedException` and the run **pauses** rather than fails — the record stays live,
+the outcome is resumable, and applying again continues it:
+
+```csharp
+throw new UnitPausedException(
+    new PauseReason("approval"),
+    $"{context.Label}: waiting for someone to approve this release. Resume once they have.");
+```
+
+The message *is* the instruction, so put what the operator has to do in it — a pause they cannot act on is a
+stop with extra steps. It is never retried, and `PauseReason` is yours to name: an operator who would act
+differently on it deserves a different word.
+
+This is deliberately not a fourth `FailureClass`. Those three are a provider's reading of an **error**, and
+this is not one — nothing went wrong, and the work already done is correct ([D31](DECISIONS.md)).
 
 #### If you know CI/CD plugins
 

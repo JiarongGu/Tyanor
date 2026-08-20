@@ -165,7 +165,43 @@ public class ContractSuiteTests
         => Assert.Contains("The serial advances on every save",
             await FailuresOf(new StateStoreContract(() => new FrozenSerial())));
 
+    // ── the backend suite ────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task A_backend_that_ignores_the_LOCATION_is_caught()
+        // The mistake somebody writing their first backend makes: wire up the store, forget that the
+        // descriptor's target is meant to select WHICH one. It looks perfect until a second deployment
+        // appears and finds the first one's state.
+        => Assert.Contains("Different locations are kept apart",
+            await FailuresOf(new StorageBackendContract(new OneBigDrawer(), Descriptors("drawer"))));
+
+    [Fact]
+    public async Task A_backend_that_hands_back_a_FRESH_store_each_call_is_caught()
+        // A descriptor names a place. A backend returning an independent store per call loses every write
+        // made through the other one — and every check that opens a store once still passes.
+        => Assert.Contains("Two state stores opened at one location are ONE store",
+            await FailuresOf(new StorageBackendContract(new Forgetful(), Descriptors("forgetful"))));
+
+    [Fact]
+    public async Task A_backend_that_stores_NEITHER_half_is_caught()
+        // Otherwise every other check passes by being skipped, and refusing everything satisfies the suite.
+        => Assert.Contains("It stores at least one of state and history",
+            await FailuresOf(new StorageBackendContract(new RefusesBoth(), Descriptors("refuses"))));
+
+    [Fact]
+    public async Task A_backend_whose_STORE_is_broken_is_caught_through_the_composed_suite()
+        // The point of composing: an adopter runs one suite and the stores it opens are held to theirs too.
+        => Assert.Contains("The state store it opens satisfies StateStoreContract",
+            await FailuresOf(new StorageBackendContract(new OpensAHelpfulStore(), Descriptors("helpful"))));
+
     // ── scaffolding ──────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Fresh descriptors of one kind, which is what the backend suite requires of a fixture.</summary>
+    private static Func<string> Descriptors(string kind)
+    {
+        var next = 0;
+        return () => $"{kind}:location-{Interlocked.Increment(ref next)}";
+    }
 
     private static UnitDriverContract Driver(IUnitDriver driver, IReadOnlyCollection<string>? outputs = null) =>
         new(new Fixture(driver, outputs ?? []));
@@ -382,6 +418,66 @@ public class ContractSuiteTests
         {
             _states.Remove((p, x));
             return Task.CompletedTask;
+        }
+    }
+
+    // ── backends that are wrong in exactly one way ───────────────────────────────────────────────
+
+    /// <summary>Correct except that it ignores the descriptor's target: everything lands in one place.</summary>
+    private sealed class OneBigDrawer : IStorageBackend
+    {
+        private readonly InMemoryStateStore _state = new();
+        private readonly InMemoryRunHistory _history = new();
+
+        public string Kind => "drawer";
+
+        public IStateStore OpenState(StorageConnection connection) => _state;
+
+        public IRunHistory OpenHistory(StorageConnection connection) => _history;
+    }
+
+    /// <summary>Correct except that each call opens a NEW store, so nothing written is ever read back.</summary>
+    private sealed class Forgetful : IStorageBackend
+    {
+        public string Kind => "forgetful";
+
+        public IStateStore OpenState(StorageConnection connection) => new InMemoryStateStore();
+
+        public IRunHistory OpenHistory(StorageConnection connection) => new InMemoryRunHistory();
+    }
+
+    /// <summary>Refuses both halves, which is not a backend — and would otherwise pass by being skipped.</summary>
+    private sealed class RefusesBoth : IStorageBackend
+    {
+        public string Kind => "refuses";
+
+        public IStateStore OpenState(StorageConnection connection) => throw new NotSupportedException();
+
+        public IRunHistory OpenHistory(StorageConnection connection) => throw new NotSupportedException();
+    }
+
+    /// <summary>Resolves locations perfectly, and opens a store that loses a null fingerprint.</summary>
+    private sealed class OpensAHelpfulStore : IStorageBackend
+    {
+        private readonly Dictionary<string, IStateStore> _states = [];
+        private readonly Dictionary<string, IRunHistory> _histories = [];
+
+        public string Kind => "helpful";
+
+        public IStateStore OpenState(StorageConnection connection)
+        {
+            if (!_states.TryGetValue(connection.Target, out var store))
+                _states[connection.Target] = store = new HelpfulStore();
+
+            return store;
+        }
+
+        public IRunHistory OpenHistory(StorageConnection connection)
+        {
+            if (!_histories.TryGetValue(connection.Target, out var history))
+                _histories[connection.Target] = history = new InMemoryRunHistory();
+
+            return history;
         }
     }
 }

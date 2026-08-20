@@ -28,9 +28,14 @@ public enum FailureClass
 /// reconcile from whatever is true then.
 /// </summary>
 /// <remarks>
-/// These are open on purpose — a provider or a procedure may introduce its own reason (a DNS validation
-/// still pending, a manual approval gate) — so this is a value type over a string rather than an enum
-/// nobody outside the assembly can extend.
+/// <para>These are open on purpose — a provider or a procedure may introduce its own reason (a DNS
+/// validation still pending, a manual approval gate) — so this is a value type over a string rather than an
+/// enum nobody outside the assembly can extend.</para>
+/// <para><b>A driver reaches that open end by throwing <see cref="UnitPausedException"/>.</b> The three
+/// below are what the ENGINE produces on its own: two from the failure classes, and
+/// <see cref="External"/> when the caller cancels. Without that exception the openness was a promise the
+/// surface could not keep — no driver could cause a reason of its own, which is the shape of gap this
+/// library keeps finding: a capability defined by documentation and guarded by nothing.</para>
 /// </remarks>
 public readonly record struct PauseReason(string Value)
 {
@@ -79,6 +84,48 @@ public sealed record OperationOutcome(bool Ok, string? Error = null, PauseReason
         FailureClass.Transient => Paused(PauseReason.Transient, error),
         _ => Failed(error ?? "The operation failed."),
     };
+}
+
+/// <summary>
+/// A unit is waiting on something OUTSIDE the provider, and the run should PAUSE rather than fail.
+///
+/// <para><b>This is how a driver reaches <see cref="PauseReason"/>'s open end.</b> That type says a provider
+/// or a procedure may introduce its own reason — a DNS validation still pending, a manual approval gate — and
+/// for a long time nothing could: the engine produced <see cref="PauseReason.Credentials"/> and
+/// <see cref="PauseReason.Transient"/> from the three failure classes, and
+/// <see cref="PauseReason.External"/> only when the caller cancelled. A capability defined by documentation
+/// and guarded by nothing, which is the shape of defect this library keeps finding in itself.</para>
+///
+/// <para><b>It is deliberately not a fourth <see cref="FailureClass"/>.</b> The three classes each answer
+/// "what should the operator do next", and they are the provider's reading of an ERROR. This is not an error
+/// at all — nothing went wrong, the work so far is intact and correct, and what is needed is a person or the
+/// passage of time. Adding a class would have made every classifier's switch wrong, including the ones
+/// written outside this repository, to describe something no classifier is looking at.</para>
+///
+/// <para><b>The message is the instruction.</b> Whatever the operator has to DO goes here, because a pause
+/// they cannot act on is a stop with extra steps: <c>"Add these DNS records, then resume: …"</c>.</para>
+///
+/// <example>
+/// <code>
+/// if (certificate.Status == "PENDING_VALIDATION")
+///     throw new UnitPausedException(
+///         new PauseReason("dns-validation"),
+///         $"{context.Label}: add these records at your registrar, then resume — {Describe(records)}");
+/// </code>
+/// </example>
+///
+/// <para>The engine records the run as <see cref="RunStatus.Paused"/> with this reason, returns a resumable
+/// <see cref="OperationOutcome"/>, and re-entering reconciles from whatever is true then — so a unit that
+/// pauses this way needs no resume path of its own. It is never retried: a pause is not a transient error,
+/// and waiting for a human five times in quick succession helps nobody.</para>
+/// </summary>
+/// <param name="reason">Why. <see cref="PauseReason.External"/> covers most cases; name your own when an
+/// operator would act differently on it.</param>
+/// <param name="message">What the operator has to do, in plain language.</param>
+public sealed class UnitPausedException(PauseReason reason, string message) : Exception(message)
+{
+    /// <summary>Why the run paused — carried through to <see cref="RunRecord.Reason"/>.</summary>
+    public PauseReason Reason { get; } = reason;
 }
 
 /// <summary>

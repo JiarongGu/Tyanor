@@ -53,6 +53,31 @@ public class FileStateStoreContractTests : IDisposable
 }
 
 /// <summary>A temp directory that hands out a fresh file path each time and takes them all away after.</summary>
+/// <summary>
+/// The <c>json</c> backend held to the BACKEND contract — the seam an adopter writes against when they need
+/// SQLite, Postgres or S3, and the one that had no suite at all until now.
+///
+/// <para>The suites' first customer is our own code, for the reason D15 gives: a contract that none of this
+/// repository's implementations has to satisfy drifts into describing something nobody built. It is also the
+/// only way to find out that a suite can go green — <c>ContractSuiteTests</c> is what proves it can go
+/// red.</para>
+/// </summary>
+public class JsonStorageBackendContractTests : IDisposable
+{
+    private readonly Scratch _scratch = new();
+
+    public static TheoryData<string> Checks() =>
+        Suites.Names(new StorageBackendContract(new JsonStorageBackend(), () => null!));
+
+    [Theory]
+    [MemberData(nameof(Checks))]
+    public Task JsonStorageBackend_satisfies(string check) =>
+        new StorageBackendContract(new JsonStorageBackend(), () => "json:" + _scratch.Path("store"))
+            .AssertAsync(check);
+
+    public void Dispose() => _scratch.Dispose();
+}
+
 internal sealed class Scratch : IDisposable
 {
     private readonly string _root = System.IO.Path.Combine(

@@ -14,8 +14,8 @@ cleanups that no user ever met, because there was no previous version to meet th
 separate, because the reasoning is the point: most of those mistakes are ones a provider or storage backend
 written outside this repository can still make.
 
-Test counts quoted against a particular piece are what it brought with it. The suite as a whole is **755
-tests**, none of which touch a cloud.
+Test counts quoted against a particular piece are what it brought with it. The suite as a whole is **775
+
 
 ### What ships
 
@@ -376,6 +376,31 @@ would not have failed, it would have silently certified.
   `public` that should have been `internal` ships permanently — after which narrowing it is itself the
   breaking change. It is a record rather than a rule: a deliberate change is `TYANOR_UPDATE_API=1 dotnet test`
   and a diff somebody reads. It found the three defects above within the hour. Reasoning in D27.
+
+- **The seams reviewed as a product in their own right.** Tyanor cannot ship a provider for every service on
+  day one, so an adopting application has to build what it needs *ahead of* this repository and hand it back
+  if it generalizes. Measured against that, the question is not only whether a seam is possible but what it
+  COSTS and whether somebody can find out they got it wrong. Four things were not good enough, and only one
+  of them was a missing feature. **D31.**
+  - **`UnitPausedException`** — `PauseReason` always said a provider or a procedure may add its own reason,
+    and nothing could: the engine produced `credentials` and `transient` from the failure classes and
+    `external` only on cancellation. So an approval gate, a change window, or the deferred ACM/Route 53
+    unit — whose whole model is "manual DNS is a pause that resumes" — had no way to exist. Deliberately not
+    a fourth `FailureClass`: those are a provider's reading of an *error*, and a pause is not one. Never
+    retried, excluded in the engine rather than trusted to each classifier.
+  - **`StorageBackendContract`** — D20 says write the backend you need and hold it to the suites, but the two
+    store suites cover what a backend OPENS, not the backend: descriptors, kinds, keeping two locations
+    apart. The part that was actually the adopter's was the part nothing checked. It composes the other two,
+    so one suite holds both the resolution and the stores, and four deliberately-broken backends prove it
+    goes red.
+  - **`StepUnitDriver`** — `IUnitDriver` asks for six methods because a unit that deploys infrastructure
+    needs six. A step needs two and wrote the same four one-line stubs, which had happened in six places
+    here including the worked example `adoption.md` puts in front of a first-time adopter. It also restates
+    the two default interface members, which an editor will not offer as an `override`.
+  - **A documentation defect worse than staleness.** D24, `guide.md` and `adoption.md` all said `MemoryTarget`
+    hosts one kind of unit so a `CustomUnits` step cannot be registered in it. It takes `CustomUnits` and six
+    tests drive units through it. All three were confidently wrong about the one harness for developing a
+    unit before it meets a cloud — which is the entire point of D19's develop-here-then-upstream loop.
 
 - **The AWS stack driver had never once been held to `UnitDriverContract`, and a check said otherwise.** The
   suite was constructed for it in exactly one place — inside the live deployment test, behind

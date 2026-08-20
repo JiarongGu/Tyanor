@@ -112,7 +112,7 @@ The same answer has now been right three times, so reach for it before inventing
 | Someone needs | They write | They register | |
 |---|---|---|---|
 | a whole new target | `IDeploymentTarget` + `IUnitDriver` | `cfg.AddTarget(…)` | D15 |
-| one step of their own | `IUnitDriver` | `new AwsTarget(creds, new CustomUnits { … })` | D19 |
+| one step of their own | `StepUnitDriver` — two methods | `new AwsTarget(creds, new CustomUnits { … })` | D19, D31 |
 | state somewhere else | `IStorageBackend` | `cfg.AddStorage(…)` | D20 |
 
 **Build it where you need it, prove it with the contract suites, upstream it if it generalizes.** Nothing is

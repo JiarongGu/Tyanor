@@ -314,6 +314,16 @@ static class Tyanor.StateDiff
     static IReadOnlyList<Drift> ForUnit(string unit, IReadOnlyList<ResourceState> recorded, IReadOnlyList<ResourceState> actual)
     static bool Unchanged(string recorded, string actual)
 
+abstract class Tyanor.StepUnitDriver : IUnitDriver
+    abstract Task CreateAsync(UnitContext context)
+    abstract Task<UnitPhase> PhaseAsync(UnitContext context)
+    virtual Task AwaitSettledAsync(UnitContext context)
+    virtual Task RemoveAsync(UnitContext context)
+    virtual Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext context)
+    virtual Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext context)
+    virtual Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
+    virtual Task<bool> UpdateAsync(UnitContext context)
+
 sealed class Tyanor.StorageBackends
     .ctor(IEnumerable<IStorageBackend> backends)
     .ctor(IStorageBackend[] backends)
@@ -427,6 +437,10 @@ sealed class Tyanor.Testing.StateStoreContract : ContractSuite
     .ctor(Func<IStateStore> create)
     virtual string Subject { get; }
 
+sealed class Tyanor.Testing.StorageBackendContract : ContractSuite
+    .ctor(IStorageBackend backend, Func<string> descriptor)
+    virtual string Subject { get; }
+
 sealed class Tyanor.Testing.UnitDriverContract : ContractSuite
     .ctor(IUnitDriverFixture fixture)
     virtual string Subject { get; }
@@ -462,6 +476,10 @@ abstract class Tyanor.UnitKindDriver : IUnitDriver
 
 sealed class Tyanor.UnitKindException : DefinitionException
     .ctor(string message)
+
+sealed class Tyanor.UnitPausedException : Exception
+    .ctor(PauseReason reason, string message)
+    PauseReason Reason { get; }
 
 enum Tyanor.UnitPhase
     Broken = 4
