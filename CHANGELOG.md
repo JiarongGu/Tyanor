@@ -32,6 +32,16 @@ single-unit procedure using the unscoped spelling was working by accident and st
 
 ### Fixed
 
+- **`MemoryTarget` now keeps two deployments apart.** It keyed what was deployed by unit NAME alone, so
+  after `acme` applied, a plan for `globex` — a second, independent deployment of the same procedure — read
+  `acme`'s units as its own and reported `Update` where every real provider reports `Create`. If you test a
+  deployment-per-tenant or staging-beside-production shape against this target, you were being told the
+  wrong answer, in the direction that hides work. Keyed by `(prefix, unit)` now. The scripting helpers
+  (`AlreadyDeployed`, `Drifted`) still take a unit name and no prefix, and still mean "for whichever
+  deployment this test runs" — no existing test changes. Reasoning in `docs/DECISIONS.md` **D37**.
+  - Its class doc claimed the missing required `kind` was "the only difference" from a real provider. It was
+    not, nothing checked it, and the sentence is gone.
+
 - **A content unit's destination named both ways is refused rather than resolved by precedence.** `bucket`
   silently beat `bucketFrom`, which is D34's rule at the third site D35 did not reach — and this one is not
   benign the way the staging bucket was: it uploads the website to the bucket you are migrating away from

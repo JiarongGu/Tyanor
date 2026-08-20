@@ -104,6 +104,75 @@ public class MemoryTargetTests
     }
 
     [Fact]
+    public async Task Two_DEPLOYMENTS_of_one_procedure_are_independent()
+    {
+        // What the prefix is for, and what this target got wrong: it keyed what was deployed by unit name
+        // alone, so after `acme` applied, a plan for `globex` read acme's `db` as its own and said Update
+        // where every real provider says Create. A consumer with a tenant per deployment, or staging beside
+        // production, would have tested exactly this and been told the wrong answer (D37).
+        var target = new MemoryTarget();
+        var acme = Requests.Bare("acme");
+        var globex = Requests.Bare("globex");
+
+        Assert.True((await Runner(target).ApplyAsync(Site, acme)).Ok);
+
+        var plan = await Runner(target).PlanAsync(Site, globex);
+
+        Assert.All(plan.Steps, s => Assert.Equal(ReconcileAction.Create, s.Action));
+        Assert.True((await Runner(target).ApplyAsync(Site, globex)).Ok);
+        Assert.Equal(["db:create", "api:create", "db:create", "api:create"], target.Calls);
+    }
+
+    [Fact]
+    public async Task Destroying_one_DEPLOYMENT_leaves_the_other_standing()
+    {
+        // The half that matters most, because getting it wrong is silent: a teardown of one tenant reading
+        // as a teardown of them all.
+        var target = new MemoryTarget();
+        var acme = Requests.Bare("acme");
+        var globex = Requests.Bare("globex");
+
+        await Runner(target).ApplyAsync(Site, acme);
+        await Runner(target).ApplyAsync(Site, globex);
+
+        Assert.True((await Runner(target).DestroyAsync(Site, acme)).Ok);
+
+        // globex is untouched: its units are still there, so they plan as Update rather than Create.
+        Assert.All((await Runner(target).PlanAsync(Site, globex)).Steps,
+            s => Assert.Equal(ReconcileAction.Update, s.Action));
+
+        // …while acme really is gone.
+        Assert.All((await Runner(target).PlanAsync(Site, acme)).Steps,
+            s => Assert.Equal(ReconcileAction.Create, s.Action));
+    }
+
+    [Fact]
+    public async Task A_unit_seeded_as_already_deployed_answers_for_whichever_deployment_asks()
+    {
+        // AlreadyDeployed takes a unit name and no request, so what it can mean is "already there for the
+        // deployment this test is about to run". Any other reading makes the one-line helper need a prefix.
+        var target = new MemoryTarget().AlreadyDeployed("db", "api");
+
+        Assert.All((await Runner(target).PlanAsync(Site, Requests.Bare("whatever"))).Steps,
+            s => Assert.Equal(ReconcileAction.Update, s.Action));
+    }
+
+    [Fact]
+    public async Task Destroying_a_SEEDED_unit_really_removes_it()
+    {
+        // The seeded entry has to go with the real one. Otherwise a destroyed unit goes on reading Ready
+        // from the half of the store nobody was looking at — the exact lie a teardown must not tell.
+        var target = new MemoryTarget().AlreadyDeployed("db", "api");
+        var request = Requests.Bare();
+
+        Assert.True((await Runner(target).DestroyAsync(Site, request)).Ok);
+
+        Assert.Empty(target.Deployed);
+        Assert.All((await Runner(target).PlanAsync(Site, request)).Steps,
+            s => Assert.Equal(ReconcileAction.Create, s.Action));
+    }
+
+    [Fact]
     public async Task A_second_apply_changes_nothing_because_nothing_changed()
     {
         // The property a resume rests on, and the reason Revision exists rather than update always

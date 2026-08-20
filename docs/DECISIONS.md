@@ -72,6 +72,7 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D34](#d34--some-values-only-exist-once-the-run-is-under-way-and-a-unit-has-to-be-able-to-ask-for-them-2026-08-20) | apply-time values reach a later unit; **a part has one writer** | found by the first adopter |
 | [D35](#d35--the-providers-own-value-does-not-get-to-win-quietly-2026-08-21--amends-d34) | a rule enforced by hand is enforced where you were looking | amends D34 |
 | [D36](#d36--a-units-address-is-read-one-way-and-the-wrong-spelling-is-refused-2026-08-21--amends-d35) | an address is read per unit, and the wrong spelling is refused | amends D35 |
+| [D37](#d37--the-test-target-disagreed-with-every-real-one-about-what-a-deployment-is-2026-08-21) | the test target shared one store between two deployments | found by disbelieving a sentence |
 
 ---
 
@@ -1797,3 +1798,43 @@ in the old bucket, the stack's stayed empty, and `validate` reported nothing at 
 **The cost, stated plainly: this is a breaking change to a shipped surface.** An unscoped `bucket` or `path`
 that "worked" for a single-unit procedure now fails. It is pre-1.0 and it is called out in the changelog,
 and the alternative is keeping a spelling whose failure mode is a deleted website.
+
+## D37 — The test target disagreed with every real one about what a deployment IS (2026-08-21)
+
+`MemoryTarget` keyed what was deployed by unit NAME alone. So two deployments of one procedure shared a
+store: after `acme` applied, a plan for `globex` read `acme`'s `db` as its own and reported `Update` where
+every real provider reports `Create`. Now keyed by `(prefix, unit)`, which is what a real provider keys on.
+
+**The prefix is not decoration and this is the one type that has to agree about it.** `DeploymentRequest`
+documents it as "what lets one account host several independent deployments of the same procedure"; AWS
+deploys `{prefix}-{unit}`, the local provider writes `{root}/{prefix}/{unit}`. A consumer with a deployment
+per tenant, or staging beside production, is the ordinary case for that — and testing it against this target
+returned the wrong answer, in the direction that hides work rather than inventing it.
+
+**Found by disbelieving a sentence.** The class doc said *unlike a real provider it has no REQUIRED kind, and
+that is the only difference*. That is a completeness claim, nothing checked it, and it was false. Same shape
+as D35 and D36 — the rule was stated in prose, and prose does not go red.
+
+**The type's own history said this would happen.** Its doc already records a defect of exactly this kind: an
+unregistered unit kind used to fall back to memory behaviour, so an adopter got a green suite here and an
+exception in production — and the note ends *its own test could not fail, which is why it survived*. The
+same sentence applies to what was fixed here, one field over.
+
+**The scripting helpers still take a unit name and no request**, and that is deliberate rather than
+overlooked. `AlreadyDeployed("db")` means *already there for the deployment this test is about to run*,
+which is the only thing a one-line helper with no request can mean, so a seeded unit answers for whichever
+prefix asks. Making them take a prefix would cost every existing test a parameter to say something it never
+needed to say.
+
+**A destroy clears the seeded entry as well as the real one**, which is the half that would have rotted
+quietly: without it, a destroyed unit goes on reading `Ready` from the half of the store nobody was looking
+at — the exact lie a teardown must not tell (D32). It is mutation-checked, because it is behaviour defined
+by a line whose absence changes nothing visible until the specific test that names it.
+
+**Not done, and recorded rather than assumed: making `UnitDriverContract` check this.** That is the version
+with teeth — a suite that goes red — and it needs `IUnitDriverFixture` to supply a second request under a
+different prefix, which is a breaking change to an interface every out-of-repo implementer implements. It is
+also the only sane way to handle the awkward case: an AWS content unit's isolation comes from the operator
+pointing it at a different bucket, not from the driver, so only the implementer can supply a correctly
+configured second deployment. Worth doing; worth deciding deliberately rather than as a side effect of this.
+See `TASKS.md`.
