@@ -14,7 +14,7 @@ cleanups that no user ever met, because there was no previous version to meet th
 separate, because the reasoning is the point: most of those mistakes are ones a provider or storage backend
 written outside this repository can still make.
 
-Test counts quoted against a particular piece are what it brought with it. The suite as a whole is **775
+Test counts quoted against a particular piece are what it brought with it. The suite as a whole is **814
 
 
 ### What ships
@@ -376,6 +376,27 @@ would not have failed, it would have silently certified.
   `public` that should have been `internal` ships permanently — after which narrowing it is itself the
   breaking change. It is a record rather than a rule: a deliberate change is `TYANOR_UPDATE_API=1 dotnet test`
   and a diff somebody reads. It found the three defects above within the hour. Reasoning in D27.
+
+- **A teardown now has THREE answers, because some things do not come back.** A publish cannot be
+  unpublished, an audit record cannot be withdrawn, a sent email cannot be recalled — yet `RemoveAsync` was
+  documented as "remove and wait until it is gone" and `DecideDestroy` handed `Remove` to every phase that
+  was not `Missing`. Such a unit could only lie or throw. `TASKS.md` item 4 had carried this as a known gap
+  and predicted the shape of the answer; **D32** is that shape.
+  - `IUnitDriver.IsRemovable(context)` defaults to true, so nothing broke. Say false and the destroy plan
+    lists the unit under `Plan.Retained` **before anything runs**, `RemoveAsync` is never called, the
+    teardown succeeds and says RETAINED out loud, and the resources are kept out of the "to destroy" count —
+    the number lying in the direction that costs money.
+  - **Its state is kept**, which is the half most likely to have been got wrong. Clearing it would make
+    Tyanor forget it owns something still out there, and D25 identifies that as the worst thing state can
+    do: an unowned resource is one no future plan mentions again.
+  - `UnitDriverContract` grew with it, or the shape would have been untestable. A removable unit is held to
+    disappearing after a remove; an irreversible one to SURVIVING, and to not having mislabelled itself — a
+    driver that claims to be permanent and then vanishes is caught, because every destroy plan built on it
+    would report RETAINED for something that actually goes.
+  - It surfaced one C# rule worth writing down: a default interface member's mapping is fixed at the class
+    that implements the interface, so a SUBCLASS declaring its own `IsRemovable` compiles and silently does
+    nothing. That is why `StepUnitDriver` restates the interface's defaults as `virtual`, and it caught a
+    test double in this very change.
 
 - **The seams reviewed as a product in their own right.** Tyanor cannot ship a provider for every service on
   day one, so an adopting application has to build what it needs *ahead of* this repository and hand it back

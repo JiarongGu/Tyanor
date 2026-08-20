@@ -236,11 +236,23 @@ design work, it is USE:
 - Report what the contract could not express. The analysis found one gap already and there will be others;
   the point of building it for real is the "others".
 
-**The gap already known:** publish is IRREVERSIBLE. You cannot unpublish a version, but
-`IUnitDriver.RemoveAsync` must "remove and wait until it is gone" and `Reconcile.DecideDestroy` hands `Remove`
-to every phase that is not `Missing`. Nothing has been added for it, deliberately — D3's bar is that a shape
-is earned by someone needing it, not by someone imagining it. The likely answer, when it is needed: a unit
-declaring itself unremovable and a destroy plan reporting it as RETAINED rather than skipping it in silence.
+**The gap already known — now BUILT, and it landed where this note predicted.** Publish is irreversible: you
+cannot unpublish a version, yet `IUnitDriver.RemoveAsync` was documented as "remove and wait until it is
+gone" and `Reconcile.DecideDestroy` handed `Remove` to every phase that was not `Missing`. This note said
+the answer, when someone needed it, would be *a unit declaring itself unremovable and a destroy plan
+reporting it as RETAINED rather than skipping it in silence*. That is exactly what shipped — see
+[D32](docs/DECISIONS.md).
+
+What earned it was the framing rather than an imagined case: Tyanor is a **code-driven CI/CD framework** as
+much as a deployment library, an adopting application builds the steps we do not ship, and publish is one of
+the seven phases in the brief. D3's bar is a real need, and a pipeline that cannot express its own publish
+step is one.
+
+`IUnitDriver.IsRemovable(context)` defaults to true, so nothing broke. Say false and: the destroy plan lists
+the unit under `Plan.Retained` before anything runs, `RemoveAsync` is never called, the teardown succeeds and
+says RETAINED out loud, and the unit's **state is kept** — because Tyanor still owns it, and forgetting that
+is how a resource becomes unmanaged. `UnitDriverContract` holds such a unit to the opposite promise of a
+removable one: that it survives, and is not lying about itself.
 
 - Acceptance: a real pipeline runs in a real consumer, and whatever it could not express is written down here.
 

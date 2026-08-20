@@ -66,8 +66,10 @@ public sealed class ProcedureRunner(
             var context = Silent(unit, request, ct);
 
             var phase = await WithRetryAsync(() => target.Driver.PhaseAsync(context), ct);
-            steps.Add(new PlannedStep(unit, phase,
-                kind == RunKind.Apply ? Reconcile.Decide(phase) : Reconcile.DecideDestroy(phase)));
+            var action = kind == RunKind.Apply
+                ? Reconcile.Decide(phase)
+                : Reconcile.DecideDestroy(phase, target.Driver.IsRemovable(context));
+            steps.Add(new PlannedStep(unit, phase, action));
 
             // Drift is state-versus-reality, so it needs a state store. What a TEARDOWN will destroy is not:
             // it is read entirely from the provider, and gating it on a state store made a destroy plan of a
@@ -89,7 +91,13 @@ public sealed class ProcedureRunner(
             // A teardown destroys what is ACTUALLY there, not what was once recorded. A resource already
             // deleted by hand is not something this run is about to take away, and counting it would inflate
             // the one number the operator is deciding on.
-            destroying.AddRange(actual.Select(r => new Drift(unit.Name, r, ResourceChange.Destroy)));
+            //
+            // A RETAINED unit's resources are not counted either, for the same reason read the other way:
+            // this run will not take them away, so putting them in "12 to destroy" would be the number
+            // lying in the more dangerous direction — an operator confirming a teardown they think is
+            // complete. They appear in Plan.Retained instead, which says what will still be there.
+            if (action == ReconcileAction.Remove)
+                destroying.AddRange(actual.Select(r => new Drift(unit.Name, r, ResourceChange.Destroy)));
         }
 
         // Both halves of "is anything already happening here?" — the provider, and the record of intent.
@@ -311,13 +319,17 @@ public sealed class ProcedureRunner(
                 var context = new UnitContext(
                     unit, request, Rescale(report, unit, done, procedure.TotalWeight), ct);
 
+                // A teardown reports whether it actually took the unit away. A RETAINED one did not, and
+                // its state must be KEPT — clearing it would make Tyanor forget it owns something that is
+                // still out there, which turns a stated limit into an unmanaged resource.
+                var removed = false;
                 if (kind == RunKind.Apply) await ConvergeAsync(context);
-                else await RetireAsync(context);
+                else removed = await RetireAsync(context);
 
                 // Keep state current as we go, not once at the end: a run that pauses halfway has still
                 // created things, and state that only lands on success would omit exactly the resources a
                 // resumed or abandoned run most needs to know about.
-                await RecordStateAsync(procedure, request, unit, removed: kind == RunKind.Destroy, ct);
+                await RecordStateAsync(procedure, request, unit, removed, ct);
 
                 done += unit.Weight;
                 report(new ProgressReport(unit.Name, $"{unit.Label}: done.",
@@ -448,21 +460,35 @@ public sealed class ProcedureRunner(
         await target.Driver.AwaitSettledAsync(context);
     }
 
-    /// <summary>Remove one unit, tolerating one that is already gone — teardown must be re-runnable.</summary>
-    private async Task RetireAsync(UnitContext context)
+    /// <summary>
+    /// Remove one unit, tolerating one that is already gone — teardown must be re-runnable — and leaving
+    /// one that cannot be removed at all.
+    /// </summary>
+    /// <returns>Whether the unit was actually taken away, which decides what happens to its state.</returns>
+    private async Task<bool> RetireAsync(UnitContext context)
     {
         var phase = await WithRetryAsync(() => target.Driver.PhaseAsync(context), context.Cancellation);
 
         // The same decision the teardown PLAN showed, taken again from what is true now — so what an
         // operator was shown and what happens come from one function rather than two that can disagree.
-        if (Reconcile.DecideDestroy(phase) == ReconcileAction.Nothing)
+        switch (Reconcile.DecideDestroy(phase, target.Driver.IsRemovable(context)))
         {
-            context.Progress($"{context.Label}: already removed.", status: ProgressStatus.Success);
-            return;
-        }
+            case ReconcileAction.Nothing:
+                context.Progress($"{context.Label}: already removed.", status: ProgressStatus.Success);
+                return true;                        // gone is gone: state should no longer claim it
 
-        context.Progress($"{context.Label}: removing…");
-        await WithRetryAsync(() => target.Driver.RemoveAsync(context), context.Cancellation);
+            case ReconcileAction.Retain:
+                // Said out loud, every time. The whole reason this is a distinct answer is that a teardown
+                // silently skipping it would report success over something still out there.
+                context.Progress(
+                    $"{context.Label}: RETAINED — this cannot be removed, and remains after the teardown.");
+                return false;                       // still ours, so state keeps it
+
+            default:
+                context.Progress($"{context.Label}: removing…");
+                await WithRetryAsync(() => target.Driver.RemoveAsync(context), context.Cancellation);
+                return true;
+        }
     }
 
     /// <summary>

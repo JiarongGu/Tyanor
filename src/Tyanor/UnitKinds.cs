@@ -104,6 +104,13 @@ public abstract class UnitKindDriver : IUnitDriver
     /// <inheritdoc/>
     public Task RemoveAsync(UnitContext context) => For(context).RemoveAsync(context);
 
+    /// <summary>
+    /// The KIND's answer, which is why this takes a context: a provider can hold a removable stack and an
+    /// irreversible publish at the same time, and the unit says which it is.
+    /// </summary>
+    /// <param name="context">The unit and the request.</param>
+    public bool IsRemovable(UnitContext context) => For(context).IsRemovable(context);
+
     /// <inheritdoc/>
     public Task AwaitSettledAsync(UnitContext context) => For(context).AwaitSettledAsync(context);
 

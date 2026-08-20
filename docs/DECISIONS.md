@@ -67,6 +67,7 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D29](#d29--a-sync-converges-in-both-directions-and-a-unit-owns-what-it-fills-2026-08-20) | a sync converges; a unit owns what it fills | a deleted page served for ever |
 | [D30](#d30--only-against-the-real-thing-is-a-claim-about-the-question-not-the-provider-2026-08-20--scopes-d15-d23) | the gate is per QUESTION, not per provider | scopes D15, D23 |
 | [D31](#d31--the-seams-are-the-product-so-their-cost-is-a-feature-2026-08-20--amends-d24) | **the seams are the product** — pause, backend contract, `StepUnitDriver` | amends D24 |
+| [D32](#d32--a-teardown-has-three-answers-because-some-things-do-not-come-back-2026-08-20--amends-d16) | a teardown has THREE answers — some things do not come back | amends D16 |
 
 ---
 
@@ -624,6 +625,11 @@ same reason the live deployment test does.
 ---
 
 ## D16 — The gate goes in front of the destructive direction too (2026-08-09)
+
+> ⚠ **Verbs renamed by D22; the teardown gained a third answer in D32.** What a destroy decides is no longer
+> two things but three — take it away, notice it is already gone, or LEAVE one that cannot be removed at all.
+> The gate below is unchanged and is what made the third answer cheap: a plan the operator reads before
+> confirming is exactly where "this will still be there afterwards" belongs.
 
 Three changes, found by asking what the plan and the driver contract could not express.
 
@@ -1461,3 +1467,61 @@ develop-here-then-upstream loop runs through that harness.
 copy: *how many methods does the smallest useful version take, and what happens when they get one wrong?*
 The first answer should be small, and the second should be a contract check rather than a silent
 misbehaviour in production.
+
+---
+
+## D32 — A teardown has three answers, because some things do not come back (2026-08-20) — amends D16
+
+A unit may declare itself unremovable. `Reconcile.DecideDestroy` then chooses `ReconcileAction.Retain`, the
+plan lists it under `Plan.Retained` before anything runs, the teardown leaves it and says so, and its state
+is kept.
+
+**The case, and why it was deferred until now.** `TASKS.md` item 4 has carried this since the pipeline
+analysis: a publish is irreversible — you cannot unpublish a version — and yet `IUnitDriver.RemoveAsync` is
+documented as "remove and wait until it is gone", so such a unit could only lie or throw. It was left
+unbuilt on D3's bar: a shape is earned by someone needing it, not by someone imagining it. The note even
+predicted the answer, which is a good sign it was the right thing to defer rather than the wrong thing to
+skip.
+
+**What earned it was a change in what Tyanor is FOR, not a new opinion about publishing.** Tyanor is a
+code-driven CI/CD framework as much as a deployment library; it cannot ship a provider for every service on
+day one, so an adopting application builds the steps we do not (D31); and publish is one of the seven phases
+in the original brief. A pipeline framework whose own publish step cannot be expressed is not one.
+
+**The three answers, and why the third is not the second.** Take it away, notice it is already gone, or
+leave one that cannot go. Collapsing `Retain` into `Nothing` would have been the cheap version and it is
+precisely wrong: `Nothing` means *there is nothing there*, and `Retain` means *there is, and it is staying*.
+A teardown that reported success over a still-published version — or over an audit record, a sent email, a
+charged invoice — would be lying in the direction that costs money and cannot be undone. So it is said out
+loud on every run, and it appears in the plan before anyone confirms anything.
+
+**Decided against: letting the driver throw.** That was one of the two shapes available before, and it
+fails a teardown that has nothing wrong with it, every time, forever — turning a stated property of the
+thing into an operational fault the operator has to work around by narrowing the procedure.
+
+**Decided against: a new `UnitPhase`.** Removability is a fact about what the unit IS, not about what is
+true of it right now. A phase saying "permanent" would have to be returned by a `PhaseAsync` that is also
+answering "does this exist yet", and the two questions have different answers at different times.
+
+**Not a permission check.** *I may not delete this today* is a credential failure and belongs in
+`IFailureClassifier`. This is about the nature of the thing, which is why it is a property of the driver
+rather than an error from an attempt.
+
+**Its state is KEPT, and that is the half most likely to have been got wrong.** The obvious implementation
+clears state for every unit a destroy walks. For a retained unit that would make Tyanor forget it owns
+something still out there — which D25 identifies as the worst state can do, because an unowned resource is
+one no future plan ever mentions again. `RetireAsync` now reports whether it actually removed anything, and
+only that clears.
+
+**The contract had to grow with it, or the shape would be untestable.** `UnitDriverContract` asks a
+removable unit to disappear after a remove; an irreversible one cannot satisfy that, and demanding it would
+mean the shape that most needs a contract is the one shape that cannot have one. The pair splits: one is
+held to disappearing, the other to SURVIVING and to not having mislabelled itself. Exactly one applies to
+any driver, and `ContractSuiteTests` pins that a driver claiming to be permanent and then vanishing is
+caught.
+
+**One C# rule this surfaced, worth writing down.** `IsRemovable` is a default interface member, and a class
+that implements `IUnitDriver` fixes the interface mapping at itself — so a SUBCLASS declaring its own
+`IsRemovable` does not change what the engine calls. It compiles and silently does nothing. That is the same
+rule `StepUnitDriver` restates `ValidateAsync` and `OutputsAsync` for (D31), and it caught a test double in
+this very change. Any base class offering a seam should restate the interface's defaults as `virtual`.

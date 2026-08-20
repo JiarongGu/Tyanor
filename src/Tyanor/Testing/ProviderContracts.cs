@@ -73,6 +73,21 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
         await Driver.AwaitSettledAsync(Context(ct));
     }
 
+    /// <summary>
+    /// Whether a teardown can take this unit away — which decides WHICH removal checks apply.
+    /// </summary>
+    /// <remarks>
+    /// <para>An irreversible unit — a published version, an audit record — cannot satisfy "after removing,
+    /// it is Missing again", and demanding it would mean the one shape that most needs a contract is the one
+    /// shape that cannot have one. So the pairs below split: a removable unit is held to disappearing, and
+    /// an irreversible one is held to the opposite promise, that it SURVIVES and says so. Neither is
+    /// vacuous for the driver it applies to.</para>
+    /// <para>Note that <c>ResetAsync</c> is still required to work: returning the target to nothing is the
+    /// FIXTURE's job — delete the scratch registry, drop the table — and has nothing to do with what the
+    /// driver is able to remove.</para>
+    /// </remarks>
+    private bool Removable(CancellationToken ct) => Driver.IsRemovable(Context(ct));
+
     /// <inheritdoc/>
     protected override IReadOnlyList<(string Name, Func<CancellationToken, Task<string?>> Run)> Cases =>
     [
@@ -222,7 +237,7 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
             // The direction that fails quietly: outputs read from a stored copy rather than from the
             // provider keep answering after the thing is gone, and a UI goes on showing an address that
             // stopped resolving. `IUnitDriver.OutputsAsync` says read from the target for exactly this.
-            if (fixture.ExpectedOutputs.Count == 0) return null;
+            if (fixture.ExpectedOutputs.Count == 0 || !Removable(ct)) return null;
 
             await fixture.ResetAsync(ct);
             await DeployAsync(ct);
@@ -258,6 +273,7 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
 
         ("After removing, it is Missing again", async ct =>
         {
+            if (!Removable(ct)) return null;        // held to the opposite promise, two checks below
             await fixture.ResetAsync(ct);
             await DeployAsync(ct);
             await Driver.RemoveAsync(Context(ct));
@@ -268,12 +284,41 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
 
         ("After removing, it owns nothing", async ct =>
         {
+            if (!Removable(ct)) return null;
             await fixture.ResetAsync(ct);
             await DeployAsync(ct);
             await Driver.RemoveAsync(Context(ct));
 
             var resources = await Driver.RefreshAsync(Context(ct));
             return resources.Count == 0 ? null : $"{resources.Count} resources survived the remove";
+        }),
+
+        ("An IRREVERSIBLE unit survives a teardown rather than pretending", async ct =>
+        {
+            // The other half of the pair above, and the reason a driver may say it cannot be removed at
+            // all. The two bad options this replaces: a remove that returns quietly, letting a destroy
+            // report success over a version that is still published — or one that throws, failing a
+            // teardown that had nothing wrong with it.
+            //
+            // The engine never CALLS RemoveAsync on such a unit; this asks the harder question, which is
+            // whether the driver is telling the truth about itself. A unit that claims to be irreversible
+            // and then vanishes has mislabelled itself, and every destroy plan built on it reads wrong.
+            if (Removable(ct)) return null;
+            await fixture.ResetAsync(ct);
+            await DeployAsync(ct);
+
+            await Driver.RemoveAsync(Context(ct));     // whatever it does here, the unit must remain
+
+            var phase = await Driver.PhaseAsync(Context(ct));
+            if (phase == UnitPhase.Missing)
+                return "it says it cannot be removed, and a remove removed it — one of the two is wrong, " +
+                       "and a destroy plan will report RETAINED for something that actually goes";
+
+            var resources = await Driver.RefreshAsync(Context(ct));
+            return resources.Count > 0
+                ? null
+                : "it says it cannot be removed and then owns nothing, so state stops tracking something " +
+                  "that is still out there";
         }),
 
         ("Removing twice does not throw", async ct =>
@@ -289,6 +334,7 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
         {
             // Recreate is a real reconcile action — it is what a Broken unit gets — so a driver that can
             // only create once fails the first time something goes wrong rather than the first time it runs.
+            if (!Removable(ct)) return null;        // nothing to create again, since nothing goes away
             await fixture.ResetAsync(ct);
             await DeployAsync(ct);
             await Driver.RemoveAsync(Context(ct));

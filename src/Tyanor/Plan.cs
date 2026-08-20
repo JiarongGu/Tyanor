@@ -23,6 +23,7 @@ public sealed record PlannedStep(ProcedureUnit Unit, UnitPhase Phase, ReconcileA
         ReconcileAction.SettleThenRecreate => $"{Unit.Label}: REPLACE — waiting for a rollback to finish first",
         ReconcileAction.Remove => $"{Unit.Label}: DESTROY",
         ReconcileAction.Nothing => $"{Unit.Label}: nothing to do (already gone)",
+        ReconcileAction.Retain => $"{Unit.Label}: RETAINED — this cannot be removed, and will remain",
         _ => $"{Unit.Label}: {Action}",
     };
 }
@@ -140,6 +141,23 @@ public sealed record Plan(
 
     /// <summary>State is holding units this procedure no longer describes.</summary>
     public bool HasOrphans => Orphaned.Count > 0;
+
+    /// <summary>
+    /// Units a teardown will LEAVE, because they cannot be removed — a published version, an audit record.
+    /// </summary>
+    /// <remarks>
+    /// <para>The answer to "what does a destroy not take away?", and the reason
+    /// <see cref="ReconcileAction.Retain"/> is a distinct answer from
+    /// <see cref="ReconcileAction.Nothing"/>. Skipping such a unit silently would let a teardown report
+    /// success over something still out there — and the operator would find out from a bill, or from a
+    /// package registry, rather than from the plan they read first.</para>
+    /// <para>Empty for an apply, which retains nothing because it removes nothing.</para>
+    /// </remarks>
+    public IReadOnlyList<PlannedStep> Retained =>
+        Steps.Where(s => s.Action is ReconcileAction.Retain).ToList();
+
+    /// <summary>This teardown will leave something behind that it cannot take away.</summary>
+    public bool HasRetained => Retained.Count > 0;
 
     /// <summary>Resources that exist in the provider but not in state — created outside Tyanor, or a state
     /// that was lost. They will be adopted on the next apply.</summary>

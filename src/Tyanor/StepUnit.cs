@@ -91,6 +91,19 @@ public abstract class StepUnitDriver : IUnitDriver
     public virtual Task RemoveAsync(UnitContext context) => Task.CompletedTask;
 
     /// <summary>
+    /// Removable, because most steps leave nothing behind. Override to <c>false</c> for one that is
+    /// IRREVERSIBLE — a publish, an audit record, a sent notification.
+    /// </summary>
+    /// <param name="context">The unit and the request.</param>
+    /// <remarks>
+    /// This is the honest alternative to the two bad options a publish used to have: a remove that returns
+    /// quietly, letting a teardown claim success over a version that is still out there, or one that throws
+    /// and fails a teardown with nothing wrong with it. Say <c>false</c> and the plan reports it as RETAINED
+    /// before anything runs. See <see cref="IUnitDriver.IsRemovable"/>.
+    /// </remarks>
+    public virtual bool IsRemovable(UnitContext context) => true;
+
+    /// <summary>
     /// Nothing to wait for: the work finished inside <see cref="CreateAsync"/>, because there is no control
     /// plane that could still be converging after this process goes away.
     /// </summary>

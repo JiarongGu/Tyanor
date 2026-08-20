@@ -186,6 +186,13 @@ internal static class GuideSamples
         if (Confirmed()) await runner.DestroyAsync(procedure, request);
     }
 
+    // ── what a teardown cannot take away ─────────────────────────────────────────────────────────
+    private static void ReportRetained(Plan teardown)
+    {
+        foreach (var step in teardown.Retained)
+            Console.WriteLine($"{step.Unit.Label} will REMAIN — it cannot be removed");
+    }
+
     private static async Task NarrowIt(ProcedureRunner runner, Procedure procedure, DeploymentRequest request)
     {
         await runner.ApplyAsync(procedure.Only("runtime"), request);     // Terraform's -target
@@ -381,4 +388,14 @@ internal sealed class CacheWarm(HttpClient http) : StepUnitDriver
 
     public override Task CreateAsync(UnitContext context) =>
         http.GetAsync(context.OwnOption("url"), context.Cancellation);
+}
+
+/// <summary>The guide's irreversible-unit declaration, compiled.</summary>
+internal sealed class PublishStep : StepUnitDriver
+{
+    public override Task<UnitPhase> PhaseAsync(UnitContext context) => Task.FromResult(UnitPhase.Ready);
+
+    public override Task CreateAsync(UnitContext context) => Task.CompletedTask;
+
+    public override bool IsRemovable(UnitContext context) => false;
 }

@@ -375,6 +375,18 @@ public sealed class MemoryTarget : IDeploymentTarget, IUnitDriver, IFailureClass
                 : []);
     }
 
+    /// <summary>
+    /// Yours if the unit is one of yours, otherwise removable — a dictionary entry always can be.
+    /// </summary>
+    /// <param name="context">The unit and the request.</param>
+    /// <remarks>
+    /// Forwarded rather than answered here, so an IRREVERSIBLE step of your own behaves in this target
+    /// exactly as it will in a real one: the plan says RETAINED, the teardown leaves it, and its state is
+    /// kept. A test target that quietly claimed everything is removable would let a publish unit pass here
+    /// and surprise somebody in production, which is the single thing this type must never do (D24).
+    /// </remarks>
+    public bool IsRemovable(UnitContext context) => Own(context)?.IsRemovable(context) ?? true;
+
     /// <inheritdoc/>
     public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context) =>
         Own(context)?.ValidateAsync(context) ?? Task.FromResult(Problems.GetValueOrDefault(context.Name, []));

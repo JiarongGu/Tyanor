@@ -337,6 +337,29 @@ The destructive direction gets a plan because it is the one that is not recovera
 counts what is **actually there**, not what state once recorded — a resource someone already deleted by hand
 is not something this run is about to take away.
 
+### What a teardown cannot take away
+
+Some units are irreversible: a published package version, an audit record, a sent notification. A destroy
+**leaves** those, and says so before it runs rather than reporting success over something still out there:
+
+```csharp
+foreach (var step in teardown.Retained)
+    Console.WriteLine($"{step.Unit.Label} will REMAIN — it cannot be removed");
+```
+
+Their resources are deliberately not in the `0 to destroy` count, because this run will not destroy them —
+and their state is **kept** afterwards, because Tyanor still owns them.
+
+To write one, say so and the engine does the rest — it never even calls your remove:
+
+```csharp
+public override bool IsRemovable(UnitContext context) => false;
+```
+
+The alternatives that shape replaces are both worse: a remove that quietly does nothing lets a teardown
+claim success over a live version, and one that throws fails a teardown that had nothing wrong with it
+([D32](DECISIONS.md)).
+
 ### Doing just one part
 
 ```csharp

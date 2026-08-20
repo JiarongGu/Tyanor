@@ -61,8 +61,25 @@ public class ContractSuiteTests
         // against a driver that cannot do anything at all.
         var results = await Driver(new ExplodesOnPhase(new MemoryTarget()), ["web.url"]).RunAllAsync();
 
-        Assert.All(results, r => Assert.False(r.Passed));
-        Assert.All(results, r => Assert.Contains("threw", r.Detail!));
+        // One check is about the OPPOSITE kind of driver and answers before touching this one: a removable
+        // unit is held to disappearing after a remove, an irreversible one to surviving, and exactly one of
+        // that pair applies to any given driver. Named here rather than loosened away, because "all checks
+        // failed" is the assertion with the teeth and an unexplained exemption is how it loses them.
+        var applicable = results.Where(r => !r.Name.StartsWith("An IRREVERSIBLE", StringComparison.Ordinal)).ToList();
+
+        Assert.Equal(results.Count - 1, applicable.Count);
+        Assert.All(applicable, r => Assert.False(r.Passed));
+        Assert.All(applicable, r => Assert.Contains("threw", r.Detail!));
+    }
+
+    [Fact]
+    public async Task A_driver_that_LIES_about_being_irreversible_is_caught()
+    {
+        // The check that pairs with the one exempted above. A driver claiming it cannot be removed, whose
+        // remove then removes it, has mislabelled itself — and every destroy plan built on it reports
+        // RETAINED for something that actually goes, which is the wrong direction to be wrong in.
+        Assert.Contains("An IRREVERSIBLE unit survives a teardown rather than pretending",
+            await FailuresOf(Driver(new PretendsToBePermanent(new MemoryTarget()))));
     }
 
     [Fact]
@@ -239,6 +256,12 @@ public class ContractSuiteTests
         public virtual Task<IReadOnlyList<ResourceState>> RefreshAsync(UnitContext c) => Inner.RefreshAsync(c);
         public virtual Task<IReadOnlyList<string>> ValidateAsync(UnitContext c) => Inner.ValidateAsync(c);
         public virtual Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext c) => Inner.OutputsAsync(c);
+
+        // Restated as virtual, not left to the interface default — the interface mapping is fixed at THIS
+        // class, so a subclass declaring its own IsRemovable would not change what the engine calls. That
+        // is the same C# rule StepUnitDriver restates ValidateAsync and OutputsAsync for, and it is easy to
+        // get wrong in a way that compiles and silently does nothing.
+        public virtual bool IsRemovable(UnitContext c) => Inner.IsRemovable(c);
     }
 
     private sealed class AlwaysReady(IUnitDriver inner) : Delegating(inner)
@@ -295,6 +318,12 @@ public class ContractSuiteTests
         public override Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext c) =>
             Task.FromResult<IReadOnlyDictionary<string, string>>(
                 new Dictionary<string, string> { ["web.url"] = "remembered from last time" });
+    }
+
+    /// <summary>Says it cannot be removed, and then removes perfectly well.</summary>
+    private sealed class PretendsToBePermanent(IUnitDriver inner) : Delegating(inner)
+    {
+        public override bool IsRemovable(UnitContext c) => false;
     }
 
     private sealed class ExplodesOnPhase(IUnitDriver inner) : Delegating(inner)

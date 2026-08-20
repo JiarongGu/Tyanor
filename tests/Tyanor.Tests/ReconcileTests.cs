@@ -37,7 +37,7 @@ public class ReconcileTests
         // Named rather than counted. The count version of this passed for months and then failed the moment
         // a genuinely non-mutating action was added, which taught nobody anything — whereas a new action
         // that IS mutating and gets missed here is the case worth catching.
-        ReconcileAction[] harmless = [ReconcileAction.Attach, ReconcileAction.Nothing];
+        ReconcileAction[] harmless = [ReconcileAction.Attach, ReconcileAction.Nothing, ReconcileAction.Retain];
 
         foreach (var action in Enum.GetValues<ReconcileAction>())
             Assert.Equal(!harmless.Contains(action), Reconcile.Mutates(action));

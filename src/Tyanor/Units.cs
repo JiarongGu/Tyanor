@@ -50,6 +50,17 @@ public enum ReconcileAction
 
     /// <summary>There is nothing to do to this unit. Only a teardown decides this, for a unit already gone.</summary>
     Nothing,
+
+    /// <summary>
+    /// It exists, a teardown reached it, and it CANNOT be taken away — a published version, an audit
+    /// record, a sent email. The run leaves it and says so.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="Nothing"/> on purpose, and the distinction is the whole point: that one is
+    /// "already gone", this one is "still there, and staying". Collapsing them would let a destroy report
+    /// success over infrastructure it did not touch.
+    /// </remarks>
+    Retain,
 }
 
 /// <summary>
@@ -91,25 +102,39 @@ public static class Reconcile
     /// What to do about a unit in <paramref name="phase"/> when the procedure is being TORN DOWN.
     /// </summary>
     /// <param name="phase">What the provider reports right now.</param>
+    /// <param name="removable">
+    /// Whether a teardown CAN take this unit away — <see cref="IUnitDriver.IsRemovable"/>. False for a unit
+    /// that is irreversible by nature: a published version, an audit record, a sent email.
+    /// </param>
     /// <remarks>
-    /// <para>Two answers, because a teardown has two: take it away, or notice it is already gone. Every
-    /// phase that is not <see cref="UnitPhase.Missing"/> gets removed — including
-    /// <see cref="UnitPhase.Converging"/>, which is the one worth stating. Removal does NOT attach: a unit
-    /// mid-create is a unit that will exist in a minute, and waiting politely for someone else's creation to
-    /// finish before destroying it is not a kindness, it is a longer teardown with the same ending.</para>
+    /// <para>Three answers, because a teardown has three: take it away, notice it is already gone, or leave
+    /// something that cannot go. Every removable phase that is not <see cref="UnitPhase.Missing"/> gets
+    /// removed — including <see cref="UnitPhase.Converging"/>, which is the one worth stating. Removal does
+    /// NOT attach: a unit mid-create is a unit that will exist in a minute, and waiting politely for someone
+    /// else's creation to finish before destroying it is not a kindness, it is a longer teardown with the
+    /// same ending.</para>
+    /// <para><b>The third answer arrived late and was predicted.</b> <c>TASKS.md</c> carried it as a known
+    /// gap: a publish cannot be unpublished, yet <see cref="IUnitDriver.RemoveAsync"/> is documented as
+    /// "remove and wait until it is gone", so such a unit could only lie or throw. The note said the answer,
+    /// when someone needed it, would be a unit declaring itself unremovable and a destroy plan reporting it
+    /// as RETAINED rather than skipping it in silence. That is exactly this
+    /// (<c>docs/DECISIONS.md</c> D32).</para>
     /// <para>A separate function from <see cref="Decide"/> rather than a branch inside it, so that a plan
     /// can be computed for a teardown without the engine running one — which is the whole point of a plan,
     /// and was missing for the only operation that destroys anything.</para>
     /// </remarks>
-    public static ReconcileAction DecideDestroy(UnitPhase phase) =>
-        phase == UnitPhase.Missing ? ReconcileAction.Nothing : ReconcileAction.Remove;
+    public static ReconcileAction DecideDestroy(UnitPhase phase, bool removable = true) =>
+        phase == UnitPhase.Missing ? ReconcileAction.Nothing
+        : removable ? ReconcileAction.Remove
+        : ReconcileAction.Retain;
 
     /// <summary>
     /// Whether this action issues a mutating call. <see cref="ReconcileAction.Attach"/> does not — it is
     /// the "someone else is already doing it" answer, and a provider adapter that mutates here has
     /// misunderstood the model. Neither does <see cref="ReconcileAction.Nothing"/>, which is a teardown
-    /// meeting a unit that is already gone.
+    /// meeting a unit that is already gone, nor <see cref="ReconcileAction.Retain"/>, which is a teardown
+    /// meeting one it cannot take away — the whole point of that answer is that nothing happens to it.
     /// </summary>
     public static bool Mutates(ReconcileAction action) =>
-        action is not (ReconcileAction.Attach or ReconcileAction.Nothing);
+        action is not (ReconcileAction.Attach or ReconcileAction.Nothing or ReconcileAction.Retain);
 }

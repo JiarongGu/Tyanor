@@ -234,7 +234,35 @@ public interface IUnitDriver
     /// meaningfully attach to halfway, so drivers own the wait — and should report progress through it,
     /// because a teardown that takes minutes and says nothing looks like one that has frozen.</summary>
     /// <param name="context">The unit, the request, progress and cancellation.</param>
+    /// <remarks>
+    /// Never called for a unit whose <see cref="IsRemovable"/> is false, so an irreversible one does not
+    /// have to lie or throw here.
+    /// </remarks>
     Task RemoveAsync(UnitContext context);
+
+    /// <summary>
+    /// Whether a teardown can take this unit away at all. <c>false</c> for something IRREVERSIBLE by
+    /// nature — a published package version, an audit record, a sent email, a migration that cannot be
+    /// rolled back.
+    /// </summary>
+    /// <param name="context">The unit and the request, because a provider dispatching several KINDS
+    /// answers differently per unit.</param>
+    /// <remarks>
+    /// <para><b>This exists because "remove and wait until it is gone" is not a promise every unit can
+    /// make.</b> A publish cannot be unpublished, so before this the only options were to lie — return
+    /// quietly and let a destroy report success over something that is still out there — or to throw, and
+    /// fail a teardown that had nothing wrong with it. Both were worse than saying so.</para>
+    /// <para>Answering <c>false</c> makes <see cref="Reconcile.DecideDestroy"/> choose
+    /// <see cref="ReconcileAction.Retain"/>: the plan lists the unit as RETAINED before anything runs, the
+    /// teardown leaves it alone, and its state is KEPT rather than cleared — because Tyanor still owns it,
+    /// and forgetting that is how a resource becomes unmanaged and unmentioned.</para>
+    /// <para><b>It is not a permission check.</b> "I am not allowed to delete this today" is a credential
+    /// failure and belongs in <see cref="IFailureClassifier"/>. This is about what the thing IS.</para>
+    /// <para>Defaulted to <c>true</c>, so adding it broke no implementation — the pattern
+    /// <c>docs/DECISIONS.md</c> D18 established for growing this contract: a new capability arrives meaning
+    /// <i>I do not do that</i>.</para>
+    /// </remarks>
+    bool IsRemovable(UnitContext context) => true;
 
     /// <summary>
     /// Wait until the unit stops converging. Throw if it settles into a failed state — the engine turns
