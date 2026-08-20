@@ -53,7 +53,12 @@ rebuild mid-deploy and resumed to completion, in an app a non-technical owner ru
   adapter's whole job on the read side is mapping its own vocabulary onto `UnitPhase`.
 - **A teardown is decided the same way**, by `Reconcile.DecideDestroy` — so the teardown a plan SHOWED and
   the teardown that runs come from one function rather than two that can drift apart. Both directions get a
-  plan; the destructive one needs it most.
+  plan; the destructive one needs it most. It has **three** answers, not two: remove it, notice it is
+  already gone, or RETAIN one that cannot be removed at all — a published version, an audit record. The
+  third is never silent, because a teardown reporting success over something still out there is the lie that
+  costs money (`docs/DECISIONS.md` D32).
+- **A retained unit keeps its state**, which is the half that rots quietly. Clearing it would make Tyanor
+  forget it owns something that still exists, and an unowned resource is one no future plan ever mentions.
 - **Never re-issue against `Converging`.** The action is `Attach`: watch, issue nothing. Some providers
   reject a second operation; the dangerous ones accept it. `Reconcile.Mutates(Attach)` is `false` and a
   test pins it.

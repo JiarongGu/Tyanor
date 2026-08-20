@@ -101,6 +101,15 @@ state to match ([D12](docs/DECISIONS.md)).
 means the work so far was wasted. Credentials and transient errors *pause* — resumable, progress kept. Only a
 genuinely hard failure is terminal.
 
+**And a unit can stop on purpose.** An approval gate, a DNS record somebody has to add, a change window:
+throw `UnitPausedException` and the run pauses resumably with your own reason and your own message — which is
+what makes a pipeline's *wait for a human* a first-class step rather than something bolted on around the
+outside ([D31](docs/DECISIONS.md)).
+
+**Some things do not come back, and a teardown says so.** A published version cannot be unpublished. Such a
+unit says `IsRemovable` is false, and a destroy plan lists it as RETAINED **before** you confirm — rather
+than reporting success over something still out there ([D32](docs/DECISIONS.md)).
+
 **Ordered units, not a dependency graph.** Data before compute before edge covers the overwhelming majority
 of real deployments, and reverse-order teardown then falls out for free. The graph is where tools like this
 become large; see [`docs/DECISIONS.md`](docs/DECISIONS.md) D3.

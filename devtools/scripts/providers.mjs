@@ -11,12 +11,13 @@
 //
 // Checks, for every src/<providersDir>.* project:
 //   1. a matching test project exists
-//   2. it runs UnitDriverContract
-//   3. it runs FailureClassifierContract
+//   2. it runs UnitDriverContract, UNGATED
+//   3. it runs FailureClassifierContract, UNGATED
+//   4. every declared unit KIND is named in an ungated file that runs UnitDriverContract
 //
-// It cannot check that every KIND is covered — that needs to know what a provider's kinds are, which is the
-// provider's business. So the per-kind list lives in each suite as separate fixtures, and this checks only
-// that the suites are reached at all.
+// This header used to say the opposite of (4) — "it cannot check that every KIND is covered" — describing a
+// version of the file that had already been replaced. A comment contradicting the code it heads is bad
+// anywhere and worse here, since a reader deciding whether to trust the check reads the header first.
 //
 // Exit code is the number of problems, so `doctor` can just add it up.
 

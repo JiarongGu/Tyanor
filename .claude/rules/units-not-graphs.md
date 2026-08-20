@@ -51,6 +51,11 @@ hash, an output newer than its inputs, a recorded pass for a fingerprint, a pack
 all seven can. So a pipeline is a `Procedure` whose units happen to be builds and tests, authored in C# like
 any other, and `CustomUnits` lets a consumer add them without changing this library at all (D21).
 
+**Being irreversible does not disqualify a step.** A publish cannot be unpublished, and for a while that
+looked like it might push it outside the procedure — it does not, because it can still answer *has this
+already happened?*, which is the only bar. It says `IsRemovable` is false and a teardown reports it as
+RETAINED (D32). The bar is the question, not the direction.
+
 A step that CANNOT answer that question is a script, not a unit, and belongs outside the procedure. That is
 the line to draw when this comes up again — not "is it a deployment?" but "can it be asked?".
 

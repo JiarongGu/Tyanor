@@ -54,7 +54,7 @@ All three shipped targets take one, and each is tested doing it — including th
 CLASSES travel too, so the same failure pauses on every platform rather than pausing on one and ending the
 run on another.
 
-### 2. `IUnitDriver` — six required, two optional, no orchestration
+### 2. `IUnitDriver` — six required, three optional, no orchestration
 
 Every one takes a `UnitContext`: the unit, the request, progress and cancellation.
 
@@ -67,12 +67,23 @@ Every one takes a `UnitContext`: the unit, the request, progress and cancellatio
 | `AwaitSettledAsync` | poll to settled; throw if it settled badly | swallow a failure |
 | `RefreshAsync` | report what the unit OWNS, with stable ids | throw when the unit is absent — return empty |
 
-Two more have defaults, so ignoring them costs nothing and implementing them is usually worth it:
+Three more have defaults, so ignoring them costs nothing and implementing them is usually worth it:
 
 | Method | Default | Implement it when |
 |---|---|---|
 | `ValidateAsync` | no problems | your unit has configuration to get wrong — **make no network calls** |
 | `OutputsAsync` | nothing | your unit produces something a caller needs: a URL, an endpoint, a generated name |
+| `IsRemovable` | removable | your unit is IRREVERSIBLE — a published version, an audit record, a sent email |
+
+`IsRemovable` returning false is how a unit that cannot be undone stops having to choose between the two bad
+options: a `RemoveAsync` that returns quietly, so a destroy reports success over something still out there,
+or one that throws, so a teardown with nothing wrong with it fails every time. Say false and the plan reports
+it as RETAINED before anything runs, your remove is never called, and the unit's state is kept (D32).
+
+**If your unit is a single STEP rather than infrastructure** — a check, a gate, a migration — derive from
+`StepUnitDriver` and write two methods instead of six. It supplies the four a step never needs, and restates
+the defaults above as `virtual` so an editor offers them (D31). One pairing to get right: `PhaseAsync` and
+`RemoveAsync` must agree, or the contract catches you.
 
 `ValidateAsync` should run the same option and artifact resolution `CreateAsync` runs and collect the
 `DefinitionException`s, rather than repeating the rules. Two copies of a rule is two rules, and they diverge
@@ -111,10 +122,26 @@ If every unit is the same kind of thing, implement `IUnitDriver` directly and ig
 
 ### Failing on a bad definition
 
-Use `DeploymentArtifact.RequirePart(name, ArtifactPart.Directory)` rather than resolving parts yourself —
-it produces the same message every other provider produces for the same mistake. For your own configuration
-errors, derive from `DefinitionException`, so a consumer can tell "you configured this wrongly" from "the
-provider failed" without matching on message text. Do not classify these; returning null is correct.
+Use `context.RequirePart("source", ArtifactPart.Directory)` rather than resolving parts yourself. It reads
+the option, resolves the artifact part it names, and refuses with one sentence that lists what the artifact
+DOES carry — so an operator who forgot `source` gets the same message wherever they deployed. All three
+shipped unit kinds wrote that themselves first, each with different wording, which is what put it in the
+framework.
+
+For your own configuration errors, derive from `DefinitionException`, so a consumer can tell "you configured
+this wrongly" from "the provider failed" without matching on message text. Collect them with `UnitProblems`
+in `ValidateAsync` so every problem is reported rather than the first one thrown. Do not classify these;
+returning null is correct.
+
+### Waiting on a person
+
+Some units are not finished when the code stops running: a DNS record somebody has to add, an approval, a
+change window. Throw `UnitPausedException` with a reason of your own and the run **pauses** rather than
+fails — the record stays live, the outcome is resumable, and applying again continues it. The message is the
+instruction, so put what the operator has to do in it. It is never retried (D31).
+
+This is deliberately not a fourth `FailureClass`: those three are your reading of an *error*, and this is
+not one.
 
 ## Tests that must exist before the provider is trusted
 
@@ -146,8 +173,9 @@ one, whether they go on answering after a remove because you read them from a st
 the target.
 
 **One fixture per KIND.** `UnitDriverContract` tests one unit, so a provider with a directory and a process,
-or a stack and a bucket, needs a fixture for each — and the one nobody wrote is the one that was broken. The
-`providers` check cannot see this for you; it only knows whether the suite is run at all.
+or a stack and a bucket, needs a fixture for each — and the one nobody wrote is the one that was broken. In
+this repository the `providers` check enforces it: every `public const string XxxKind` must be named in an
+**ungated** file that runs the suite.
 
 If a kind genuinely cannot be created in isolation because it depends on another unit's resource — an S3
 bucket a stack makes — the fixture's reset supplies that resource and the contract still applies. That is
@@ -166,7 +194,27 @@ Then the things a generic suite cannot know:
    opposite things.
 
 Live calls stay behind an env-gated integration test, skipped as a vacuous pass, so an ordinary run never
-touches a cloud or spends money. Gate the driver contract there too if it needs a real target.
+touches a cloud or spends money.
+
+**Do NOT gate the driver contract there by reflex, and this is the mistake worth spelling out** — it is the
+one this repository actually made, and it hid an entire untested driver for months. Ask what each question
+is ABOUT (D30):
+
+| Question | Who can answer | Where it goes |
+|---|---|---|
+| does the service settle a create into that status? | a real deployment | the gated test |
+| will the service accept the request you build? | a real deployment | the gated test |
+| does a phase read change anything? | **your code** | offline |
+| does removing twice throw? | **your code** | offline |
+| does an update over an unchanged deployment say so? | **your code** | offline |
+
+Every check in `UnitDriverContract` is the second kind. A fake that models only *a created thing can be
+described, a deleted one cannot* — and returns real status strings for both — is enough to run the whole
+suite, and cannot start certifying the vendor's behaviour by accident. Gate only what genuinely needs the
+service.
+
+**A gated contract run is not coverage.** It is a promise about a run nobody has done, and in this repository
+it reported as coverage for a year. Keep the ungated suite in its own file.
 
 ## Steps
 

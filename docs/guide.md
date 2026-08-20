@@ -387,6 +387,13 @@ A `RunRecord` is a record of **intent** — that a run was attempted, with what,
 grows a list of created resources; that is what state is for, and mixing them is the mirror coming back in
 disguise.
 
+**`RecentAsync` is not scoped to a deployment** — it returns the newest runs across everything in that store,
+and you filter. Stated because it is the one place the shape surprises somebody building a per-deployment
+screen: asking for 50 and filtering can leave you with fewer than 50 of the ones you wanted. For a
+local-first store that reads the whole file anyway this costs nothing, and if it stops being true for you
+that is the moment to say so rather than for us to guess a signature now. `LiveAsync` *is* scoped, because
+the engine itself has to ask that question per deployment.
+
 The one question worth asking before starting new work is whether something is already outstanding:
 
 ```csharp
