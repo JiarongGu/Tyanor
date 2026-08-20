@@ -117,4 +117,69 @@ public class RequestOptionTests
         // The convenient reader still inherits, which is why both exist.
         Assert.Equal("/srv/shared", request.Option("db", "path"));
     }
+
+    // ── an ADDRESS: OwnOption with the silence taken out ─────────────────────────────────────────
+
+    [Fact]
+    public void An_ADDRESS_reads_the_units_own_setting()
+    {
+        var request = Request(new Dictionary<string, string> { ["web.path"] = "/srv/web" });
+
+        Assert.Equal("/srv/web", request.Address("web", "path"));
+    }
+
+    [Fact]
+    public void An_ADDRESS_nobody_set_is_null_so_the_caller_can_have_a_default()
+        // LocalPaths falls back to {root}/{prefix}/{unit}; a content unit treats it as "no bucket named".
+        // Neither is this method's decision to make.
+        => Assert.Null(Request([]).Address("web", "path"));
+
+    [Fact]
+    public void An_ADDRESS_written_procedure_wide_is_REFUSED_rather_than_shared_or_dropped()
+    {
+        // The two ways this went wrong before, which is why the method exists: read with the convenient
+        // reader it is SHARED — every unit deploys on top of every other — and read with OwnOption it is
+        // silently DROPPED, so the line the operator wrote is read by nothing at all. Both shipped providers
+        // had one of the two (docs/DECISIONS.md D36).
+        var request = Request(new Dictionary<string, string> { ["path"] = "/srv/shared" });
+
+        var thrown = Assert.Throws<OptionException>(() => request.Address("web", "path"));
+
+        Assert.Contains("\"web.path\"", thrown.Message);          // …and says the spelling that would work
+    }
+
+    [Fact]
+    public void An_ADDRESS_refusal_is_a_DEFINITION_error_so_ValidateAsync_collects_it()
+    {
+        // The whole reason it throws rather than returning a result: UnitProblems.Check catches
+        // DefinitionException, so ONE call gives a driver both the offline report and the apply-time
+        // refusal, and the two cannot drift apart.
+        var request = Request(new Dictionary<string, string> { ["bucket"] = "shared" });
+
+        Assert.IsAssignableFrom<DefinitionException>(
+            Assert.Throws<OptionException>(() => request.Address("web", "bucket")));
+    }
+
+    [Fact]
+    public void A_units_OWN_address_wins_over_a_stray_procedure_wide_one_rather_than_being_refused_too()
+    {
+        // Deliberate: the refusal fires exactly where a value would otherwise be used or dropped in silence.
+        // A unit that named its own address has nothing silently wrong with it, and reporting the stray line
+        // once per unit would name every unit except the one line to delete.
+        var request = Request(new Dictionary<string, string> { ["path"] = "/srv/shared", ["web.path"] = "/srv/web" });
+
+        Assert.Equal("/srv/web", request.Address("web", "path"));
+        Assert.Throws<OptionException>(() => request.Address("db", "path"));    // …but this one IS silent
+    }
+
+    [Fact]
+    public void A_context_reads_an_address_for_ITS_unit()
+    {
+        // The shorthand a driver actually uses, so it does not thread the unit name through every call.
+        var request = Request(new Dictionary<string, string> { ["web.bucket"] = "web-files" });
+        var context = new UnitContext(new ProcedureUnit("web", "Website"), request);
+
+        Assert.Equal("web-files", context.Address("bucket"));
+        Assert.Null(new UnitContext(new ProcedureUnit("db", "Database"), request).Address("bucket"));
+    }
 }

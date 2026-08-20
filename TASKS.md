@@ -490,3 +490,13 @@ The information that decides it is what an operator's history is FOR in a real c
 - **Anything a provider could orchestrate for itself.** The local provider was tempted twice — stopping a
   process before replacing files, and retrying its own health check — and both belong to the engine, which
   already has them. A provider that grows run-state logic is writing a second engine inside itself.
+
+- **Making `local`'s `health.port` an address.** Considered and left alone during [D36](docs/DECISIONS.md),
+  which swept every identity-bearing setting in both providers. `OwnOption`'s own documentation names "which
+  port it answers on" as an address, and two process units inheriting one `health.port` do collide: the
+  second reports healthy because the FIRST one's server is answering — a false green, which this repository
+  normally refuses. It was left shared anyway, because the port is not where the process listens, only where
+  Tyanor probes, and a single-process procedure writing `["health.port"] = "8080"` once is both common and
+  correct. **The cost of being wrong is a misleading health check, not a deleted website**, which is what
+  separates it from `bucket` and `path`. Revisit if a real procedure has two process units — the evidence
+  would be an operator reporting a unit that went green while its own server was down.

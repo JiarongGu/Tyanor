@@ -148,11 +148,19 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     {
         var problems = new UnitProblems()
             .Check(() => Source(context))
-            .Check(() => OutputReferences.Parse(context, AwsOptions.BucketFrom))
-            .Check(() => OutputReferences.Parse(context, AwsOptions.InvalidateFrom));
+            // Both addresses, so both refuse a procedure-wide spelling — and the refusal arrives here for
+            // free, because it is a DefinitionException and that is what Check collects.
+            .Check(() => context.Address(AwsOptions.Bucket))
+            .Check(() => OutputReferences.Parse(
+                AwsOptions.BucketFrom, context.Name, context.Address(AwsOptions.BucketFrom)))
+            .Check(() => OutputReferences.Parse(context, AwsOptions.InvalidateFrom))
+            .Check(() => RefuseBoth(context));
 
         // No resolver raises this one: it is the absence of BOTH options together, so there is nothing to
-        // call whose refusal would say it.
+        // call whose refusal would say it. Read with the SHARED reader deliberately, even though both are
+        // addresses: an unscoped one is a bucket named in the wrong place, and the check above says exactly
+        // that. Asking here whether it is an address too would answer "you named no bucket" to an operator
+        // looking at the line where they named one.
         if (context.Option(AwsOptions.Bucket) is null && context.Option(AwsOptions.BucketFrom) is null)
             problems.Add(
                 $"Names no destination bucket. Set '{AwsOptions.Bucket}', or '{AwsOptions.BucketFrom}' to " +
@@ -300,9 +308,41 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     private static string Source(UnitContext context) =>
         context.RequirePart(AwsOptions.Source, ArtifactPart.Directory);
 
+    /// <summary>
+    /// The destination bucket, named outright or read out of a stack's outputs. Null when the stack that
+    /// makes it is not deployed yet, which is a legitimate answer during a plan.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Both are ADDRESSES, so both are read per unit</b> — <see cref="UnitContext.Address"/>. Read
+    /// with the shared fallback, one unscoped <c>bucket</c> sends every content unit to the same place, and
+    /// since a sync prunes whatever the build no longer produces, the second unit to deploy DELETES the
+    /// first's website. Measured, not argued: two units, one unscoped bucket, and the site's
+    /// <c>index.html</c> was gone after the docs unit ran. <c>docs/DECISIONS.md</c> D36.</para>
+    /// <para><b>Set both ways it is refused rather than resolved</b>, which is D34's rule at the site D35
+    /// did not reach. This one is not benign the way the staging bucket was: <c>bucket</c> winning over
+    /// <c>bucketFrom</c> uploads a website to a bucket the operator is migrating AWAY from, while the stack's
+    /// bucket — the one the CDN is in front of — stays empty. Nothing errors, and the site serves nothing.</para>
+    /// </remarks>
     private async Task<string?> BucketAsync(UnitContext context)
-        => context.Option(AwsOptions.Bucket)
-           ?? await OutputReferences.ResolveAsync(stacks, context, AwsOptions.BucketFrom);
+    {
+        RefuseBoth(context);
+
+        return context.Address(AwsOptions.Bucket)
+               ?? await OutputReferences.ResolveAsync(
+                   stacks, context, AwsOptions.BucketFrom, context.Address(AwsOptions.BucketFrom));
+    }
+
+    /// <summary>Refuse a destination named twice — which was meant is not knowable, and picking one deploys
+    /// a website to a bucket nobody chose.</summary>
+    /// <param name="context">The unit.</param>
+    /// <exception cref="AwsConfigurationException">Both are set.</exception>
+    private static void RefuseBoth(UnitContext context)
+    {
+        if (context.Address(AwsOptions.Bucket) is not null && context.Address(AwsOptions.BucketFrom) is not null)
+            throw new AwsConfigurationException(
+                $"Unit '{context.Name}' names a destination bucket both with '{AwsOptions.Bucket}' and with " +
+                $"'{AwsOptions.BucketFrom}'. Remove one — which was meant is not something this can guess.");
+    }
 
 }
 

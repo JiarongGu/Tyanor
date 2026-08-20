@@ -325,6 +325,80 @@ public class ContentUnitTests
     }
 
     [Fact]
+    public async Task An_unscoped_bucket_is_REFUSED_because_it_would_be_one_destination_for_every_unit()
+    {
+        // Measured before it was fixed: two content units, one unscoped `bucket`, and the second unit's sync
+        // pruned the first's index.html — because a sync makes the bucket BE the build, and a bucket shared
+        // by two units cannot be both. A bucket is the unit's address, and an address has to be its own.
+        using var rig = Build(("index.html", "hi"));
+        rig.S3.Buckets["shared-bucket"] = [];
+
+        var context = Context(rig, new Dictionary<string, string>());
+        var request = new DeploymentRequest("mysite", context.Request.Artifact,
+            new Dictionary<string, string>
+            {
+                ["content.kind"] = AwsOptions.ContentKind,
+                ["content.source"] = "site",
+                ["bucket"] = "shared-bucket",                    // written once, for everything
+            });
+        var shared = new UnitContext(Web, request);
+
+        Assert.Contains(await rig.Unit.ValidateAsync(shared), p => p.Contains("\"content.bucket\""));
+
+        var thrown = await Assert.ThrowsAsync<OptionException>(() => rig.Unit.CreateAsync(shared));
+        Assert.IsAssignableFrom<DefinitionException>(thrown);
+        Assert.Empty(rig.S3.Uploaded);
+    }
+
+    [Fact]
+    public async Task An_unscoped_bucketFrom_is_refused_the_same_way()
+    {
+        // The reference form is an address too — two units reading one stack output land in one bucket just
+        // as surely as two units naming one bucket.
+        using var rig = Build(("index.html", "hi"));
+
+        var context = Context(rig, new Dictionary<string, string>());
+        var request = new DeploymentRequest("mysite", context.Request.Artifact,
+            new Dictionary<string, string>
+            {
+                ["content.kind"] = AwsOptions.ContentKind,
+                ["content.source"] = "site",
+                ["bucketFrom"] = "web:webbucketname",
+            });
+
+        Assert.Contains(await rig.Unit.ValidateAsync(new UnitContext(Web, request)),
+            p => p.Contains("\"content.bucketFrom\""));
+    }
+
+    [Fact]
+    public async Task A_destination_named_BOTH_ways_is_refused_rather_than_resolved_by_precedence()
+    {
+        // D34's rule at the site D35 did not reach, and this one is not benign: `bucket` winning silently
+        // uploads the website to the bucket the operator is migrating AWAY from, while the stack's bucket —
+        // the one the CDN is in front of — stays empty. Measured: files landed in the old bucket and the
+        // stack's stayed empty, with validate reporting nothing at all.
+        using var rig = Build(("index.html", "hi"));
+        rig.Cfn.Returning("CREATE_COMPLETE");
+        rig.Cfn.Outputs["webbucketname"] = "made-by-the-stack";
+        rig.S3.Buckets["made-by-the-stack"] = [];
+        rig.S3.Buckets["the-old-one"] = [];
+
+        var options = new Dictionary<string, string>
+        {
+            ["content.bucket"] = "the-old-one",
+            ["content.bucketFrom"] = "web:webbucketname",
+        };
+
+        Assert.Contains(await rig.Unit.ValidateAsync(Context(rig, options)), p => p.Contains("both"));
+
+        var error = await Assert.ThrowsAsync<AwsConfigurationException>(
+            () => rig.Unit.CreateAsync(Context(rig, options)));
+
+        Assert.Contains("both", error.Message);
+        Assert.Empty(rig.S3.Uploaded);                          // and nothing went anywhere
+    }
+
+    [Fact]
     public async Task A_sync_with_no_destination_bucket_at_all_is_a_DEFINITION_error()
     {
         using var rig = Build(("index.html", "hi"));

@@ -35,13 +35,20 @@ neutral ([D4](DECISIONS.md)). Three reading rules cover every setting on this pa
 | Read as | Looks for | Used for |
 |---|---|---|
 | **shared, per-unit override** | `"{unit}.{key}"`, then `"{key}"` | almost everything — write it once, name the exceptions |
-| **per unit only** | `"{unit}.{key}"` and nothing else | a setting that IS the unit's address. Only `local`'s `path` |
+| **an address** | `"{unit}.{key}"` and nothing else, and an unscoped one is **refused** | a setting that IS the unit's identity: `local`'s `path`, `aws`'s `bucket` and `bucketFrom` |
 | **a group** | every `"{unit}.{prefix}.*"` over every `"{prefix}.*"` | sets whose keys the provider cannot know: `parameter.*` |
 
-The distinction in the middle row is the one worth understanding, because getting it wrong is silent. A
-shared `"path"` does not mean *every unit defaults to this directory* — it means every unit deploys **on top
-of** every other, and removing one removes them all. So a setting that is a unit's identity never falls back.
-Everything else does, which is what keeps a request short.
+The distinction in the middle row is the one worth understanding, because getting it wrong used to be
+silent. A shared `"path"` does not mean *every unit defaults to this directory* — it means every unit deploys
+**on top of** every other, and removing one removes them all. So a setting that is a unit's identity never
+falls back. Everything else does, which is what keeps a request short.
+
+**Writing an address unscoped is now an error rather than a surprise** ([D36](DECISIONS.md)). It reports
+offline from `validate`, it names the spelling that would have worked — `"web.bucket"`, not `"bucket"` — and
+an apply refuses it too. That closes both halves of the same mistake: before, an unscoped `aws.bucket` was
+*shared* (two content units syncing to one bucket, where the second prunes the first's website) and an
+unscoped `local.path` was *dropped* (read by nothing at all, so the operator's line did nothing and nothing
+said so).
 
 **`kind` is required on every unit and has no default**, in both providers, even where only one kind would
 make sense. Guessing would deploy something the operator never described, and the moment a second kind
@@ -109,7 +116,7 @@ A tree of files, materialized from one named part of the artifact.
 |---|---|---|---|
 | `kind` | **yes** | shared | `"directory"` |
 | `source` | **yes** | shared | which artifact part the files come from. Must be a directory on disk |
-| `path` | no | **per unit only** | where the unit lives. Default `{root}/{prefix}/{unit}` |
+| `path` | no | **an address** | where the unit lives. Default `{root}/{prefix}/{unit}` |
 
 **Each build lands in its own directory** under `{path}/releases/{fingerprint}`, and a marker file records
 which one is in service. This is not tidiness. A process holds its working directory and the assemblies it
@@ -330,8 +337,8 @@ A directory of files synced into an S3 bucket, optionally invalidating the CDN i
 |---|---|---|---|
 | `kind` | **yes** | shared | `"content"` |
 | `source` | **yes** | shared | the artifact part naming the **directory** to sync |
-| `bucket` | one of | shared | the destination, when it is known up front |
-| `bucketFrom` | one of | shared | `"{unit}:{OutputKey}"` — read the destination out of a stack's outputs |
+| `bucket` | one of | **an address** | the destination, when it is known up front |
+| `bucketFrom` | one of | **an address** | `"{unit}:{OutputKey}"` — read the destination out of a stack's outputs |
 | `invalidateFrom` | no | shared | `"{unit}:{OutputKey}"` naming a CloudFront distribution id to invalidate after a sync |
 
 **The bucket usually belongs to another unit.** A stack creates it and exports its name; this unit reads

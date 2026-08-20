@@ -197,7 +197,7 @@ internal sealed class SmokeTestUnit(HttpClient http) : StepUnitDriver
         new UnitProblems().Check(() => Url(context)).Found();
 
     private static string Url(UnitContext context) =>
-        context.OwnOption("url") ?? throw new SmokeTestMisconfigured(
+        context.Address("url") ?? throw new SmokeTestMisconfigured(
             $"Unit '{context.Name}' is a smoke test but names no 'url'.");
 }
 ```
@@ -216,8 +216,11 @@ it, or a destroy will leave the unit claiming to still be deployed. `UnitDriverC
 
 Three more things in there are the whole convention, and each is worth a sentence:
 
-- **`OwnOption`, not `Option`.** A URL is this unit's identity. A procedure-wide `"url"` would not be a
-  sensible default for every smoke test, it would be every one of them checking the same address.
+- **`Address`, not `Option`.** A URL is this unit's identity. A procedure-wide `"url"` would not be a
+  sensible default for every smoke test, it would be every one of them checking the same address — so
+  `Address` refuses it and names the spelling that works, rather than sharing it or dropping it in silence.
+  ([D36](DECISIONS.md); it is `OwnOption` with the silence taken out, and both shipped providers got one of
+  those two wrong before it existed.)
 - **`SmokeTestMisconfigured` derives from `DefinitionException`.** That is what makes it a *configuration*
   problem rather than a failure — terminal, nothing touched, and `UnitProblems.Check` collects it so
   validation reports it instead of throwing.

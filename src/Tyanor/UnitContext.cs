@@ -59,6 +59,14 @@ public sealed record UnitContext(
     /// <param name="key">The setting. One that IS the unit's identity: its path, its bucket, its port.</param>
     public string? OwnOption(string key) => Request.OwnOption(Unit.Name, key);
 
+    /// <summary>
+    /// This unit's ADDRESS, refusing one written procedure-wide — see
+    /// <see cref="DeploymentRequest.Address"/>, which is where the reasoning is.
+    /// </summary>
+    /// <param name="key">The setting: its path, its bucket, its port.</param>
+    /// <exception cref="OptionException">It was written unscoped, where it applies to every unit at once.</exception>
+    public string? Address(string key) => Request.Address(Unit.Name, key);
+
     /// <summary>A group of settings for this unit — see <see cref="DeploymentRequest.OptionSet"/>.</summary>
     /// <param name="prefix">The group, without a trailing dot.</param>
     public IReadOnlyDictionary<string, string> Options(string prefix) => Request.OptionSet(Unit.Name, prefix);

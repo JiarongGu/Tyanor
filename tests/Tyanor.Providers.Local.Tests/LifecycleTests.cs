@@ -226,12 +226,51 @@ public class LifecycleTests
     }
 
     [Fact]
-    public async Task A_procedure_wide_path_does_NOT_collapse_every_unit_into_one_directory()
+    public async Task A_procedure_wide_path_is_REFUSED_rather_than_collapsing_every_unit_into_one_directory()
     {
         // `path` is the unit's ADDRESS, so unlike every other setting here it does not inherit the unscoped
         // value. It used to: `["path"] = …` put both directory units in the same folder, where the second to
         // deploy pruned the first's releases and removing either removed both — silent data loss, and the
         // same collision `Procedure` refuses when two units share a name, reached through a different door.
+        //
+        // Not inheriting fixed that and left a quieter fault: the line was then read by NOTHING, so an
+        // operator who wrote one had it dropped without a word and their units went to the default location.
+        // It is now refused, offline and again at apply, and the refusal says which spelling would work (D36).
+        using var box = new Sandbox();
+        box.Publish("Server.dll", "v1");
+
+        var two = new Procedure("server",
+            [new ProcedureUnit("runtime", "Application files"), new ProcedureUnit("assets", "Static files")]);
+
+        var shared = Path.Combine(box.Root, "shared");
+        var request = new DeploymentRequest("acme",
+            new DeploymentArtifact(new Dictionary<string, string> { ["app"] = box.Artifact }),
+            new Dictionary<string, string>
+            {
+                ["kind"] = LocalOptions.DirectoryKind,
+                ["source"] = "app",
+                ["path"] = shared,                               // meant for one unit; binds to none
+            });
+
+        // Offline first: no files have moved and no directory exists yet.
+        var validation = await box.Runner.ValidateAsync(two, request);
+        Assert.False(validation.Ok);
+        // Each unit is told the spelling that would work for IT, which is the whole value of refusing here
+        // rather than letting a shared value through.
+        Assert.Contains(validation.Problems, p => p.Problem.Contains("\"runtime.path\""));
+        Assert.Contains(validation.Problems, p => p.Problem.Contains("\"assets.path\""));
+
+        // …and the apply refuses too, rather than quietly deploying somewhere else.
+        Assert.False((await box.Runner.ApplyAsync(two, request)).Ok);
+        Assert.False(Directory.Exists(shared));
+        Assert.False(Directory.Exists(box.Deployed("acme", "runtime")));
+    }
+
+    [Fact]
+    public async Task Two_units_with_their_OWN_paths_do_not_touch_each_other()
+    {
+        // The property the refusal above protects, stated positively: addressed separately, removing one
+        // leaves the other standing.
         using var box = new Sandbox();
         box.Publish("Server.dll", "v1");
 
@@ -244,20 +283,17 @@ public class LifecycleTests
             {
                 ["kind"] = LocalOptions.DirectoryKind,
                 ["source"] = "app",
-                ["path"] = Path.Combine(box.Root, "shared"),      // meant for one unit; must not bind to both
+                ["runtime.path"] = Path.Combine(box.Root, "runtime-here"),
+                ["assets.path"] = Path.Combine(box.Root, "assets-there"),
             });
 
         Assert.True((await box.Runner.ApplyAsync(two, request)).Ok);
+        Assert.True(Directory.Exists(Path.Combine(box.Root, "runtime-here")));
+        Assert.True(Directory.Exists(Path.Combine(box.Root, "assets-there")));
 
-        // Each unit kept its own default directory, and the stray shared one was never used.
-        Assert.True(Directory.Exists(box.Deployed("acme", "runtime")));
-        Assert.True(Directory.Exists(box.Deployed("acme", "assets")));
-        Assert.False(Directory.Exists(Path.Combine(box.Root, "shared")));
-
-        // …so removing one leaves the other standing, which is the property that was actually at risk.
         Assert.True((await box.Runner.DestroyAsync(two.Only("assets"), request)).Ok);
-        Assert.False(Directory.Exists(box.Deployed("acme", "assets")));
-        Assert.True(Directory.Exists(box.Deployed("acme", "runtime")));
+        Assert.False(Directory.Exists(Path.Combine(box.Root, "assets-there")));
+        Assert.True(Directory.Exists(Path.Combine(box.Root, "runtime-here")));
     }
 
     [Fact]

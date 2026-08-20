@@ -116,9 +116,15 @@ option, and `DeploymentRequest.Option(unit, key)` reads it. Do not add a default
 something the operator never described.
 
 **Ask which sort of setting each option is.** `Option(unit, key)` falls back to a procedure-wide value,
-which is what stops configuration being verbose. `OwnOption(unit, key)` does not — use it for anything that
-IS the unit's identity: its path, its bucket, its port. A shared identity is not a default, it is two units
-deploying on top of each other, and it fails by looking like it worked.
+which is what stops configuration being verbose. **`Address(unit, key)`** does not, and refuses a
+procedure-wide one outright — use it for anything that IS the unit's identity: its path, its bucket, its
+port. A shared identity is not a default, it is two units deploying on top of each other, and it fails by
+looking like it worked.
+
+Reach for `Address` rather than `OwnOption` for these. `OwnOption` stops the sharing and leaves the setting
+read by nothing at all, which is a quieter version of the same bug — both shipped providers had one of the
+two, which is why `Address` exists (D36). It throws a `DefinitionException`, so a single call inside
+`ValidateAsync` reports it offline AND refuses at apply.
 
 If every unit is the same kind of thing, implement `IUnitDriver` directly and ignore all of that.
 

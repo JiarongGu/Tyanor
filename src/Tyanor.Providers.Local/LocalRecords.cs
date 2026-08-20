@@ -11,14 +11,18 @@ internal static class LocalPaths
     /// job it does in an account name elsewhere.
     /// </summary>
     /// <remarks>
-    /// The override is read per unit and NEVER falls back to a procedure-wide <c>"path"</c>. A shared one
-    /// cannot mean what the fallback convention implies: it would put every directory unit in the same
+    /// <para>The override is read per unit and NEVER falls back to a procedure-wide <c>"path"</c>. A shared
+    /// one cannot mean what the fallback convention implies: it would put every directory unit in the same
     /// folder, so the second to deploy prunes the first's releases and removing either removes both. This
-    /// path is the unit's address, and an address has to be its own — see
-    /// <see cref="DeploymentRequest.OwnOption"/>.
+    /// path is the unit's address, and an address has to be its own.</para>
+    /// <para><b>And an unscoped one is now REFUSED rather than ignored.</b> Not falling back fixed the
+    /// collision and left a quieter fault behind it: a procedure-wide <c>"path"</c> was read by nothing, so
+    /// an operator who wrote one had it silently dropped and their units went to the default location.
+    /// <see cref="DeploymentRequest.Address"/> is that refusal, and it says which spelling would have
+    /// worked — see <c>docs/DECISIONS.md</c> D36.</para>
     /// </remarks>
     public static string Unit(string root, DeploymentRequest request, string unit) =>
-        request.OwnOption(unit, LocalOptions.Path) ?? Path.Combine(Deployment(root, request), unit);
+        request.Address(unit, LocalOptions.Path) ?? Path.Combine(Deployment(root, request), unit);
 
     /// <summary>
     /// One whole deployment's folder: <c>{root}/{prefix}</c>. What everything below hangs off, and what

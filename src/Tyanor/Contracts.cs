@@ -98,6 +98,19 @@ public enum ArtifactPart
 public sealed class ArtifactException(string message) : DefinitionException(message);
 
 /// <summary>
+/// A setting is written where it cannot mean what it says — today, a unit's ADDRESS written procedure-wide.
+/// Always terminal: nothing about it improves on a retry.
+/// </summary>
+/// <param name="message">Plain language, naming the setting and the spelling that would work.</param>
+/// <remarks>
+/// Separate from <see cref="ArtifactException"/> because it is a different conversation with the operator:
+/// the artifact one means "the build did not produce what you named", and this one means "you named it in a
+/// place where it applies to everything". Both are <see cref="DefinitionException"/>, so a consumer that
+/// only wants to tell configuration from a provider saying no still catches one type.
+/// </remarks>
+public sealed class OptionException(string message) : DefinitionException(message);
+
+/// <summary>
 /// One request to converge a target on a desired state.
 /// </summary>
 /// <param name="Prefix">
@@ -164,6 +177,45 @@ public sealed record DeploymentRequest(
     /// identity-bearing setting is read with this, and everything else with the convenient one.</para>
     /// </remarks>
     public string? OwnOption(string unit, string key) => Option($"{unit}.{key}");
+
+    /// <summary>
+    /// A setting that IS the unit's address, read per unit — and REFUSED rather than misapplied when it was
+    /// written procedure-wide. Null when it is not set at all, which is the caller's to interpret.
+    /// </summary>
+    /// <param name="unit">The unit's <see cref="ProcedureUnit.Name"/>.</param>
+    /// <param name="key">The setting: its path, its bucket, its port.</param>
+    /// <exception cref="OptionException">
+    /// This unit has no <c>"{unit}.{key}"</c> and an unscoped <c>"{key}"</c> is set, so the value the
+    /// operator wrote is one no unit can honestly use.
+    /// </exception>
+    /// <remarks>
+    /// <para><b><see cref="OwnOption"/> with the silence taken out.</b> Reading an address with
+    /// <see cref="Option(string, string)"/> shares it — every unit gets the same one, which for an address
+    /// is every unit deploying on top of every other. Reading it with <see cref="OwnOption"/> fixes that and
+    /// leaves a second, quieter fault: the line the operator wrote is now read by nothing at all, and
+    /// nothing says so. Both shipped providers had one of the two, which is what produced this method
+    /// (<c>docs/DECISIONS.md</c> D36).</para>
+    /// <para><b>It throws a <see cref="DefinitionException"/>, so ONE call gets both halves</b> —
+    /// <see cref="UnitProblems.Check"/> collects it, so <see cref="IUnitDriver.ValidateAsync"/> reports it
+    /// offline, and an apply that skipped validation refuses at the point of use. That is
+    /// <see cref="UnitContext.RequirePart"/>'s shape, for the same reason: an offline check and the real
+    /// thing must not be able to disagree.</para>
+    /// <para><b>The unit's own value WINS rather than also being refused</b>, deliberately. The refusal
+    /// fires exactly when the shared value would otherwise be used or dropped in silence; a unit that named
+    /// its own address has nothing silently wrong with it. An unscoped key left over beside a full set of
+    /// per-unit ones is dead configuration rather than a misapplied value, and reporting it once per unit
+    /// would name every unit but the one line to delete.</para>
+    /// </remarks>
+    public string? Address(string unit, string key)
+    {
+        if (OwnOption(unit, key) is { } own) return own;
+        if (Option(key) is null) return null;
+
+        throw new OptionException(
+            $"'{key}' is set for the whole procedure, but unit '{unit}' reads it as its own address — a " +
+            "shared one is not a default, it is every unit using the same value and overwriting each " +
+            $"other. Write \"{unit}.{key}\".");
+    }
 
     /// <summary>
     /// A whole GROUP of options for one unit, gathered by prefix and returned with the prefix stripped:

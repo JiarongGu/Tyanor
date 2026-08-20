@@ -26,6 +26,7 @@ sealed record Tyanor.DeploymentRequest : IEquatable<DeploymentRequest>
     IReadOnlyDictionary<string, string> OptionSet(string unit, string prefix)
     IReadOnlyDictionary<string, string> Options { get; init; }
     IReadOnlyDictionary<string, string> Tags { get; init; }
+    string Address(string unit, string key)
     string Option(string key)
     string Option(string unit, string key)
     string OwnOption(string unit, string key)
@@ -195,6 +196,9 @@ sealed record Tyanor.OperationOutcome : IEquatable<OperationOutcome>
     static OperationOutcome Paused(PauseReason reason, string error = null)
     static OperationOutcome Success()
     string Error { get; init; }
+
+sealed class Tyanor.OptionException : DefinitionException
+    .ctor(string message)
 
 struct Tyanor.PauseReason : IEquatable<PauseReason>
     .ctor(string Value)
@@ -477,6 +481,7 @@ sealed record Tyanor.UnitContext : IEquatable<UnitContext>
     DeploymentRequest Request { get; init; }
     IReadOnlyDictionary<string, string> Options(string prefix)
     ProcedureUnit Unit { get; init; }
+    string Address(string key)
     string Label { get; }
     string Name { get; }
     string Option(string key)

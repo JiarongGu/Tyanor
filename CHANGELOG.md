@@ -7,7 +7,35 @@ the top of its section** rather than inferred from the number. Each is called ou
 
 ## Unreleased
 
+**One BREAKING change, and it is worth the sentence it costs.** A setting that is a unit's ADDRESS —
+`local`'s `path`, `aws`'s `bucket` and `bucketFrom` — is read per unit only, and writing it procedure-wide
+is now refused instead of silently shared or silently dropped. If you write `["bucket"] = "…"` rather than
+`["web.bucket"] = "…"`, `validate` reports it and an apply refuses, naming the spelling that works. A
+single-unit procedure using the unscoped spelling was working by accident and stops.
+
+### Changed
+
+- **An address written procedure-wide is REFUSED.** It was broken in opposite directions in the two
+  providers, and both were silent. AWS **shared** it: two content units with one unscoped `bucket` both
+  synced to the same place, and since a sync prunes whatever the build no longer produces, the second unit
+  **deleted the first's website** — measured, not theorised. Local **dropped** it: `path` stopped falling
+  back in 0.1.0, which fixed the collision and left an unscoped `path` read by nothing at all, so an
+  operator's line did nothing and nothing said so. Reasoning in `docs/DECISIONS.md` **D36**.
+  - **New public API: `DeploymentRequest.Address(unit, key)`, `UnitContext.Address(key)` and
+    `OptionException`.** In Core rather than hand-written per provider, because a provider written outside
+    this repository would otherwise copy the read, the detection and the sentence — which is exactly how
+    `aws.bucket` came to be missed when `local.path` was fixed.
+  - It throws a `DefinitionException`, so **one call gives a driver both halves**: `ValidateAsync` collects
+    it offline and the same call refuses at apply. `RequirePart`'s shape, for `RequirePart`'s reason.
+  - A unit's own value still wins over a stray unscoped one rather than also being refused — the refusal
+    fires where a value would otherwise be used or dropped in silence, and nothing else.
+
 ### Fixed
+
+- **A content unit's destination named both ways is refused rather than resolved by precedence.** `bucket`
+  silently beat `bucketFrom`, which is D34's rule at the third site D35 did not reach — and this one is not
+  benign the way the staging bucket was: it uploads the website to the bucket you are migrating away from
+  while the stack's bucket, the one the CDN is in front of, stays empty, and nothing errors.
 
 - **`assetsBucketParameter` no longer silently overwrites a parameter you set yourself.** It is refused, the
   way setting one in both `parameter.*` and `parameterFrom.*` already was — offline by `ValidateAsync` and

@@ -71,6 +71,7 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D33](#d33--a-provider-owns-infrastructure-too-and-until-now-nothing-removed-it-2026-08-20) | a provider owns infrastructure too, and a full destroy sweeps it | found by the first adopter |
 | [D34](#d34--some-values-only-exist-once-the-run-is-under-way-and-a-unit-has-to-be-able-to-ask-for-them-2026-08-20) | apply-time values reach a later unit; **a part has one writer** | found by the first adopter |
 | [D35](#d35--the-providers-own-value-does-not-get-to-win-quietly-2026-08-21--amends-d34) | a rule enforced by hand is enforced where you were looking | amends D34 |
+| [D36](#d36--a-units-address-is-read-one-way-and-the-wrong-spelling-is-refused-2026-08-21--amends-d35) | an address is read per unit, and the wrong spelling is refused | amends D35 |
 
 ---
 
@@ -1735,7 +1736,64 @@ because with the options in the other order the weaker implementation passes too
 must not be able to disagree" applied to the wording as well as the rule. There were already two
 near-identical sentences for the one pair; three pairs would have made six.
 
+> ⚠ **Taken at its word by D36**, which went looking for other rules enforced by hand and found the same
+> defect twice more — an address read the shared way in one provider and dropped in the other.
+
 **The shape, which this repository keeps finding.** The rule was written down, applied where it was being
 thought about, and not applied one line further on — like D33 (both providers owned infrastructure and
 neither removed it) and D27's two findings. What is generalisable is not "check parameter maps": it is that
 a rule stated in prose and enforced by hand at each site is enforced at the sites you were looking at.
+
+## D36 — A unit's address is read one way, and the wrong spelling is refused (2026-08-21) — amends D35
+
+`DeploymentRequest.Address(unit, key)` reads a setting that IS a unit's identity — its path, its bucket, its
+port — per unit only, and REFUSES a procedure-wide one instead of sharing it or dropping it. Both shipped
+providers had an identity-bearing setting read the wrong way, in opposite directions, and neither said
+anything.
+
+**Found by taking D35's own lesson seriously rather than by a report.** D35 ended by saying the
+generalisable part was not "check parameter maps" but that *a rule stated in prose and enforced by hand at
+each site is enforced at the sites you were looking at*. The rule "an address is read per unit" was written
+in `OwnOption`'s documentation, in `LocalOptions`, in `providers.md` and in the 0.1.0 changelog, and it was
+applied at exactly one of the three settings that needed it. `OwnOption`'s own doc comment names **"which
+bucket it fills"** as its example, and `aws.bucket` was read with the shared reader.
+
+**Two defects, measured before they were fixed.**
+
+- **AWS shared it.** Two content units and one unscoped `bucket` sent both to the same place. A sync makes
+  the bucket BE the build, so the second unit pruned the first: `after site: [index.html]` →
+  `after docs: [guide.html]`, `deleted: [index.html]`. A website deleted by deploying a different unit.
+- **Local dropped it.** `path` was moved to `OwnOption` in the 0.1.0 review, which fixed the collision and
+  left a quieter fault behind it: an unscoped `path` was then read by nothing at all, so an operator who
+  wrote one had it silently ignored and their units went to the default location.
+
+**These are the same defect, which is the point.** Not falling back is only half an answer; the other half
+is saying so. A value that cannot be used has to be refused, or the fix for sharing is a new way to be
+ignored.
+
+**Decided against: fixing both providers by hand.** That is what produced this. An out-of-repo provider with
+an identity-bearing setting would have to copy the read, the detection that the unscoped spelling was
+written, and the sentence explaining it — and by `CLAUDE.md`'s standing question, anything an implementer
+has to copy belongs in the framework. It is also twice, which is the bar D19, D20 and `Registry<T>` were
+all extracted on.
+
+**It THROWS rather than returning a result, so one call gets both halves.** `OptionException` is a
+`DefinitionException`, `UnitProblems.Check` collects those, so a driver that calls `Address` inside
+`ValidateAsync` reports it offline and the same call refuses at apply time. That is `RequirePart`'s shape
+and it is deliberate: an offline check and the real thing must not be able to disagree, which is the rule
+D34 stated and D35 had to finish.
+
+**A unit's OWN value still wins over a stray unscoped one rather than also being refused.** The refusal
+fires exactly where a value would otherwise be used or dropped in silence; a unit that named its own address
+has nothing silently wrong with it. Refusing the leftover key would report it once per unit, naming every
+unit except the one line to delete. Dead configuration is a lint, not a defect.
+
+**Also fixed beside it, because it is D34's rule at the third site D35 did not reach:** `bucket` and
+`bucketFrom` set together were resolved by precedence. Unlike the staging-bucket case, this one is not
+benign — `bucket` winning uploads a website to the bucket an operator is migrating AWAY from while the
+stack's bucket, the one the CDN is in front of, stays empty, and nothing errors. Measured: the files landed
+in the old bucket, the stack's stayed empty, and `validate` reported nothing at all.
+
+**The cost, stated plainly: this is a breaking change to a shipped surface.** An unscoped `bucket` or `path`
+that "worked" for a single-unit procedure now fails. It is pre-1.0 and it is called out in the changelog,
+and the alternative is keeping a spelling whose failure mode is a deleted website.

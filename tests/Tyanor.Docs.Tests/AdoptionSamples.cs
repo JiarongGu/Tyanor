@@ -128,7 +128,7 @@ internal sealed class SmokeTestUnit(HttpClient http) : StepUnitDriver
         new UnitProblems().Check(() => Url(context)).Found();
 
     private static string Url(UnitContext context) =>
-        context.OwnOption("url") ?? throw new SmokeTestMisconfigured(
+        context.Address("url") ?? throw new SmokeTestMisconfigured(
             $"Unit '{context.Name}' is a smoke test but names no 'url'.");
 }
 

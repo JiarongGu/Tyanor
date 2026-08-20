@@ -117,7 +117,12 @@ internal sealed class DirectoryUnit(string root) : IUnitDriver
     /// the refusal. Two copies of a rule is two rules, and they diverge the first time one is edited.
     /// </remarks>
     public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context) =>
-        new UnitProblems().Check(() => Source(context)).Found();
+        new UnitProblems()
+            .Check(() => Source(context))
+            // Resolves this unit's address, which is the same call the apply makes — so a procedure-wide
+            // `path` is refused here rather than at the moment files start moving.
+            .Check(() => LocalPaths.Unit(root, context))
+            .Found();
 
     /// <summary>Where the files ended up, so a consumer can point something at them.</summary>
     public Task<IReadOnlyDictionary<string, string>> OutputsAsync(UnitContext context)

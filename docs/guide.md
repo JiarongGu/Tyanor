@@ -100,7 +100,10 @@ disagree.
 
 A setting that IS a unit's identity — where it lives on disk, which bucket it fills — does **not** inherit
 the shared value, because a shared address is not a default: it is two units deploying on top of each other.
-Write `["runtime.path"] = …`, never `["path"] = …`.
+Write `["runtime.path"] = …`, never `["path"] = …`. **The unscoped spelling is refused rather than ignored**,
+by `validate` and again by an apply, and the refusal names the one that would have worked
+([D36](DECISIONS.md)). If you are writing a provider of your own, `context.Address("port")` is that reader —
+and it is one call because getting it right by hand is what neither shipped provider managed.
 
 **Tyanor executes a pre-built artifact; it does not synthesize one.** Run `cdk synth`, `helm template` or
 your build earlier, on a machine that has that toolchain. That is what lets an operator deploy with no cloud
