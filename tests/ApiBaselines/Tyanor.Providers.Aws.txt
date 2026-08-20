@@ -8,6 +8,7 @@ sealed class Tyanor.Providers.Aws.AwsDeploymentException : Exception
 
 static class Tyanor.Providers.Aws.AwsOptions
     const string Assets
+    const string AssetsBucketParameter
     const string Bucket
     const string BucketFrom
     const string Capabilities
@@ -15,6 +16,7 @@ static class Tyanor.Providers.Aws.AwsOptions
     const string DefaultCapabilities
     const string InvalidateFrom
     const string Kind
+    const string ParameterFromPrefix
     const string ParameterPrefix
     const string Source
     const string StackKind

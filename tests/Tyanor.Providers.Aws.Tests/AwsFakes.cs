@@ -352,6 +352,20 @@ internal sealed class StatefulCloudFormation : AmazonCloudFormationClient
         new() { PhysicalResourceId = "fake-topic-arn", ResourceType = "AWS::SNS::Topic", ResourceStatus = "CREATE_COMPLETE" },
     ];
 
+    /// <summary>Every create this provider issued, so a test can read the request it actually built.</summary>
+    public List<CreateStackRequest> Created { get; } = [];
+
+    /// <summary>Every update this provider issued.</summary>
+    public List<UpdateStackRequest> Updated { get; } = [];
+
+    /// <summary>The parameters sent for one stack, by key — what a test asking "which request" wants.</summary>
+    public Dictionary<string, string> ParametersFor(string stackName) =>
+        Created.Where(r => r.StackName == stackName)
+            .Select(r => r.Parameters)
+            .Concat(Updated.Where(r => r.StackName == stackName).Select(r => r.Parameters))
+            .Last()
+            .ToDictionary(p => p.ParameterKey, p => p.ParameterValue);
+
     private sealed record Stacked(string Status, int Revision);
 
     private bool Exists(string name) => _stacks.ContainsKey(name);
@@ -380,6 +394,7 @@ internal sealed class StatefulCloudFormation : AmazonCloudFormationClient
 
     public override Task<CreateStackResponse> CreateStackAsync(CreateStackRequest request, CancellationToken ct = default)
     {
+        Created.Add(request);
         _stacks[request.StackName] = new Stacked("CREATE_COMPLETE", TemplateRevision);
         return Task.FromResult(new CreateStackResponse { StackId = "arn:fake:" + request.StackName });
     }
@@ -397,6 +412,7 @@ internal sealed class StatefulCloudFormation : AmazonCloudFormationClient
             throw new AmazonCloudFormationException("No updates are to be performed.")
             { ErrorCode = "ValidationError" };
 
+        Updated.Add(request);
         _stacks[request.StackName] = new Stacked("UPDATE_COMPLETE", TemplateRevision);
         return Task.FromResult(new UpdateStackResponse { StackId = "arn:fake:" + request.StackName });
     }

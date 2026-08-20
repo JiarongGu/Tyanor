@@ -69,6 +69,7 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D31](#d31--the-seams-are-the-product-so-their-cost-is-a-feature-2026-08-20--amends-d24) | **the seams are the product** — pause, backend contract, `StepUnitDriver` | amends D24 |
 | [D32](#d32--a-teardown-has-three-answers-because-some-things-do-not-come-back-2026-08-20--amends-d16) | a teardown has THREE answers — some things do not come back | amends D16 |
 | [D33](#d33--a-provider-owns-infrastructure-too-and-until-now-nothing-removed-it-2026-08-20) | a provider owns infrastructure too, and a full destroy sweeps it | found by the first adopter |
+| [D34](#d34--some-values-only-exist-once-the-run-is-under-way-and-a-unit-has-to-be-able-to-ask-for-them-2026-08-20) | apply-time values reach a later unit; **a part has one writer** | found by the first adopter |
 
 ---
 
@@ -1614,3 +1615,86 @@ holding anything else is LEFT passed with the emptiness guard removed: `Director
 non-empty folder, the engine swallows a failing sweep, and "left deliberately" looked identical to "left
 because the delete blew up". It now asserts no error line was reported. Same shape as D27's two findings —
 behaviour defined by absence, guarded by a check that could not go red.
+
+## D34 — Some values only exist once the run is under way, and a unit has to be able to ask for them (2026-08-20)
+
+Three things a unit could not reference, from one adoption pass and one root. `parameterFrom.{Name}` takes
+`"{unit}:{OutputKey}"` and resolves at apply time. `assetsBucketParameter` names the CloudFormation
+parameter to fill with the staging bucket Tyanor actually uploaded to. And **an artifact part has exactly
+one writer, which is the unit that owns it** — written down here because it was written down nowhere.
+
+**The shape was already decided; it just had not been applied twice.** `bucketFrom` and `invalidateFrom`
+resolve `"{unit}:{OutputKey}"` at apply time, which is how an ordered list carries a dependency without an
+edge (D3): declare the producer first, resolve when the run reaches the consumer. `parameter.*` had no
+equivalent and was verbatim text, so a stack could not consume what an earlier unit produced. That blocks
+**item 1's domain unit before it blocks any consumer** — an ACM certificate ARN exists only once the run has
+issued it and has to be inside the CloudFront distribution before the web stack deploys.
+
+**Decided against: making the domain unit rewrite the template part.** That was the obvious workaround and
+it is the one that breaks two things at once. The artifact is the handover from a build that already
+happened (D5) and is resolved at request time, so a unit editing a part makes it mutable mid-run and makes
+any plan already shown stale about a unit that is not the one being edited.
+
+**Decided against: doing it in Core.** *A value resolved at apply time reaching a later unit* is a general
+question, and `UnitContext` could grow a way to read another unit's outputs — every driver already has
+`OutputsAsync`. It is not built because the engine would have to thread a resolver into every context and
+decide what that resolver does during `ValidateAsync`, which touches no provider at all. The bar is the one
+D19 and D20 set: build it where it is needed, and upstream it when a **second provider** needs it. This is
+twice in one provider, which earned the extraction below and not a Core seam.
+
+**Extracted rather than copied: `OutputReferences`.** `bucketFrom` and `invalidateFrom` shared a private
+parse-and-resolve inside `ContentUnit`; `parameterFrom.*` is the third caller, and a third copy would have
+been the first to word its refusal differently — the same defect `UnitContext.RequirePart` was extracted to
+fix one level down. Twice is the signal; this was already twice before it was moved.
+
+**A parameter set both ways is REFUSED, not resolved by precedence.** Which one an operator meant is not
+knowable from the request, and picking one silently deploys a value nobody wrote down. Refused offline by
+`ValidateAsync` and again at apply time, because two copies of a rule must not be able to disagree.
+
+**An unresolved reference is a hard failure at apply and a null during a plan.** The asymmetry is
+`bucketFrom`'s and it is deliberate: planning a deployment that does not exist yet resolves nothing, which is
+a legitimate answer. Reaching an APPLY with nothing is a definition problem, and passing the parameter
+through empty would fail inside CloudFormation naming the parameter rather than the unit that was supposed
+to produce it — sending the operator to read a template instead of their procedure.
+
+**The staging bucket is passed, not published.** It had no public existence at all, so a CDK-style template
+that must name the bucket its Lambda code sits in left the first adopter hard-coding
+`{prefix}-deploy-{account}` **and making an `sts:GetCallerIdentity` call of their own** purely to fill in a
+parameter value. Three answers were available — a documented-and-frozen convention, a public helper plus an
+account accessor, or the provider filling the parameter itself. The third is the only one where the value
+and the upload **cannot disagree**, because they come from one call; the other two leave a consumer
+recomputing a convention this provider owns and could move.
+
+**Nothing is passed unless the parameter is named**, because CloudFormation refuses a parameter the template
+does not declare — a bucket supplied helpfully would break every template that did not ask for one. And it
+is one setting rather than a family: `AWS::Region` and `AWS::AccountId` are already CloudFormation
+pseudo-parameters, so the staging bucket is the only fact about a deployment that only Tyanor knows.
+
+### An artifact part has one writer
+
+**The question was open and undocumented**, which is worse than either answer: whether a part may be mutated
+between units appears in none of `guide.md`, `adoption.md`, `providers.md` or this file. The adopter found
+it by needing it — they bake per-route HTML and a sitemap into the web dist between "the API stack is up"
+(it needs the live API URL) and "the files are synced", and as a `StepUnitDriver` that step's `PhaseAsync`
+would be a latch on a directory the `content` unit owns, so its `RemoveAsync` would delete files out of
+another unit's source.
+
+**The rule: a part is a path, a unit may write to a part it OWNS, and no part has two writers.** Writing is
+not forbidden — a step that produces files is a perfectly good unit, and forbidding it would push real work
+back out into the scripts units exist to replace. What is forbidden is writing into a part another unit
+reads as its source.
+
+Both halves follow from it. The latch problem dissolves: give the preparing step its own output part, and
+its phase latches on its own files and its remove clears its own files. And the plan stays honest: a unit
+whose source changed after the plan was shown would be reported as unchanged and then deploy, which is the
+plan lying about a unit that is not the one that moved.
+
+**It is the same principle as `OwnOption`, arriving through a different door.** A unit's address must be its
+own, because a shared one means every unit deploying on top of every other. A unit's output is its address
+in file form.
+
+**Not enforced, and that is stated rather than hidden.** Core cannot see that two units point at one
+directory without a pass over the whole procedure comparing resolved paths — and a legitimate case reads
+identically: one unit writes a part and a LATER one reads it, which is exactly how the answer above works.
+So this is a review rule, like the namespace boundary since D26. If it is got wrong the symptom is specific
+and worth recognising: a plan that says "no change" for a unit that then redeploys every run.

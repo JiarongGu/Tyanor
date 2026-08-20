@@ -46,12 +46,12 @@ internal sealed class StackUnit(
     /// </summary>
     public async Task CreateAsync(UnitContext context)
     {
-        var templateUrl = await StageAsync(context);
+        var (templateUrl, bucket) = await StageAsync(context);
         await cfn.CreateStackAsync(new CreateStackRequest
         {
             StackName = Name(context),
             TemplateURL = templateUrl,
-            Parameters = Parameters(context),
+            Parameters = await ParametersAsync(context, bucket),
             Capabilities = Capabilities(context),
             Tags = Tags(context),
             // ROLLBACK rather than DELETE: on failure the stack record and its events survive, so the cause
@@ -67,14 +67,14 @@ internal sealed class StackUnit(
     /// </summary>
     public async Task<bool> UpdateAsync(UnitContext context)
     {
-        var templateUrl = await StageAsync(context);
+        var (templateUrl, bucket) = await StageAsync(context);
         try
         {
             await cfn.UpdateStackAsync(new UpdateStackRequest
             {
                 StackName = Name(context),
                 TemplateURL = templateUrl,
-                Parameters = Parameters(context),
+                Parameters = await ParametersAsync(context, bucket),
                 Capabilities = Capabilities(context),
                 Tags = Tags(context),
             }, context.Cancellation);
@@ -180,16 +180,41 @@ internal sealed class StackUnit(
     /// here made validation look like it covered one more thing than it did, which is the way a check
     /// stops being trusted.</para>
     /// </remarks>
-    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context) =>
-        new UnitProblems()
+    public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
+    {
+        var problems = new UnitProblems()
             .Check(() => Name(context))
             .Check(() => context.RequirePart(AwsOptions.Template, ArtifactPart.File))
             .Check(() =>
             {
                 if (context.Option(AwsOptions.Assets) is not null)
                     context.RequirePart(AwsOptions.Assets, ArtifactPart.Directory);
-            })
-            .Found();
+            });
+
+        // The same parse the apply runs, not a second copy of it — a reference that reads as valid here and
+        // is refused at apply time is worse than not checking at all.
+        var direct = context.Options(AwsOptions.ParameterPrefix);
+        foreach (var (key, reference) in context.Options(AwsOptions.ParameterFromPrefix))
+        {
+            var setting = $"{AwsOptions.ParameterFromPrefix}.{key}";
+            problems.Check(() => OutputReferences.Parse(setting, context.Name, reference));
+
+            if (direct.ContainsKey(key))
+                problems.Add(
+                    $"Sets parameter '{key}' both directly and with '{setting}'. Remove one — which was " +
+                    "meant is not something this can guess.");
+        }
+
+        // Naming a parameter for the staging bucket without any assets to stage is almost certainly a
+        // template that will not find its own Lambda code. Cheap to say now, expensive to discover from a
+        // rollback that names a bucket the operator never configured.
+        if (context.Option(AwsOptions.AssetsBucketParameter) is not null && context.Option(AwsOptions.Assets) is null)
+            problems.Add(
+                $"Sets '{AwsOptions.AssetsBucketParameter}' but names no '{AwsOptions.Assets}' part, so the " +
+                "bucket it would be told about has nothing of this unit's in it.");
+
+        return problems.Found();
+    }
 
     /// <summary>
     /// The stack's CloudFormation outputs — the URLs and endpoints it was written to expose.
@@ -282,9 +307,13 @@ internal sealed class StackUnit(
     /// unit, which is why it is created here and removed by <see cref="AwsTarget.SweepAsync"/>: every stack
     /// stages through the same one, so no unit can be the one to take it away.
     /// </remarks>
-    private async Task<string> StageAsync(UnitContext context)
+    private async Task<(string TemplateUrl, string Bucket)> StageAsync(UnitContext context)
     {
+        // The part FIRST, before anything reaches AWS. A definition error must be refused without a network
+        // call — an operator who named a part their build does not produce should not have their credentials
+        // exercised to find that out, and two tests are named for the property.
         var template = context.RequirePart(AwsOptions.Template, ArtifactPart.File);
+
         var bucket = AwsStaging.BucketFor(context.Request.Prefix, await account.IdAsync(context.Cancellation));
         await AwsStaging.EnsureAsync(s3, bucket, context.Cancellation);
 
@@ -311,7 +340,7 @@ internal sealed class StackUnit(
             BucketName = bucket, Key = key, FilePath = template, ContentType = "application/json",
         }, context.Cancellation);
 
-        return $"https://{bucket}.s3.{region}.amazonaws.com/{key}";
+        return ($"https://{bucket}.s3.{region}.amazonaws.com/{key}", bucket);
     }
 
     private async Task StreamEventsAsync(
@@ -370,10 +399,47 @@ internal sealed class StackUnit(
         }
     }
 
-    private static List<Parameter> Parameters(UnitContext context) =>
-        context.Options(AwsOptions.ParameterPrefix)
-            .Select(kv => new Parameter { ParameterKey = kv.Key, ParameterValue = kv.Value })
-            .ToList();
+    /// <summary>
+    /// Every CloudFormation parameter this unit sends: the static ones, the ones an earlier unit produced,
+    /// and — if asked for by name — the staging bucket.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Three sources, one name space, and a collision is refused rather than resolved.</b> A
+    /// parameter written in both <c>parameter.*</c> and <c>parameterFrom.*</c> has no knowable intent, and
+    /// picking one by precedence would deploy a value nobody wrote down. <see cref="ValidateAsync"/> catches
+    /// it offline; this catches it again, because the two must not be able to disagree.</para>
+    /// <para><b>An unresolved reference is a hard failure here and a null during a plan</b>, which is the
+    /// same asymmetry <c>bucketFrom</c> has: reading nothing while planning an undeployed procedure is a
+    /// legitimate answer, and reaching an apply with nothing is a definition problem the operator has to
+    /// fix. Passing the parameter through empty would fail inside CloudFormation instead, naming the
+    /// parameter and not the unit that was supposed to produce it.</para>
+    /// </remarks>
+    private async Task<List<Parameter>> ParametersAsync(UnitContext context, string bucket)
+    {
+        var parameters = context.Options(AwsOptions.ParameterPrefix)
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+
+        foreach (var (key, reference) in context.Options(AwsOptions.ParameterFromPrefix))
+        {
+            var setting = $"{AwsOptions.ParameterFromPrefix}.{key}";
+            if (parameters.ContainsKey(key))
+                throw new AwsConfigurationException(
+                    $"Unit '{context.Name}' sets parameter '{key}' both directly and with '{setting}'. " +
+                    "Remove one — which was meant is not something this can guess.");
+
+            parameters[key] = await OutputReferences.ResolveAsync(this, context, setting, reference)
+                ?? throw new AwsConfigurationException(
+                    $"'{setting}' on unit '{context.Name}' is '{reference}', but that unit is not deployed " +
+                    "or exports no such output. Declare it earlier in the procedure, and check the output key.");
+        }
+
+        // Only when named: CloudFormation refuses a parameter the template does not declare, so a bucket
+        // supplied helpfully would break every template that did not ask for one.
+        if (context.Option(AwsOptions.AssetsBucketParameter) is { } named)
+            parameters[named] = bucket;
+
+        return [.. parameters.Select(kv => new Parameter { ParameterKey = kv.Key, ParameterValue = kv.Value })];
+    }
 
     private static List<string> Capabilities(UnitContext context) =>
         (context.Option(AwsOptions.Capabilities) ?? AwsOptions.DefaultCapabilities)

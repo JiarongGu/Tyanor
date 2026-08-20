@@ -158,17 +158,17 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     /// only — whether the stack it names has actually been deployed is a question for a plan.
     /// </summary>
     /// <remarks>
-    /// The reference check is <see cref="Reference"/>, which is the same function <see cref="ResolveAsync"/>
-    /// runs at apply time. It used to be a second copy of the same parse living here, which is precisely the
-    /// "two copies of a rule is two rules" that <c>docs/DECISIONS.md</c> D18 says makes an offline check and
-    /// the real thing drift apart.
+    /// The reference check is <see cref="OutputReferences.Parse(UnitContext, string)"/>, which is the same
+    /// parse <see cref="OutputReferences.ResolveAsync(StackUnit, UnitContext, string)"/> runs at apply time.
+    /// It used to be a second copy living here, which is precisely the "two copies of a rule is two rules"
+    /// that <c>docs/DECISIONS.md</c> D18 says makes an offline check and the real thing drift apart.
     /// </remarks>
     public Task<IReadOnlyList<string>> ValidateAsync(UnitContext context)
     {
         var problems = new UnitProblems()
             .Check(() => Source(context))
-            .Check(() => Reference(context, AwsOptions.BucketFrom))
-            .Check(() => Reference(context, AwsOptions.InvalidateFrom));
+            .Check(() => OutputReferences.Parse(context, AwsOptions.BucketFrom))
+            .Check(() => OutputReferences.Parse(context, AwsOptions.InvalidateFrom));
 
         // No resolver raises this one: it is the absence of BOTH options together, so there is nothing to
         // call whose refusal would say it.
@@ -178,22 +178,6 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
                 "\"{unit}:{OutputKey}\" naming a stack that exports one.");
 
         return problems.Found();
-    }
-
-    /// <summary>
-    /// A <c>"{unit}:{OutputKey}"</c> reference, or null when the option is not set at all.
-    /// </summary>
-    /// <exception cref="AwsConfigurationException">It is set and does not parse.</exception>
-    private static (string Unit, string Key)? Reference(UnitContext context, string option)
-    {
-        if (context.Option(option) is not { } reference) return null;
-
-        var parts = reference.Split(':', 2);
-        if (parts.Length != 2 || parts.Any(string.IsNullOrWhiteSpace))
-            throw new AwsConfigurationException(
-                $"'{option}' on unit '{context.Name}' is '{reference}'; it must be \"{{unit}}:{{OutputKey}}\".");
-
-        return (parts[0], parts[1]);
     }
 
     /// <summary>
@@ -275,7 +259,7 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
 
         // Without this the files are up and the CDN keeps serving the old ones until they expire, which
         // looks exactly like a deployment that silently did nothing.
-        if (await ResolveAsync(context, AwsOptions.InvalidateFrom) is { } distribution)
+        if (await OutputReferences.ResolveAsync(stacks, context, AwsOptions.InvalidateFrom) is { } distribution)
         {
             context.Progress($"{context.Label}: clearing the CDN cache…");
             await cloudFront.CreateInvalidationAsync(new CreateInvalidationRequest
@@ -356,29 +340,8 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
 
     private async Task<string?> BucketAsync(UnitContext context)
         => context.Option(AwsOptions.Bucket)
-           ?? await ResolveAsync(context, AwsOptions.BucketFrom);
+           ?? await OutputReferences.ResolveAsync(stacks, context, AwsOptions.BucketFrom);
 
-    /// <summary>
-    /// Read a <c>"{unit}:{OutputKey}"</c> reference out of another stack's outputs. Null when the option is
-    /// unset, or when the stack is not deployed yet — which is a legitimate answer during a plan of a
-    /// deployment that does not exist.
-    /// </summary>
-    private async Task<string?> ResolveAsync(UnitContext context, string option)
-    {
-        if (Reference(context, option) is not { } reference) return null;
-        var (unit, key) = reference;
-
-        try
-        {
-            var outputs = await stacks.OutputsAsync($"{context.Request.Prefix}-{unit}", context.Cancellation);
-            return outputs.TryGetValue(key, out var value) ? value : null;
-        }
-        catch (Amazon.CloudFormation.AmazonCloudFormationException e)
-            when (CloudFormationPhases.IsStackMissing(e.ErrorCode, e.Message))
-        {
-            return null;
-        }
-    }
 }
 
 /// <summary>

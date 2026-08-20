@@ -635,6 +635,12 @@ which is correct for a step that leaves nothing behind. If your phase is a *latc
 you set — override the remove to clear it, or a destroy leaves the unit claiming to still be deployed.
 `UnitDriverContract` catches exactly that.
 
+**If the latch is FILES, they must be your own files.** A step that prepares something for a later unit —
+baking per-route HTML into a web bundle once the live API URL is known — writes to an artifact part it owns,
+never into the part the next unit reads as its source. Otherwise its phase latches on someone else's
+directory and its remove deletes their files. A part has one writer ([D34](DECISIONS.md));
+[`adoption.md`](adoption.md) has the layout that makes it work.
+
 Three more helpers exist so you do not write what both shipped providers had to. `UnitProblems` collects what
 your own resolvers refuse, so `ValidateAsync` reports every problem instead of throwing at the first — call
 the same resolver the apply calls, because two copies of a rule is two rules. `FailureClassifiers.Walk` finds

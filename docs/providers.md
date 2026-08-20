@@ -244,6 +244,8 @@ One CloudFormation stack, deployed as `{prefix}-{unit}`.
 | `template` | **yes** | shared | the artifact part naming the template **file** |
 | `assets` | no | shared | an artifact part naming a **directory** whose whole contents the template expects in the staging bucket — Lambda zips and the like |
 | `parameter.*` | no | **group** | CloudFormation parameters: `"api.parameter.MemorySize" = "512"` |
+| `parameterFrom.*` | no | **group** | a parameter whose value an EARLIER unit produced: `"web.parameterFrom.CertificateArn" = "domain:CertificateArn"` |
+| `assetsBucketParameter` | no | shared | the parameter to fill with the staging bucket the `assets` went to |
 | `capabilities` | no | shared | comma-separated. Default `CAPABILITY_IAM,CAPABILITY_NAMED_IAM` |
 
 `DeploymentRequest.Tags` become the stack's tags.
@@ -266,12 +268,34 @@ until D33 nothing did: a torn-down deployment left it standing, holding every te
 had ever uploaded. A **narrowed** destroy leaves it alone, deliberately, because the stacks you did not
 remove still need it.
 
-**Nothing tells a template what that bucket is called**, and that gap is still open — see
-[`TASKS.md`](../TASKS.md). A synthesized template that takes the bucket as a CloudFormation parameter has to
-be handed the name, and `parameter.*` values are passed through verbatim: there is no token to substitute
-and no option that exposes it. Deriving `{prefix}-deploy-{account}` in your own composition root works, and
-costs you an `sts:GetCallerIdentity` call to learn the account, but you are reimplementing a convention this
-provider owns and could move.
+**If your template must NAME that bucket, say which parameter it is** and this provider fills it in
+([D34](DECISIONS.md)) — a CDK-style template refers to its Lambda code by bucket and key, and the bucket is
+Tyanor's rather than the template's:
+
+```
+["api.assets"] = "lambda",
+["api.assetsBucketParameter"] = "AssetsBucketName",
+```
+
+Passed rather than published, deliberately: the value and the upload come from the same call, so they
+cannot disagree. Deriving `{prefix}-deploy-{account}` yourself also works and costs an
+`sts:GetCallerIdentity` call, but it makes you depend on a convention this provider owns. **Nothing is
+passed unless you name the parameter**, because CloudFormation refuses one the template does not declare.
+The other things a template usually wants are already CloudFormation's own — `AWS::Region` and
+`AWS::AccountId` are pseudo-parameters.
+
+**A parameter can also come from an earlier unit**, with the same `"{unit}:{OutputKey}"` reference
+`bucketFrom` takes:
+
+```
+["web.parameterFrom.CertificateArn"] = "domain:CertificateArn",
+```
+
+For a value that does not exist until the run is under way — an issued certificate's ARN, a generated
+endpoint. Resolved when the run reaches this unit, which is how ordering carries the dependency without an
+edge. Setting the same parameter in both groups is refused rather than resolved by precedence, offline and
+again at apply time. A reference to a unit that is not deployed, or to an output it does not export, fails
+the apply naming the unit — it is not passed through empty for CloudFormation to complain about.
 
 | | |
 |---|---|

@@ -23,6 +23,24 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
 - **`DeploymentTargetContract`** in `Tyanor.Testing`, holding a target to the two promises a sweep satisfies
   by omission: tolerating nothing to sweep, and surviving a second run. Now in `doctor`'s enforced list, so
   both shipped providers run it ungated.
+- **A stack unit can take a parameter from an earlier unit's output** — `parameterFrom.{Name}` =
+  `"{unit}:{OutputKey}"`, the same reference `bucketFrom` takes. For values that do not exist until the run
+  is under way: an issued certificate ARN, a generated endpoint. This is what blocked the ACM/Route 53 domain
+  unit before any consumer reached it. Setting a parameter in both groups is refused rather than resolved by
+  precedence, offline and again at apply time. Reasoning in `docs/DECISIONS.md` **D34**.
+- **A stack unit can be told the staging bucket** — `assetsBucketParameter` names the CloudFormation
+  parameter to fill with the bucket the `assets` part was actually uploaded to. A CDK-style template refers
+  to its Lambda code by bucket and key, and that bucket is Tyanor's; the first adopter had to hard-code
+  `{prefix}-deploy-{account}` and make an `sts:GetCallerIdentity` call of their own to fill it in. Passed
+  rather than published, so the value and the upload cannot disagree.
+
+### Documented
+
+- **An artifact part has exactly one writer: the unit that owns it.** Whether a part may be mutated between
+  units was addressed in no document, which is worse than either answer. Writing to a part is fine; writing
+  into the part another unit reads as its source is not — its phase would latch on someone else's files and
+  its remove would delete them. Not enforced (Core cannot see it), so it is a review rule, and the symptom
+  when it is got wrong is named: a plan that reports "no change" for a unit which then redeploys every run.
 
 ### Fixed
 
@@ -33,6 +51,8 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
 
 - `AwsTarget` gained an internal constructor taking its SDK clients, so the target's own composition is
   testable without an account — D23 applied to the target the way it already was to the drivers.
+- `bucketFrom`, `invalidateFrom` and `parameterFrom.*` now share one `OutputReferences` parse-and-resolve
+  instead of a copy inside `ContentUnit`. Three callers, one refusal message.
 
 ## 0.1.0
 

@@ -37,6 +37,42 @@ public static class AwsOptions
     public const string ParameterPrefix = "parameter";
 
     /// <summary>
+    /// Prefix for CloudFormation parameters whose value an EARLIER unit produced:
+    /// <c>"web.parameterFrom.CertificateArn" = "domain:CertificateArn"</c>, naming a unit and one of its
+    /// outputs.
+    /// </summary>
+    /// <remarks>
+    /// <para>The same <c>"{unit}:{OutputKey}"</c> reference <see cref="BucketFrom"/> takes, and the same
+    /// reason: some values do not exist until the run is under way — an issued certificate's ARN, a
+    /// generated endpoint — so a static <see cref="ParameterPrefix"/> value cannot carry them. Resolved
+    /// when the run reaches this unit, which is what lets ordering express the dependency without an edge.</para>
+    /// <para>A parameter named in BOTH groups is refused rather than resolved by precedence: which one an
+    /// operator meant is not knowable, and picking one silently is how a deployment gets a value nobody
+    /// wrote down.</para>
+    /// </remarks>
+    public const string ParameterFromPrefix = "parameterFrom";
+
+    /// <summary>
+    /// The name of a CloudFormation parameter to fill with the STAGING BUCKET this provider uploaded
+    /// <see cref="Assets"/> to: <c>"api.assetsBucketParameter" = "AssetsBucketName"</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>For a synthesized template that must NAME the bucket its assets are in.</b> A CDK-style
+    /// template refers to its Lambda code by bucket and key, and the bucket is Tyanor's rather than the
+    /// template's — so without this the only way to fill that parameter is to recompute
+    /// <c>{prefix}-deploy-{account}</c> in the composition root and make an <c>sts:GetCallerIdentity</c>
+    /// call to learn the account. That was the first real workaround adoption produced, and it left a
+    /// consumer depending on a convention this provider owns and could move (<c>docs/DECISIONS.md</c> D34).</para>
+    /// <para>Nothing is passed unless you name the parameter, because CloudFormation refuses a parameter
+    /// the template does not declare — so a value supplied helpfully would break every template that did
+    /// not want it.</para>
+    /// <para>The other things a template might want to know are already CloudFormation's own:
+    /// <c>AWS::Region</c> and <c>AWS::AccountId</c> are pseudo-parameters. The staging bucket is the one
+    /// fact about a deployment that only Tyanor knows, which is why this is one setting and not a family.</para>
+    /// </remarks>
+    public const string AssetsBucketParameter = "assetsBucketParameter";
+
+    /// <summary>
     /// Comma-separated stack capabilities. Defaults to <see cref="DefaultCapabilities"/> — anything creating
     /// an IAM role needs them, which in practice is every stack with compute in it.
     /// </summary>

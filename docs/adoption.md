@@ -133,6 +133,27 @@ Nothing in Tyanor knows that `"infrastructure"` is a CloudFormation assembly. On
 only because a unit's `template` option said so. Which options each provider reads, and what each does with
 the part it is handed, is [`providers.md`](providers.md).
 
+**A part has exactly one writer, and that is the unit which owns it** ([D34](DECISIONS.md)). Writing to a
+part is fine — a step that produces files is a perfectly good unit, and the alternative is pushing that work
+back into the scripts units exist to replace. Writing into a part that *another* unit reads as its source is
+not: its phase would then be a latch on someone else's files, its remove would delete them, and a plan made
+before the write would report that other unit as unchanged and then watch it redeploy.
+
+So when something has to be prepared at deploy time — the case that brings this up is baking per-route HTML
+into a web bundle once the live API URL is known — give that step **its own output part** and point the
+consuming unit's `source` at it:
+
+```
+build writes    dist/raw   ──►  ["raw"]  = "dist/raw"      the bundler's output
+                dist/site  ──►  ["site"] = "dist/site"     empty; the prerender step owns it
+
+procedure       api  →  prerender (reads raw, writes site)  →  content (source: site)
+```
+
+Nothing enforces this — Core cannot see two units pointing at one directory, and a legitimate case looks
+identical (one unit writes, a LATER one reads). It is a review rule. The symptom when it is got wrong is
+specific: a plan that says "no change" for a unit which then redeploys every run.
+
 If a step of your pipeline genuinely has to run at deploy time — a migration, a smoke test — that is a unit,
 not a reason to move synthesis. The next section is how.
 
