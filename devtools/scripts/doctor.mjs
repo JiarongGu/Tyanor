@@ -9,6 +9,7 @@
 // nobody verifies is one that quietly stops being true:
 //   - the library depends on exactly the packages its budget names, and no others
 //   - the version ships from ONE place, and the changelog headline agrees with it
+//   - nothing vendor-shaped has crossed into the neutral core, which the compiler used to guarantee
 //
 // …then the knowledge layer: the decisions log, the rules, the documentation's cross-references, and a
 // credential scan. See devtools/README.md for what goes wrong without each.
@@ -114,7 +115,8 @@ step('version is single-sourced', () => {
 
 // ── the knowledge layer ──────────────────────────────────────────────────────────────────────────
 for (const [name, script] of [
-  ['decisions', 'decisions.mjs'], ['rules', 'rules.mjs'], ['docs', 'docs.mjs'], ['providers', 'providers.mjs'], ['sensitive', 'check-sensitive.mjs'],
+  ['decisions', 'decisions.mjs'], ['rules', 'rules.mjs'], ['docs', 'docs.mjs'],
+  ['providers', 'providers.mjs'], ['boundary', 'boundary.mjs'], ['sensitive', 'check-sensitive.mjs'],
 ])
   step(name, () => {
     const r = spawnSync('node', [join(here, script)], { encoding: 'utf8' });

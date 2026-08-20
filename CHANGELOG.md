@@ -34,6 +34,15 @@ From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change 
   `{prefix}-deploy-{account}` and make an `sts:GetCallerIdentity` call of their own to fill it in. Passed
   rather than published, so the value and the upload cannot disagree.
 
+- **`doctor boundary`** — the neutral core names no vendor, in code or in a string literal, camel-cased
+  identifiers included. This replaces a compiler: before D26 the core was its own assembly with no reference
+  to any provider, so a leak did not build, and since then `CLAUDE.md` has said "nothing but reading will
+  catch it now". Comments are exempt on purpose — the core is documented by naming what it refuses, and
+  banning the words would ban the explanation. It found two real leaks on its first clean run:
+  `StorageContracts` used `AWS::RDS::DBInstance` and `AWS::S3::Bucket` as sample resource types, in a suite
+  whose whole audience is people writing a store for something that is not AWS. Now `database/instance` and
+  `storage/bucket`.
+
 ### Documented
 
 - **An artifact part has exactly one writer: the unit that owns it.** Whether a part may be mutated between

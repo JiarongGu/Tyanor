@@ -59,6 +59,35 @@ export default {
   providerContracts: ['UnitDriverContract', 'FailureClassifierContract', 'DeploymentTargetContract'],
 
   /**
+   * The neutral core: source that must never name a vendor, a tool or a product.
+   *
+   * This used to be enforced by the compiler. Before D26 the core was its own assembly with no reference to
+   * any provider, so a leak did not build; D26 merged them into one package and the boundary became a
+   * NAMESPACE — which nothing but reading could check, and `CLAUDE.md` said so in as many words.
+   *
+   * The leak this exists for is not hypothetical. It is the defect that made the original code unportable:
+   * a "generic" `DeploymentRequest` carrying `CdkOutDir` and `WebDir`, so the neutral interface named an AWS
+   * tool and assumed a single-page app. Nobody noticed, because there was only ever one provider.
+   *
+   * COMMENTS AND DOC COMMENTS ARE EXEMPT, deliberately. The core explains itself by naming what it refuses —
+   * "only the AWS provider knows that this is a CloudFormation assembly", "the way `terraform destroy` is" —
+   * and a check that banned the words would ban the paragraphs that make the boundary comprehensible. What
+   * is banned is a vendor in the CODE: a type, a member, a constant, a string an operator could see.
+   */
+  neutralSource: { dir: 'src/Tyanor', exclude: ['Tyanor.Providers.'] },
+
+  /**
+   * Words that mean a vendor has crossed into the core. Deliberately unambiguous rather than exhaustive:
+   * every one of these is a product name and none of them is a word a neutral abstraction would reach for.
+   * A near-miss like "local" or "container" is left out on purpose — a check that cries wolf is a check that
+   * gets suppressed.
+   */
+  vendorWords: [
+    'aws', 'amazon', 'cloudformation', 'cloudfront', 'dynamodb', 'ec2', 'route53', 's3',
+    'azure', 'gcp', 'kubernetes', 'kubectl', 'helm', 'terraform', 'pulumi', 'ansible', 'cdk',
+  ],
+
+  /**
    * The only files a release may rewrite before packing. The workflow writes the new version (and stamps
    * the changelog) into the working tree, packs, publishes, and commits the bookkeeping only AFTER the
    * push succeeds — so a failed release burns no version and leaves no phantom bump commit. `release`

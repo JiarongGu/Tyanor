@@ -11,6 +11,7 @@
 //   pack [outDir]      produce the NuGet packages locally
 //   decisions          validate docs/DECISIONS.md — references resolve, supersessions point forward
 //   rules              validate .claude/rules — every rule listed in the index, every link resolves
+//   boundary           the neutral core names no vendor, in code or in a string
 //   sensitive          scan the working tree for credentials before they reach a commit
 //
 // stdout/stderr pass straight through, and the exit code is the tool's. The toolkit is meant to
@@ -30,6 +31,7 @@ const TOOLS = {
   rules: 'rules.mjs',
   docs: 'docs.mjs',
   providers: 'providers.mjs',
+  boundary: 'boundary.mjs',
   release: 'release.mjs',
   notes: 'release-notes.mjs',
   sensitive: 'check-sensitive.mjs',

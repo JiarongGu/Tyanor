@@ -6,9 +6,14 @@ second provider exists yet.**
 
 > Since **D26** this is a namespace, not a separate assembly: `Tyanor` and `Tyanor.Providers.*` ship as
 > separate packages, but the neutral core and the engine are one package. **The compiler no longer stops a
-> leak.** It never really did — the defect below compiled fine — but the reference graph used to make one
-> obvious, and now only reading does. Treat every addition to the `Tyanor` namespace as needing this check by
-> hand.
+> leak** — it never really did, since the defect below compiled fine, but the reference graph used to make
+> one obvious.
+>
+> **`npm run doctor` now checks it** (`node devtools/dev.mjs boundary`): no vendor word in the `Tyanor`
+> namespace's code or string literals, camel-cased identifiers included. **Comments are exempt**, because
+> this rule is taught by naming what it refuses and a check that banned the words would ban the explanation.
+> So the boundary is enforced again for the leaks that are mechanical, and still needs reading for the ones
+> that are not — a neutrally-named field that only one provider could ever fill.
 
 ## Why
 

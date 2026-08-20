@@ -320,15 +320,19 @@ public sealed class StateStoreContract(Func<IStateStore> create) : ContractSuite
         ("Saved state comes back", async ct =>
         {
             var store = create();
+            // A neutral resource type, not a real vendor's. This suite is run by whoever wrote a store —
+            // for Postgres, for Redis, for a filing cabinet — and a sample reading `AWS::RDS::DBInstance`
+            // teaches every one of them that a `Type` looks like CloudFormation's, which is the leak
+            // `provider-boundary.md` is about wearing test-data clothes.
             var written = DeploymentState.Empty("site", "acme")
-                .With("db", [new ResourceState("db-1", "AWS::RDS::DBInstance", "v1")]);
+                .With("db", [new ResourceState("db-1", "database/instance", "v1")]);
             await store.SaveAsync(written, ct);
 
             var read = await store.GetAsync("site", "acme", ct);
             var resource = read.For("db").FirstOrDefault();
             if (resource is null) return "the unit came back with no resources";
             if (resource.Id != "db-1") return $"Id came back as {resource.Id}";
-            if (resource.Type != "AWS::RDS::DBInstance") return $"Type came back as {resource.Type}";
+            if (resource.Type != "database/instance") return $"Type came back as {resource.Type}";
             if (resource.Fingerprint != "v1") return $"Fingerprint came back as {resource.Fingerprint ?? "null"}";
             return null;
         }),
@@ -341,7 +345,7 @@ public sealed class StateStoreContract(Func<IStateStore> create) : ContractSuite
             // the drift it was meant to surface disappears.
             var store = create();
             await store.SaveAsync(DeploymentState.Empty("site", "acme")
-                .With("web", [new ResourceState("web-1", "AWS::S3::Bucket")]), ct);
+                .With("web", [new ResourceState("web-1", "storage/bucket")]), ct);
 
             var fingerprint = (await store.GetAsync("site", "acme", ct)).For("web").FirstOrDefault()?.Fingerprint;
             return fingerprint is null ? null : $"a null fingerprint came back as '{fingerprint}'";

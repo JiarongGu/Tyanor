@@ -92,9 +92,13 @@ tests/
 does removing that one without updating the budget. Notably absent, and it must stay absent: **any test
 framework** — the contract suites must run under whichever one the reader already has.
 
-**The namespace boundary is no longer a compiler boundary, so it is a review boundary.** A type in the
-`Tyanor` namespace that names a vendor or needs a package is in the wrong namespace; nothing but reading will
-catch it now. Before D26 this was four assemblies and the compiler said so.
+**The namespace boundary stopped being a compiler boundary at D26, and `doctor boundary` is what replaced
+it.** A type in the `Tyanor` namespace that names a vendor is refused — in code and in string literals,
+camel-cased identifiers included, because `CdkOutDir` is the historical defect. **Comments and doc comments
+are exempt on purpose**: the core is documented by naming what it refuses, and a check that banned those
+words would ban the paragraphs that make the boundary teachable. The other half — that nothing there needs a
+package — is the dependency budget. This paragraph read "nothing but reading will catch it now" for several
+releases, which is the shape of claim this repo keeps finding to be false.
 
 **Build settings live in the root `Directory.Build.props`, and the version lives there alone.** `src/` adds
 package metadata; `tests/` adds `IsPackable=false`. `doctor` refuses a second `<VersionPrefix>` anywhere,
@@ -138,14 +142,16 @@ node devtools/dev.mjs decisions   supersession points both ways; every cited D<n
 node devtools/dev.mjs rules       every rule indexed, every link resolves
 node devtools/dev.mjs docs        every .md link and anchor resolves; the guide's samples compile
 node devtools/dev.mjs providers   every provider AND every unit kind is held to the contract suites
+node devtools/dev.mjs boundary    the neutral core names no vendor, in code or in a string
 node devtools/dev.mjs sensitive   credential scan
 ```
 
-Two of doctor's checks verify **claims the README makes out loud** — that the library depends on exactly the
-packages its budget names and no others, and that the version ships from one place. If one fails because the
-claim changed deliberately, change the claim. Do not silence the check. (D26 is what that looks like done
-properly: the dependency-free claim genuinely stopped being true, so the check became a narrower one that
-still fails, rather than a check that was deleted.)
+Three of doctor's checks verify **claims this repository makes out loud** — that the library depends on
+exactly the packages its budget names and no others, that the version ships from one place, and that nothing
+vendor-shaped has crossed into the neutral core. If one fails because the claim changed deliberately, change
+the claim. Do not silence the check. (D26 is what that looks like done properly: the dependency-free claim
+genuinely stopped being true, so the check became a narrower one that still fails, rather than a check that
+was deleted.)
 
 **The samples in the three consumer-facing documents are compiled.** Every C# fence in `docs/guide.md`,
 `docs/adoption.md` and `docs/providers.md` must appear verbatim in `tests/Tyanor.Docs.Tests`, which builds — so a renamed method

@@ -15,6 +15,7 @@ node devtools/dev.mjs doctor      build + test + every check below, one verdict
                       rules       validate .claude/rules
                       docs        validate every .md — links, anchors, required documents
                       providers   every shipped provider is held to the contract suites
+                      boundary    the neutral core names no vendor, in code or in a string
                       sensitive   scan for credentials
 ```
 
@@ -91,6 +92,38 @@ file that also builds the driver contract; named anywhere else it does not count
 The pattern is `\w+Kind`, not `\w*Kind`: the latter also matched the option name `Kind` itself, which then
 passed because `Kind` is a substring of `DirectoryKind`. It reported six kinds where there are four, which is
 how you notice a check is not reading what it thinks it is.
+
+### `boundary`
+
+**This one replaces a compiler.** The core used to be its own assembly with no reference to any provider, so
+a leak did not build. Merging the packages turned the boundary into a NAMESPACE, and `CLAUDE.md` said for
+several releases that "nothing but reading will catch it now" — which is precisely the kind of claim this
+repository keeps discovering to be false: one guarded only by people remembering.
+
+The defect it exists for is the one that made the original code unportable. A "generic" `DeploymentRequest`
+carried `CdkOutDir` and `WebDir`, so the neutral interface named an AWS tool and assumed a single-page app.
+No second provider could have implemented it, and nobody noticed, because there was only ever one.
+
+**Comments are exempt, and that is the design rather than a concession.** The core is documented by naming
+what it refuses — *only the AWS provider knows this is a CloudFormation assembly*, *the way `terraform
+destroy` is* — so banning the words would ban the paragraphs that make the boundary teachable, and the check
+would be suppressed within a month. What is banned is a vendor in the CODE, and separately in a STRING
+LITERAL, because a string reaches an operator's screen.
+
+Telling those apart needs a scanner rather than three regexes, and the first version proved it: extracting
+string literals by pattern from the raw text found `"aws"` inside `/// <c>"aws"</c>` and reported eleven
+files, none of them a defect. Comments and strings each contain the other's opener, so they have to be
+consumed in one left-to-right pass.
+
+It matches camel-cased words, which is how a leak actually arrives — and the first version could not, which
+cost it its own headline example. The case-insensitive flag makes the `(?![a-z0-9])` guard reject `O` as
+well, so `CdkOutDir` did not match. Planting that exact field is how it was found; the word is now made
+case-insensitive letter by letter and the boundary guards stay case-sensitive, because telling upper from
+lower is their whole job.
+
+It found two real leaks on its first clean run — `StorageContracts` used `AWS::RDS::DBInstance` and
+`AWS::S3::Bucket` as sample resource types, in a suite whose entire audience is people writing a store for
+something that is not AWS.
 
 ### `sensitive`
 
