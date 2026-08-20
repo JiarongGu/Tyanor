@@ -87,4 +87,42 @@ public sealed class LocalTarget(string root, CustomUnits? custom = null) : IDepl
                 $"Cannot write to '{Root}' as {Environment.UserName}: {e.Message}");
         }
     }
+
+    /// <summary>
+    /// Remove this provider's own bookkeeping for the deployment, and the deployment's folder with it — but
+    /// only if nothing else is in there.
+    /// </summary>
+    /// <param name="context">The procedure and deployment that were just torn down.</param>
+    /// <remarks>
+    /// <para><b>The same gap the AWS provider had, on a machine instead of in an account.</b> This provider
+    /// keeps pid files under <c>{root}/{prefix}/.tyanor</c>, deliberately outside the unit directories so
+    /// that removing a unit removes exactly what was deployed and none of ours — which left nobody able to
+    /// remove ours. A destroyed deployment left <c>{root}/{prefix}</c> and a <c>.tyanor</c> folder standing
+    /// for ever. See <c>docs/DECISIONS.md</c> D33.</para>
+    /// <para><b>Only if empty, and that is not caution — it is the correct answer.</b> A unit whose
+    /// <c>path</c> option puts it somewhere else entirely is not swept by this, and a directory unit that
+    /// was RETAINED is still there. Deleting the prefix folder recursively would take away files this
+    /// teardown deliberately did not remove, which is the opposite of what a sweep is for. Anything left
+    /// means something is still deployed, so the folder stays and says so.</para>
+    /// <para>Everything here tolerates absence, because a teardown is re-runnable and the second one finds
+    /// the first one's work done.</para>
+    /// </remarks>
+    public Task SweepAsync(SweepContext context)
+    {
+        var deployment = LocalPaths.Deployment(Root, context.Request);
+        var bookkeeping = LocalPaths.Bookkeeping(Root, context.Request);
+
+        // The pid files are already gone — a process unit deletes its own on removal — so what is left is
+        // the folder that held them. Recursive is right HERE and nowhere above it: everything under
+        // `.tyanor` is this provider's, and nothing of the operator's is.
+        if (Directory.Exists(bookkeeping)) Directory.Delete(bookkeeping, recursive: true);
+
+        if (Directory.Exists(deployment) && Directory.EnumerateFileSystemEntries(deployment).Any() is false)
+        {
+            context.Progress($"Removing the empty deployment folder {deployment}…");
+            Directory.Delete(deployment);
+        }
+
+        return Task.CompletedTask;
+    }
 }

@@ -3,6 +3,37 @@
 All packages version in lockstep from the repository-root `Directory.Build.props` (`VersionPrefix`).
 From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change — each is called out here.
 
+## Unreleased
+
+### Added
+
+- **A full destroy now removes what the PROVIDER created for itself.** `IDeploymentTarget.SweepAsync` runs
+  once a teardown has finished with every unit. The AWS provider empties and deletes the staging bucket it
+  uploads templates and assets through; the local provider removes its `.tyanor` folder of pid files and the
+  deployment folder itself, when nothing else is left in it. Until now nothing removed either, so a destroyed
+  deployment left them standing for ever — and `docs/adoption.md` claimed a teardown left nothing. Found by
+  the first adopter's spike, against a `grep` rather than a review. Reasoning in `docs/DECISIONS.md` **D33**.
+  - **Additive and defaulted**, so no implementation broke: a target that creates nothing of its own leaves
+    it alone and is correct.
+  - **A narrowed destroy never sweeps.** `Only("web")` is a partial teardown by request, and the units left
+    out still need the scaffolding.
+  - **A sweep that fails does not fail the teardown**, because every unit is already gone — but it is
+    reported as an error line naming what could not be cleaned up. Silence there would be the thing D32
+    refuses.
+- **`DeploymentTargetContract`** in `Tyanor.Testing`, holding a target to the two promises a sweep satisfies
+  by omission: tolerating nothing to sweep, and surviving a second run. Now in `doctor`'s enforced list, so
+  both shipped providers run it ungated.
+
+### Fixed
+
+- **`docs/architecture/overview.md` still described a teardown as having "two answers"** — D32 gave it three
+  four commits earlier and the table was never updated. It now shows `Retain`.
+
+### Changed
+
+- `AwsTarget` gained an internal constructor taking its SDK clients, so the target's own composition is
+  testable without an account — D23 applied to the target the way it already was to the drivers.
+
 ## 0.1.0
 
 The first release, in two parts.
@@ -14,7 +45,8 @@ cleanups that no user ever met, because there was no previous version to meet th
 separate, because the reasoning is the point: most of those mistakes are ones a provider or storage backend
 written outside this repository can still make.
 
-Test counts quoted against a particular piece are what it brought with it. The suite as a whole is **814
+Test counts quoted against a particular piece are what it brought with it. The suite as a whole was **814
+tests** at 0.1.0 — stated against the release rather than against the repository, so that it stays true.
 
 
 ### What ships

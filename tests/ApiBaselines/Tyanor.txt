@@ -153,6 +153,7 @@ interface Tyanor.IDeploymentTarget
     abstract IUnitDriver Driver { get; }
     abstract Task<TargetIdentity> ValidateAsync(TargetCredentials credentials, CancellationToken ct)
     abstract string Id { get; }
+    virtual Task SweepAsync(SweepContext context)
 
 interface Tyanor.IFailureClassifier
     abstract FailureClass? Classify(Exception error)
@@ -342,6 +343,18 @@ sealed record Tyanor.StorageConnection : IEquatable<StorageConnection>
     string Kind { get; init; }
     string Target { get; init; }
 
+sealed record Tyanor.SweepContext : IEquatable<SweepContext>
+    .ctor(string Procedure, DeploymentRequest Request, Action<ProgressReport> Report, CancellationToken Cancellation)
+    .ctor(string procedure, DeploymentRequest request)
+    Action<ProgressReport> Report { get; init; }
+    CancellationToken Cancellation { get; init; }
+    DeploymentRequest Request { get; init; }
+    string Option(string key)
+    string Prefix { get; }
+    string Procedure { get; init; }
+    void Progress(string message, ProgressStatus status = Info)
+    void ThrowIfCancelled()
+
 sealed record Tyanor.TargetCredentials : IEquatable<TargetCredentials>
     .ctor(string KeyId, string Secret, string Region = null, IReadOnlyDictionary<string, string> Extra = null)
     IReadOnlyDictionary<string, string> Extra { get; init; }
@@ -372,6 +385,10 @@ abstract class Tyanor.Testing.ContractSuite
     Task<ContractCheck> RunAsync(string name, CancellationToken ct = null)
     Task<IReadOnlyList<ContractCheck>> RunAllAsync(CancellationToken ct = null)
     abstract string Subject { get; }
+
+sealed class Tyanor.Testing.DeploymentTargetContract : ContractSuite
+    .ctor(IDeploymentTarget target, string procedure, DeploymentRequest request)
+    virtual string Subject { get; }
 
 sealed class Tyanor.Testing.FailureClassifierContract : ContractSuite
     .ctor(IFailureClassifierFixture fixture)

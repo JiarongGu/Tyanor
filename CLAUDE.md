@@ -119,8 +119,13 @@ The same answer has now been right three times, so reach for it before inventing
 discovered from disk in any of the three (D6): authoring a plugin and *loading* one are different questions.
 
 **Growing `IUnitDriver` costs everyone.** Adding a parameter is free — it goes on `UnitContext` (D16). Adding
-a METHOD is not, so it arrives with a default meaning *I do not do that*, which is how `ValidateAsync` and
-`OutputsAsync` were additive (D18).
+a METHOD is not, so it arrives with a default meaning *I do not do that*, which is how `ValidateAsync`,
+`OutputsAsync` (D18), `IsRemovable` (D32) and `IDeploymentTarget.SweepAsync` (D33) were all additive.
+
+**Ask what a provider creates for ITSELF.** Not for a unit — for the deployment: a staging bucket, a folder
+of pid files, a namespace. No unit can remove it (every unit uses it, so removing it reaches sideways), so
+it needs `SweepAsync`, which runs after the last unit of a FULL destroy. Both shipped providers had one and
+neither removed it, for months, while `adoption.md` promised a teardown left nothing — see D33.
 
 ## 4. Before you commit: `npm run doctor`
 

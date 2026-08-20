@@ -299,6 +299,11 @@ change must say so. A resource must keep its identity across a refresh. A wrappe
 still classify. Each is easy to get almost right and fails quietly — as a duplicate deployment, a teardown
 that will not re-run, or a plan reporting drift that is not there.
 
+`DeploymentTargetContract` covers the other half: if your provider creates anything for **itself** — a
+bucket to stage uploads through, a folder of bookkeeping — no unit can remove it, so a full destroy asks the
+target to ([D33](docs/DECISIONS.md)). Both shipped providers had one and neither removed it until somebody
+adopting Tyanor ran a `grep`.
+
 The suites take **no test framework**: they return results, so they run under xUnit, NUnit, MSTest or a
 console app. Passing them is also how a provider written elsewhere earns its way into this repository
 ([D15](docs/DECISIONS.md)).

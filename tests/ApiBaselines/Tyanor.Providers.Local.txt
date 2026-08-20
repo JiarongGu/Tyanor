@@ -27,6 +27,7 @@ sealed class Tyanor.Providers.Local.LocalTarget : IDeploymentTarget
     .ctor(string root, CustomUnits custom = null)
     IFailureClassifier Classifier { get; }
     IUnitDriver Driver { get; }
+    Task SweepAsync(SweepContext context)
     Task<TargetIdentity> ValidateAsync(TargetCredentials credentials, CancellationToken ct)
     string Id { get; }
     string Root { get; }

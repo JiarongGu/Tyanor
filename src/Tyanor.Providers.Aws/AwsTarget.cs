@@ -96,6 +96,28 @@ public sealed class AwsTarget : IDeploymentTarget, IDisposable
         Classifier = FailureClassifiers.Chain(new AwsFailureClassifier(), custom?.Classifier);
     }
 
+    /// <summary>
+    /// Build a target over clients someone else made — how the tests drive this whole class without an
+    /// account.
+    /// </summary>
+    /// <remarks>
+    /// Internal, and it exists because <see cref="SweepAsync"/> is composition rather than vocabulary: it
+    /// decides WHICH bucket to empty and WHEN not to fail, and "it can only be tested against AWS" was true
+    /// of the second question and never of the first. That is D23 applied to the target the way it was
+    /// applied to the drivers — the fakes replay real S3 error codes and invent none.
+    /// </remarks>
+    internal AwsTarget(
+        AmazonCloudFormationClient cfn, AmazonS3Client s3, AmazonCloudFrontClient cloudFront,
+        AmazonSecurityTokenServiceClient sts, string region, CustomUnits? custom = null)
+    {
+        Region = RegionEndpoint.GetBySystemName(region);
+        (_cfn, _s3, _cloudFront, _sts) = (cfn, s3, cloudFront, sts);
+
+        _account = new AwsAccount(_sts);
+        Driver = new AwsUnitDriver(_cfn, _s3, _cloudFront, _account, Region.SystemName, custom);
+        Classifier = FailureClassifiers.Chain(new AwsFailureClassifier(), custom?.Classifier);
+    }
+
     /// <inheritdoc/>
     public string Id => "aws";
 
@@ -138,6 +160,30 @@ public sealed class AwsTarget : IDeploymentTarget, IDisposable
             // to re-enter keys that were fine.
             return new TargetIdentity(false, Error: "Could not reach AWS to check these credentials: " + e.Message);
         }
+    }
+
+    /// <summary>
+    /// Empty and delete the staging bucket this deployment uploaded its templates and assets through.
+    /// </summary>
+    /// <param name="context">The procedure and deployment that were just torn down.</param>
+    /// <remarks>
+    /// <para><b>This is the one piece of AWS infrastructure no unit could ever remove.</b> Every stack in a
+    /// procedure stages through <see cref="AwsStaging.BucketFor"/>, so a unit deleting it would take away
+    /// what the units either side of it still need. Before <c>docs/DECISIONS.md</c> D33 nothing removed it
+    /// at all, and a destroyed deployment left a bucket standing holding every template and Lambda asset it
+    /// had ever uploaded — the deployer this was ported from emptied and deleted it, so it was a regression
+    /// as well as a gap.</para>
+    /// <para><b>Scoped by prefix</b>, which is the part worth checking by eye rather than by test: the name
+    /// carries the deployment's own prefix, so tearing down <c>mysite-test</c> cannot reach the bucket
+    /// <c>mysite</c> stages through.</para>
+    /// <para>Nothing is asked of CloudFormation here. By the time this runs every stack is deleted, and a
+    /// bucket is not a stack resource — it was created by this provider, outside any template.</para>
+    /// </remarks>
+    public async Task SweepAsync(SweepContext context)
+    {
+        var bucket = AwsStaging.BucketFor(context.Prefix, await _account.IdAsync(context.Cancellation));
+        context.Progress($"Removing the staging bucket {bucket}…");
+        await AwsStaging.SweepAsync(_s3, bucket, context.Cancellation);
     }
 
     /// <summary>Release the SDK clients.</summary>

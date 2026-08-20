@@ -277,14 +277,16 @@ internal sealed class StackUnit(
     /// </summary>
     /// <remarks>
     /// By URL rather than inline because a real template exceeds CloudFormation's inline size limit. The
-    /// bucket is <c>{prefix}-deploy-{account}</c> — per account so two operators never collide, and derived
-    /// rather than configured so there is nothing to get wrong.
+    /// bucket is <see cref="AwsStaging.BucketFor"/> — per account so two operators never collide, and derived
+    /// rather than configured so there is nothing to get wrong. It belongs to the TARGET rather than to this
+    /// unit, which is why it is created here and removed by <see cref="AwsTarget.SweepAsync"/>: every stack
+    /// stages through the same one, so no unit can be the one to take it away.
     /// </remarks>
     private async Task<string> StageAsync(UnitContext context)
     {
         var template = context.RequirePart(AwsOptions.Template, ArtifactPart.File);
-        var bucket = $"{context.Request.Prefix}-deploy-{await account.IdAsync(context.Cancellation)}".ToLowerInvariant();
-        await EnsureBucketAsync(bucket, context.Cancellation);
+        var bucket = AwsStaging.BucketFor(context.Request.Prefix, await account.IdAsync(context.Cancellation));
+        await AwsStaging.EnsureAsync(s3, bucket, context.Cancellation);
 
         // Assets keep their file names: those ARE the object keys the synthesized template refers to, so
         // renaming one here would produce a stack that cannot find its own Lambda code.
@@ -310,15 +312,6 @@ internal sealed class StackUnit(
         }, context.Cancellation);
 
         return $"https://{bucket}.s3.{region}.amazonaws.com/{key}";
-    }
-
-    private async Task EnsureBucketAsync(string bucket, CancellationToken ct)
-    {
-        try { await s3.PutBucketAsync(new PutBucketRequest { BucketName = bucket, UseClientRegion = true }, ct); }
-        catch (AmazonS3Exception e) when (e.ErrorCode is "BucketAlreadyOwnedByYou" or "BucketAlreadyExists")
-        {
-            // Ours already, from a previous deployment. Reuse it.
-        }
     }
 
     private async Task StreamEventsAsync(

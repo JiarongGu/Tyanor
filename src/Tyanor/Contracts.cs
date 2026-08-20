@@ -329,6 +329,49 @@ public interface IUnitDriver
         Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
 }
 
+/// <summary>
+/// Everything a target is given when a completed teardown asks it to remove what it created for ITSELF.
+///
+/// <para>Scoped to the DEPLOYMENT rather than to a unit, which is the whole point: <see cref="Procedure"/>
+/// and <see cref="DeploymentRequest.Prefix"/> together are the same key state and history are filed under,
+/// and provider-owned infrastructure belongs to that pair rather than to any one unit in it.</para>
+/// </summary>
+/// <param name="Procedure">Which procedure was torn down — <see cref="Tyanor.Procedure.Name"/>.</param>
+/// <param name="Request">The deployment it was torn down from. The prefix is the identifying half.</param>
+/// <param name="Report">Progress, for a sweep slow enough to be worth narrating.</param>
+/// <param name="Cancellation">Cancelling leaves the run LIVE, exactly as it does anywhere else.</param>
+public sealed record SweepContext(
+    string Procedure,
+    DeploymentRequest Request,
+    Action<ProgressReport> Report,
+    CancellationToken Cancellation)
+{
+    /// <summary>
+    /// A context with progress going nowhere and nothing to cancel — for calling a target DIRECTLY, which
+    /// tests and tooling do and the engine never does.
+    /// </summary>
+    /// <param name="procedure">Which procedure was torn down.</param>
+    /// <param name="request">The deployment it was torn down from.</param>
+    public SweepContext(string procedure, DeploymentRequest request)
+        : this(procedure, request, _ => { }, CancellationToken.None) { }
+
+    /// <summary>Which deployment of the procedure — the identifying half of the pair.</summary>
+    public string Prefix => Request.Prefix;
+
+    /// <summary>A procedure-wide option. There is no unit to scope one to.</summary>
+    /// <param name="key">The setting.</param>
+    public string? Option(string key) => Request.Option(key);
+
+    /// <summary>Say something to whoever is watching. Reported against the procedure, as run-level lines are.</summary>
+    /// <param name="message">Plain language, for a person.</param>
+    /// <param name="status">Tone.</param>
+    public void Progress(string message, ProgressStatus status = ProgressStatus.Info) =>
+        Report(new ProgressReport(Procedure, message, -1, status));
+
+    /// <summary>Throw if the caller has cancelled.</summary>
+    public void ThrowIfCancelled() => Cancellation.ThrowIfCancellationRequested();
+}
+
 /// <summary>A deployment target: credentials, identity, and a driver for its units.</summary>
 public interface IDeploymentTarget
 {
@@ -356,4 +399,39 @@ public interface IDeploymentTarget
 
     /// <summary>How to read this provider's failures.</summary>
     IFailureClassifier Classifier { get; }
+
+    /// <summary>
+    /// Remove what THIS PROVIDER created for its own use during a deployment — after a full teardown has
+    /// finished with every unit. Do nothing if there is nothing of yours to remove.
+    /// </summary>
+    /// <param name="context">The procedure and deployment that were just torn down, progress and cancellation.</param>
+    /// <remarks>
+    /// <para><b>Why this cannot be a unit's job, which is the whole reason it exists.</b> Both shipped
+    /// providers keep bookkeeping of their own for a deployment: the AWS one creates a staging bucket to
+    /// upload templates and assets through, and the local one keeps a directory of pid files beside the
+    /// units. Neither belongs to any single unit — every unit uses it — so a unit removing it would be
+    /// reaching sideways to delete something the units either side of it still need, which is exactly what
+    /// removing in reverse order exists to make impossible
+    /// (<c>.claude/rules/units-not-graphs.md</c>). Before this, nothing removed either: a destroy took away
+    /// every unit and left the provider's own scaffolding standing, for ever, and
+    /// <c>docs/adoption.md</c> claimed a teardown left nothing. See <c>docs/DECISIONS.md</c> D33.</para>
+    /// <para><b>Called only after a FULL destroy.</b> A narrowed one (<see cref="Procedure.Only"/>) is a
+    /// partial teardown by request — the rest of the deployment is still there and still needs whatever this
+    /// would remove — so it never sweeps. A destroy that paused or failed part-way does not reach here
+    /// either, for the same reason.</para>
+    /// <para><b>Some units may have been RETAINED.</b> An irreversible unit is one a teardown will never
+    /// take away (<see cref="IUnitDriver.IsRemovable"/>), so waiting for it would mean never sweeping at
+    /// all. If your scaffolding is genuinely still needed by something retained, do not remove it — you are
+    /// the only one who can know that.</para>
+    /// <para><b>It must be re-runnable and it must tolerate nothing being there</b>, because a teardown is
+    /// re-runnable and the second one reaches this with the first one's work already done.</para>
+    /// <para><b>Failing here does not fail the teardown.</b> The units are gone; the deployment IS
+    /// destroyed, and failing the run would send an operator to re-run a destroy with nothing left to do.
+    /// The engine reports the failure loudly instead and the run still succeeds — so raise something whose
+    /// message names what was left behind, since that message is all the operator gets.</para>
+    /// <para>Defaulted to doing nothing, so adding it broke no implementation — the pattern
+    /// <c>docs/DECISIONS.md</c> D18 established: a new capability arrives meaning <i>I do not do that</i>.
+    /// A provider that creates nothing of its own is correct to leave it alone.</para>
+    /// </remarks>
+    Task SweepAsync(SweepContext context) => Task.CompletedTask;
 }

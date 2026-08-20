@@ -47,15 +47,21 @@ contract can grow without breaking every implementation again (D16).
 concurrent operation, and the dangerous ones accept it. `Reconcile.Mutates(Attach)` is `false`, and a test
 pins that.
 
-A teardown has its own table, because it has its own two answers:
+A teardown has its own table, because it has its own three answers:
 
-| Phase | `Reconcile.DecideDestroy` |
-|---|---|
-| `Missing` | `Nothing` — already gone |
-| anything else | `Remove` |
+| Phase | `IsRemovable` | `Reconcile.DecideDestroy` |
+|---|---|---|
+| `Missing` | either | `Nothing` — already gone |
+| anything else | `true` | `Remove` |
+| anything else | `false` | `Retain` — it cannot go, and the plan says so before anything runs (D32) |
 
 No `Attach` there, deliberately: a unit mid-create is a unit that will exist in a minute, and waiting for
 someone else's creation to finish before destroying it is a longer teardown with the same ending.
+
+**Then, once every unit is dealt with, a FULL teardown sweeps.** `IDeploymentTarget.SweepAsync` lets the
+provider remove what it created for its own use — a staging bucket, a folder of pid files — which belongs to
+no unit and which therefore no unit could remove (D33). A narrowed destroy never sweeps: the units left out
+still need it.
 
 ## Why this makes resume free
 

@@ -54,6 +54,12 @@ that is not in the artifact, or that points at nothing on disk, is refused befor
 one sentence naming what the artifact does carry. That refusal is `ArtifactException`, which is a
 `DefinitionException`, so `ValidateAsync` reports it offline rather than throwing.
 
+**A part that names a directory is a ROOT, and it is used whole** — recursively, every file under it, with
+paths relative to the root as the keys or names at the far end. It is not a selection of files that happen
+to live there. This matters when a build writes several kinds of output into one directory: a bundler
+emitting `*.template.json` beside `*.zip` and a part pointed at that directory ships both, wherever only
+one was meant. Give each kind its own directory in the build, and its own part.
+
 ---
 
 ## The local provider
@@ -87,6 +93,13 @@ The bookkeeping is outside the unit directories deliberately, so removing a unit
 deployed and none of Tyanor's own. **A unit owns its directory**: applying prunes releases it no longer
 needs and removing deletes the lot — so anything your application writes, logs and data especially, belongs
 somewhere else.
+
+**A full destroy takes `.tyanor` and the `{prefix}` folder with it** ([D33](DECISIONS.md)) — the same
+sweep the AWS provider uses for its staging bucket, because that bookkeeping is the provider's and no unit
+could remove it. `{root}` itself is never touched: it is yours. **The prefix folder goes only if it is
+empty**, which is the answer rather than caution — anything left in it means something is still deployed
+(a unit whose `path` points elsewhere, or one that was retained), and removing it would take away what the
+teardown deliberately did not.
 
 ### A `directory` unit
 
@@ -229,7 +242,7 @@ One CloudFormation stack, deployed as `{prefix}-{unit}`.
 |---|---|---|---|
 | `kind` | **yes** | shared | `"stack"` |
 | `template` | **yes** | shared | the artifact part naming the template **file** |
-| `assets` | no | shared | an artifact part naming a **directory** the template expects in the staging bucket — Lambda zips and the like |
+| `assets` | no | shared | an artifact part naming a **directory** whose whole contents the template expects in the staging bucket — Lambda zips and the like |
 | `parameter.*` | no | **group** | CloudFormation parameters: `"api.parameter.MemorySize" = "512"` |
 | `capabilities` | no | shared | comma-separated. Default `CAPABILITY_IAM,CAPABILITY_NAMED_IAM` |
 
@@ -244,8 +257,21 @@ reached sooner than anyone expects, because the prefix is in every stack name.
 
 **Templates go up by URL, not inline**, because a real template exceeds CloudFormation's inline limit. The
 staging bucket is `{prefix}-deploy-{account}` — per account so two operators never collide, and derived
-rather than configured so there is nothing to get wrong. Assets keep their file names: those *are* the
-object keys the synthesized template refers to.
+rather than configured so there is nothing to get wrong. Assets keep their names *relative to the `assets`
+part's root*: those are the object keys the synthesized template refers to.
+
+**A full destroy empties and deletes that bucket** ([D33](DECISIONS.md)). It belongs to the provider rather
+than to any unit — every stack stages through the same one — so no unit could be the one to remove it, and
+until D33 nothing did: a torn-down deployment left it standing, holding every template and Lambda asset it
+had ever uploaded. A **narrowed** destroy leaves it alone, deliberately, because the stacks you did not
+remove still need it.
+
+**Nothing tells a template what that bucket is called**, and that gap is still open — see
+[`TASKS.md`](../TASKS.md). A synthesized template that takes the bucket as a CloudFormation parameter has to
+be handed the name, and `parameter.*` values are passed through verbatim: there is no token to substitute
+and no option that exposes it. Deriving `{prefix}-deploy-{account}` in your own composition root works, and
+costs you an `sts:GetCallerIdentity` call to learn the account, but you are reimplementing a convention this
+provider owns and could move.
 
 | | |
 |---|---|

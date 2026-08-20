@@ -34,6 +34,12 @@ that runs.
 call `ValidateAsync` and stop. It touches no provider and needs no credentials, so this step cannot break
 anything — and it is where you find out whether your deployment actually is an ordered list of units.
 
+> **If your own code already has a `DeploymentRequest`, expect `CS0104` here.** Tyanor's is
+> `Tyanor.DeploymentRequest`, and the collision is real rather than a mistake: an existing deployer names
+> the same idea, which is usually the reason it is adopting this one. Alias whichever is the visitor —
+> `using TyanorRequest = Tyanor.DeploymentRequest;` — in the few files that see both. Renaming the type
+> here was considered and refused: the name is right, and the ambiguity is confined to a composition root.
+
 **2. Plan against the real target, and still change nothing.** `PlanAsync` reads live phases. Compare what it
 says against what you know is deployed. A plan that disagrees with reality means a `PhaseAsync` you have not
 got right yet, and finding that out *now* costs nothing.
@@ -46,13 +52,21 @@ because each step exercises a path the one before it does not:
 |---|---|
 | apply | it deploys |
 | apply **again**, with nothing changed | **the resume path** — every unit reads `Ready`, updates report no change, and the run is a no-op |
-| destroy | it comes apart in reverse, and leaves nothing |
+| destroy | it comes apart in reverse, and leaves nothing — including what the provider made for itself |
 | destroy **again** | a teardown is re-runnable, which is how an interrupted one is finished |
 | apply | it rebuilds from nothing after having existed |
 
 The second row is the one worth dwelling on. A driver whose update always reports a change looks perfect on
 the first apply and redoes finished work on every resume afterwards — and the plan will have claimed a
 redeploy would change things when it would not.
+
+**On the third row, look at the account rather than at the report — the first time, at least.** A teardown
+speaks for the units it removed, and a deployment usually creates more than its units: the AWS provider
+stages templates and assets in a bucket it makes itself, the local one keeps a folder of pid files. Those
+are swept when the last unit goes ([D33](DECISIONS.md)), and a provider written elsewhere is held to the
+same promise by `DeploymentTargetContract` — but this page claimed "leaves nothing" for a while when it did
+not, so check rather than believe. **A NARROWED destroy deliberately does not sweep**, because the units
+you left out still need that scaffolding; only a full one does.
 
 **4. Move production over, narrowed.** `procedure.Only("web")` deploys one unit. Move the least dangerous unit
 first, leave the rest on the old path, and widen once each is boring.
@@ -360,6 +374,10 @@ Each of these is stated rather than hidden, and each is a decision you should ma
 - **On AWS, drift is CloudFormation-known drift.** `DetectStackDrift` is a paid asynchronous call per stack,
   far too expensive per plan, so a resource edited in the console reads as unchanged. The local provider
   content-hashes what it deployed and does catch it.
+- **Only a FULL destroy sweeps what the provider made for itself.** A narrowed one leaves the staging
+  bucket and the pid folder alone on purpose, because the units you did not remove still need them — so a
+  deployment torn down one unit at a time with `Only` never sweeps, and the last narrowed destroy leaves the
+  scaffolding standing. Finish with a full one, or clean up by hand. ([D33](DECISIONS.md).)
 - **A publish-style step is irreversible and nothing has been built for it.** A destroy over one would call a
   remove that must lie or throw. Known and deliberately unbuilt — bring the real case rather than a
   hypothetical one.
@@ -375,6 +393,8 @@ A checklist you can actually run, in the order that finds problems earliest:
 - [ ] `PlanAsync` against the real target agrees with what you know is deployed.
 - [ ] An apply into a scratch prefix succeeds, and a second apply straight after reports no changes.
 - [ ] A destroy of that prefix leaves nothing, and running it a second time is fine.
+- [ ] You have looked at what that destroy left *behind*, with your own eyes — the difference between a
+      clean account and one you believe is clean is that somebody looked once.
 - [ ] A misconfigured unit reaches the operator as a configuration problem, not as a failed deployment.
 - [ ] Killing the process mid-apply and re-running finishes the deployment.
 - [ ] A pause reaches the operator as *resumable*, with the work kept — not as "failed".

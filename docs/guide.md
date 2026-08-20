@@ -360,6 +360,27 @@ The alternatives that shape replaces are both worse: a remove that quietly does 
 claim success over a live version, and one that throws fails a teardown that had nothing wrong with it
 ([D32](DECISIONS.md)).
 
+### What a full teardown sweeps that no plan mentions
+
+A provider usually creates something for its OWN use during a deployment — the AWS provider a bucket it
+stages templates through, the local provider a folder of pid files. It belongs to no unit (every unit uses
+it), so no unit can remove it, and until [D33](DECISIONS.md) nothing did. Once the last unit is gone the
+target is asked to clean up after itself, and both shipped providers do.
+
+Three things follow, and the first is the one to remember:
+
+- **A narrowed destroy never sweeps.** The units you left out are still deployed and still need that
+  scaffolding. So tearing a deployment down one `Only` at a time leaves it behind — finish with a full one.
+- **It is not in the plan**, deliberately: a plan counts units and the resources they own, and this is
+  neither and is in no state store. It is in `providers.md`, beside the thing it concerns.
+- **A sweep that fails does not fail the destroy.** Every unit is gone, so the teardown did what it said —
+  but you get an error line naming what could not be cleaned up, because a teardown quietly reporting
+  success over something still out there is the one thing this project will not do.
+
+Writing a provider of your own? `IDeploymentTarget.SweepAsync` defaults to doing nothing, so you only
+implement it if you create something, and `DeploymentTargetContract` holds you to the two promises that are
+easy to satisfy by omission: tolerating nothing to sweep, and surviving a second run.
+
 ### Doing just one part
 
 ```csharp

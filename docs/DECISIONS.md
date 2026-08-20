@@ -68,6 +68,7 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D30](#d30--only-against-the-real-thing-is-a-claim-about-the-question-not-the-provider-2026-08-20--scopes-d15-d23) | the gate is per QUESTION, not per provider | scopes D15, D23 |
 | [D31](#d31--the-seams-are-the-product-so-their-cost-is-a-feature-2026-08-20--amends-d24) | **the seams are the product** — pause, backend contract, `StepUnitDriver` | amends D24 |
 | [D32](#d32--a-teardown-has-three-answers-because-some-things-do-not-come-back-2026-08-20--amends-d16) | a teardown has THREE answers — some things do not come back | amends D16 |
+| [D33](#d33--a-provider-owns-infrastructure-too-and-until-now-nothing-removed-it-2026-08-20) | a provider owns infrastructure too, and a full destroy sweeps it | found by the first adopter |
 
 ---
 
@@ -1531,3 +1532,85 @@ that implements `IUnitDriver` fixes the interface mapping at itself — so a SUB
 `IsRemovable` does not change what the engine calls. It compiles and silently does nothing. That is the same
 rule `StepUnitDriver` restates `ValidateAsync` and `OutputsAsync` for (D31), and it caught a test double in
 this very change. Any base class offering a seam should restate the interface's defaults as `virtual`.
+
+## D33 — A provider owns infrastructure too, and until now nothing removed it (2026-08-20)
+
+`IDeploymentTarget.SweepAsync` — defaulted to doing nothing — is called once a FULL destroy has finished
+with every unit, so a provider can remove what it created for its own use. The AWS provider deletes the
+staging bucket it uploads templates and assets through; the local provider deletes the `.tyanor` folder of
+pid files and the deployment folder itself, if nothing else is in it.
+
+**Found by the first adopter, not by a review.** Their spike read `StackUnit.cs:286` creating
+`{prefix}-deploy-{account}`, ran `grep -rn "DeleteBucket" src/`, and got nothing at all — no unit, no
+target, no dispose path. So a destroyed deployment left a bucket standing holding every template and Lambda
+asset it had ever uploaded, while `adoption.md`'s checklist promised "a destroy of that prefix leaves
+nothing". The deployer this was ported from empties and deletes it, so this was a regression against the
+thing that was ported and not merely an unbuilt feature.
+
+**It is not a missing call, and mistaking it for one is how it would have been fixed wrongly.** The obvious
+patch is for the stack driver to delete the bucket in `RemoveAsync`. That is precisely the reach-sideways
+this project refuses: every stack in a procedure stages through the same bucket, so the first unit removed
+would take away what the units after it still need — the exact failure removing in reverse order exists to
+make impossible (`units-not-graphs.md`), and the same reason the content unit empties its bucket without
+deleting it. No unit can own it. So the gap was never a missing delete; it was that **provider-owned
+infrastructure had no lifecycle at all, and a destroy had no phase in which to sweep it.**
+
+**Twice is the signal, and it was already twice.** This looked like an AWS problem and is not: the local
+provider keeps pid files under `{root}/{prefix}/.tyanor`, deliberately outside the unit directories so that
+removing a unit removes exactly what was deployed and none of the provider's — which left nobody able to
+remove the provider's. Two shipped providers, the same shape, neither able to solve it inside a unit. That
+is the bar `CLAUDE.md` sets for adding a seam rather than a workaround.
+
+**Decided against: `IDisposable` on the target.** It fires when the composition root feels like it rather
+than when a deployment ends. A bucket deleted because a process exited is a bucket deleted out from under a
+run that paused — and a resumed apply would then fail every remaining unit for a reason nothing in the
+history explains.
+
+**Decided against: a unit that owns the staging bucket.** It would have to be first in apply order and last
+in teardown, which is a dependency edge in everything but name (D3), and it would appear in every plan and
+every count as a resource the operator never declared.
+
+**Decided against: putting it in the plan.** A plan counts UNITS and the RESOURCES they own; a provider's
+own scaffolding is neither, is in no state store, and the engine cannot ask a target what it *would* sweep
+without a second method that exists only to describe the first. A boolean saying "a full destroy also
+sweeps" would have been true of every full destroy including those against targets that sweep nothing —
+information-free. It is documented instead, in `providers.md` beside the bucket it concerns.
+
+**A narrowed destroy never sweeps**, and that is the constraint the design is actually shaped by.
+`Only("web")` is a partial teardown by request: the units left out are still deployed and still need the
+scaffolding. The engine knows the difference and a provider does not, so the decision stays in the engine —
+`ProcedureRunner` checks `Procedure.IsNarrowed`, the same signal `Plan.Orphaned` uses to stay quiet, and it
+is refused on the NARROWING rather than on what the narrowing happens to contain. Narrowing to every unit
+still does not sweep: a rule about the shape of the request cannot be got wrong by someone adding a unit
+later.
+
+**A sweep that fails does not fail the teardown, and is said loudly.** Every unit is already gone, so the
+destroy did what it said; failing the run would send an operator to re-run a teardown with nothing left to
+remove. But silence would be exactly what D32 refuses — a teardown reporting success over something still
+out there — so the engine reports the provider's own message with `ProgressStatus.Error` and succeeds. This
+is the one place the engine swallows an exception on purpose, and it is worth being uneasy about; the
+alternative is worse in both directions.
+
+**Some units may be RETAINED when it runs.** An irreversible unit is one a teardown will never take away
+(D32), so waiting for it would mean never sweeping at all. The provider is told this and is the only thing
+that could know whether its scaffolding is still needed.
+
+**The contract grew, because a seam only this repository can implement is not a seam (D15).**
+`DeploymentTargetContract` holds a target to the two promises a sweep satisfies by OMISSION — tolerating
+nothing to sweep, and surviving a second run — which is the shape of defect that passes every other test a
+provider has. It is in `doctor`'s enforced list, so both shipped providers run it ungated, which is what
+required an internal constructor on `AwsTarget` taking its clients. That is D23 applied to the target the
+way it was already applied to the drivers: *which* bucket and *when not to fail* are our logic, and only
+whether S3 accepts the calls needs a cloud.
+
+**What the contract deliberately cannot check, and is therefore written down.** That a sweep is scoped to
+the deployment it was handed. A sweep that removed staging for every prefix in an account passes both checks
+and destroys a deployment nobody asked it to touch. Both providers are tested for it specifically — a second
+prefix left standing beside the one torn down — but a generic suite cannot see it, so the suite says so
+rather than implying coverage it does not have.
+
+**One test wrote itself green and had to be caught by mutation.** The local check that a deployment folder
+holding anything else is LEFT passed with the emptiness guard removed: `Directory.Delete` throws on a
+non-empty folder, the engine swallows a failing sweep, and "left deliberately" looked identical to "left
+because the delete blew up". It now asserts no error line was reported. Same shape as D27's two findings —
+behaviour defined by absence, guarded by a check that could not go red.

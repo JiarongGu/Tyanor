@@ -56,7 +56,7 @@ export default {
    * a check rather than a hope.
    */
   providerPrefix: 'Tyanor.Providers.',
-  providerContracts: ['UnitDriverContract', 'FailureClassifierContract'],
+  providerContracts: ['UnitDriverContract', 'FailureClassifierContract', 'DeploymentTargetContract'],
 
   /**
    * The only files a release may rewrite before packing. The workflow writes the new version (and stamps

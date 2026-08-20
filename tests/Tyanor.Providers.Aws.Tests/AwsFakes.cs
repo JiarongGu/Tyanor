@@ -167,6 +167,15 @@ internal sealed class FakeS3 : AmazonS3Client
     /// <summary>How many <c>DeleteObjects</c> calls were made — the batching is what this checks.</summary>
     public int DeleteBatches { get; private set; }
 
+    /// <summary>Buckets this provider asked to delete, in order.</summary>
+    public List<string> DeletedBuckets { get; } = [];
+
+    /// <summary>
+    /// How many keys a list returns at once. Zero — the default — returns everything in one page, which is
+    /// what every test that is not about paging wants.
+    /// </summary>
+    public int PageSize { get; set; }
+
     public override Task<PutBucketResponse> PutBucketAsync(PutBucketRequest request, CancellationToken ct = default)
     {
         Created.Add(request.BucketName);
@@ -189,17 +198,51 @@ internal sealed class FakeS3 : AmazonS3Client
         return Task.FromResult(new PutObjectResponse());
     }
 
+    /// <remarks>
+    /// <para>Pages the way S3 does — by KEY rather than by index — which matters because the one caller that
+    /// pages is deleting as it goes. An index-based token would skip half a bucket the moment the first page
+    /// was removed, so a fake using one would have made a real bug look like correct behaviour.</para>
+    /// </remarks>
     public override Task<ListObjectsV2Response> ListObjectsV2Async(
         ListObjectsV2Request request, CancellationToken ct = default)
     {
         if (!Buckets.TryGetValue(request.BucketName, out var bucket))
             throw new AmazonS3Exception("The specified bucket does not exist") { ErrorCode = "NoSuchBucket" };
 
+        var remaining = bucket.Keys
+            .OrderBy(k => k, StringComparer.Ordinal)
+            .Where(k => request.ContinuationToken is null
+                || string.CompareOrdinal(k, request.ContinuationToken) > 0)
+            .ToList();
+
+        var page = remaining.Take(PageSize <= 0 ? remaining.Count : PageSize).ToList();
+        var truncated = page.Count < remaining.Count;
+
         return Task.FromResult(new ListObjectsV2Response
         {
-            S3Objects = [.. bucket.Select(o => new S3Object { Key = o.Key, Size = o.Value })],
-            IsTruncated = false,
+            S3Objects = [.. page.Select(k => new S3Object { Key = k, Size = bucket[k] })],
+            IsTruncated = truncated,
+            NextContinuationToken = truncated ? page[^1] : null,
         });
+    }
+
+    /// <remarks>
+    /// <b>Refuses a bucket with anything in it</b>, which is what S3 does and is the whole reason a sweep has
+    /// to empty before it deletes. A fake that skipped this would let a one-line <c>DeleteBucket</c> pass here
+    /// and fail against every real account, on the first teardown, for ever.
+    /// </remarks>
+    public override Task<DeleteBucketResponse> DeleteBucketAsync(
+        DeleteBucketRequest request, CancellationToken ct = default)
+    {
+        if (!Buckets.TryGetValue(request.BucketName, out var bucket))
+            throw new AmazonS3Exception("The specified bucket does not exist") { ErrorCode = "NoSuchBucket" };
+
+        if (bucket.Count > 0)
+            throw new AmazonS3Exception("The bucket you tried to delete is not empty") { ErrorCode = "BucketNotEmpty" };
+
+        Buckets.Remove(request.BucketName);
+        DeletedBuckets.Add(request.BucketName);
+        return Task.FromResult(new DeleteBucketResponse());
     }
 
     public override Task<DeleteObjectsResponse> DeleteObjectsAsync(

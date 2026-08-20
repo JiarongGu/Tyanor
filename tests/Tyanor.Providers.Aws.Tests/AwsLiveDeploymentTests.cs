@@ -132,6 +132,13 @@ public class AwsLiveDeploymentTests
         finally
         {
             await fixture.ResetAsync(CancellationToken.None);
+
+            // The sweep the ENGINE would have done. This suite drives the driver directly, so nothing else
+            // reaches the staging bucket it created — and with a fresh prefix per run, without this every
+            // live run would leave one more bucket in the account for ever. Exactly the leak D33 exists to
+            // close, arriving through the one door that bypasses `DestroyAsync`.
+            await target.SweepAsync(new SweepContext("live-contract", fixture.Request));
+
             try { Directory.Delete(work, recursive: true); } catch (IOException) { /* temp */ }
         }
     }

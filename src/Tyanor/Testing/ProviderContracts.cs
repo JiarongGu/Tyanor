@@ -522,3 +522,58 @@ public sealed class FailureClassifierContract(IFailureClassifierFixture fixture)
     private static string Trim(string message) =>
         message.Length <= 60 ? message : message[..57] + "…";
 }
+
+/// <summary>
+/// What every <see cref="IDeploymentTarget"/> must do about the infrastructure it creates for ITSELF —
+/// the staging bucket, the pid directory, whatever your provider needs per deployment and no unit owns.
+///
+/// <para><b>The promises are the two a teardown depends on</b>, and both are satisfied by omission, which is
+/// why they need a suite rather than a signature: a sweep must tolerate there being nothing to sweep, and it
+/// must survive being run again. A destroy is re-runnable — that is how an interrupted one is finished — so
+/// the second one reaches the sweep with the first one's work already done, and a provider that throws there
+/// turns a successful teardown into a run that reports an error every time it is repeated.</para>
+///
+/// <para><b>A target that sweeps nothing passes, and is meant to.</b>
+/// <see cref="IDeploymentTarget.SweepAsync"/> defaults to doing nothing, and a provider that creates nothing
+/// of its own is correct to leave it alone — the checks below are the promises a sweep makes IF you write
+/// one. Nothing here can tell you that you should have.</para>
+///
+/// <para><b>Two things here cannot be checked and both matter, so they are named rather than implied.</b>
+/// That a sweep happens after a full destroy and never after a narrowed one is
+/// <see cref="Engine.ProcedureRunner"/>'s promise rather than a target's, and is pinned there. And that a
+/// sweep is scoped to THIS deployment — the procedure and prefix it was handed — is the dangerous one no
+/// generic suite can see: a sweep that removes staging for every prefix in the account passes both checks
+/// below and destroys a deployment nobody asked it to touch. Read for that; a suite cannot.</para>
+/// </summary>
+/// <param name="target">The target under test.</param>
+/// <param name="procedure">A procedure name — half of the deployment identity a sweep is scoped to.</param>
+/// <param name="request">A request naming a scratch deployment. Its prefix is the other half.</param>
+public sealed class DeploymentTargetContract(
+    IDeploymentTarget target, string procedure, DeploymentRequest request) : ContractSuite
+{
+    /// <inheritdoc/>
+    public override string Subject => "IDeploymentTarget";
+
+    private SweepContext Context(CancellationToken ct) => new(procedure, request, _ => { }, ct);
+
+    /// <inheritdoc/>
+    protected override IReadOnlyList<(string Name, Func<CancellationToken, Task<string?>> Run)> Cases =>
+    [
+        ("Sweeping a deployment that never existed does not throw", async ct =>
+        {
+            // The ordinary case, not an edge one: destroying a procedure that was never applied walks every
+            // unit, finds each already Missing, and arrives here with nothing of the provider's to remove.
+            await target.SweepAsync(Context(ct));
+            return null;
+        }),
+
+        ("Sweeping twice does not throw", async ct =>
+        {
+            // A teardown is re-runnable by design — running it again is how an interrupted one is finished —
+            // so the second sweep meets what the first one already took away.
+            await target.SweepAsync(Context(ct));
+            await target.SweepAsync(Context(ct));
+            return null;
+        }),
+    ];
+}

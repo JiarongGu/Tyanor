@@ -25,6 +25,7 @@ sealed class Tyanor.Providers.Aws.AwsTarget : IDeploymentTarget, IDisposable
     IFailureClassifier Classifier { get; }
     IUnitDriver Driver { get; }
     RegionEndpoint Region { get; }
+    Task SweepAsync(SweepContext context)
     Task<TargetIdentity> ValidateAsync(TargetCredentials credentials, CancellationToken ct)
     string Id { get; }
     void Dispose()

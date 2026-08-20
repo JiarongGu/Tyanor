@@ -18,14 +18,22 @@ internal static class LocalPaths
     /// <see cref="DeploymentRequest.OwnOption"/>.
     /// </remarks>
     public static string Unit(string root, DeploymentRequest request, string unit) =>
-        request.OwnOption(unit, LocalOptions.Path) ?? Path.Combine(root, request.Prefix, unit);
+        request.OwnOption(unit, LocalOptions.Path) ?? Path.Combine(Deployment(root, request), unit);
+
+    /// <summary>
+    /// One whole deployment's folder: <c>{root}/{prefix}</c>. What everything below hangs off, and what
+    /// <see cref="LocalTarget.SweepAsync"/> removes once it is empty.
+    /// </summary>
+    public static string Deployment(string root, DeploymentRequest request) =>
+        Path.Combine(root, request.Prefix);
 
     /// <summary>
     /// This provider's own bookkeeping for a deployment — pid files, and nothing else. Kept OUTSIDE the
-    /// unit directories so that removing a unit removes exactly what was deployed and none of ours.
+    /// unit directories so that removing a unit removes exactly what was deployed and none of ours, which
+    /// is also why no unit can remove THIS and a sweep has to.
     /// </summary>
     public static string Bookkeeping(string root, DeploymentRequest request) =>
-        Path.Combine(root, request.Prefix, ".tyanor");
+        Path.Combine(Deployment(root, request), ".tyanor");
 
     /// <summary>The folder holding one directory per build, inside a unit's directory.</summary>
     public const string Releases = "releases";

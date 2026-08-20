@@ -230,6 +230,13 @@ public sealed class ProcedureRunner(
     /// destroying a deployment. The asymmetry is the same one Terraform has between its command and a
     /// provider's per-resource delete, and it is worth keeping for the same reason: they are different jobs.
     /// Preview one with <see cref="PlanAsync"/> and <see cref="RunKind.Destroy"/>.</para>
+    ///
+    /// <para><b>A full teardown ends with a sweep.</b> Once every unit is gone the target is asked to remove
+    /// what IT created for the deployment — a staging bucket, a directory of pid files — through
+    /// <see cref="IDeploymentTarget.SweepAsync"/>. Nothing in the plan mentions it, deliberately: a plan
+    /// counts UNITS and the RESOURCES they own, and a provider's own scaffolding is neither and is in no
+    /// state store. A narrowed destroy never sweeps, and a sweep that fails is reported without failing the
+    /// run. See <c>docs/DECISIONS.md</c> D33.</para>
     /// </summary>
     /// <param name="procedure">The units; removed in reverse of apply order.</param>
     /// <param name="request">Which deployment to remove.</param>
@@ -336,6 +343,11 @@ public sealed class ProcedureRunner(
                     Percent(done, procedure.TotalWeight), ProgressStatus.Success));
             }
 
+            // Every unit is dealt with, so anything the PROVIDER made for its own use is now unreferenced.
+            // Only here: a run that paused or failed part-way never reaches this line, and its remaining
+            // units still need whatever a sweep would take away.
+            if (kind == RunKind.Destroy) await SweepAsync(procedure, request, report, ct);
+
             await Finish(record with { Status = RunStatus.Succeeded, FinishedAt = DateTimeOffset.UtcNow });
             return OperationOutcome.Success();
         }
@@ -384,6 +396,44 @@ public sealed class ProcedureRunner(
         //
         // Being told to stop is not a reason to stop saying WHY you stopped.
         Task Finish(RunRecord ending) => history.UpsertAsync(ending, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Let the provider remove what it created for ITSELF, once a full teardown has finished with every
+    /// unit — the staging bucket, the pid directory, whatever a provider needs for a deployment and no unit
+    /// owns.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Never after a NARROWED destroy.</b> <see cref="Procedure.Only"/> is a partial teardown by
+    /// request: the units left out are still deployed and still need whatever the provider keeps for them.
+    /// Sweeping there would break the remaining deployment on behalf of an operator who asked to remove one
+    /// unit — the same reason <see cref="Orphaned"/> stays quiet for a narrowed procedure, arriving through
+    /// a different door.</para>
+    /// <para><b>A sweep that fails does not fail the teardown</b>, and this is the one place the engine
+    /// swallows an exception on purpose. Every unit is already gone, so the destroy did what it said; making
+    /// the run fail would tell an operator to re-run a teardown with nothing left to remove, and would
+    /// classify a leftover bucket as though the deployment were still standing. It is said LOUDLY instead —
+    /// silence here would be the thing <c>docs/DECISIONS.md</c> D32 refuses, a teardown reporting success
+    /// over something still out there.</para>
+    /// <para>Cancellation still propagates: the provider was interrupted rather than unable, the run stays
+    /// live, and running the destroy again reaches this again.</para>
+    /// </remarks>
+    private async Task SweepAsync(
+        Procedure procedure, DeploymentRequest request, Action<ProgressReport> report, CancellationToken ct)
+    {
+        if (procedure.IsNarrowed) return;
+
+        try
+        {
+            await target.SweepAsync(new SweepContext(procedure.Name, request, report, ct));
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            report(new ProgressReport(procedure.Name,
+                $"Everything was removed, but the {target.Id} provider could not clean up what it had " +
+                $"created for itself: {ex.Message}", -1, ProgressStatus.Error));
+        }
     }
 
     /// <summary>

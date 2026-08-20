@@ -59,6 +59,12 @@ rebuild mid-deploy and resumed to completion, in an app a non-technical owner ru
   costs money (`docs/DECISIONS.md` D32).
 - **A retained unit keeps its state**, which is the half that rots quietly. Clearing it would make Tyanor
   forget it owns something that still exists, and an unowned resource is one no future plan ever mentions.
+- **What the PROVIDER made for itself is swept after the last unit, never by a unit.** A staging bucket, a
+  folder of pid files: every unit uses it, so a unit removing it reaches sideways and takes away what the
+  units either side still need. `IDeploymentTarget.SweepAsync` is that phase, and it runs only on a FULL
+  destroy — a narrowed one is a partial teardown by request, and the units left out still need the
+  scaffolding. Both shipped providers had something to sweep and neither removed it until `docs/DECISIONS.md`
+  **D33**, so ask the question of a third rather than assuming the answer is none.
 - **Never re-issue against `Converging`.** The action is `Attach`: watch, issue nothing. Some providers
   reject a second operation; the dangerous ones accept it. `Reconcile.Mutates(Attach)` is `false` and a
   test pins it.

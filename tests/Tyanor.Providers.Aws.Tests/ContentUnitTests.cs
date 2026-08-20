@@ -398,7 +398,10 @@ public class ContentUnitTests
 
         await rig.Unit.RemoveAsync(Context(rig, ToBucket("site-bucket")));
 
-        Assert.Equal(["index.html", "app.js"], rig.S3.Deleted);
+        // Key order, because that is the order S3 lists in. This read as insertion order until the fake
+        // started paging by key the way S3 does — the assertion had been pinned to an artefact of a
+        // Dictionary rather than to anything a real listing promises.
+        Assert.Equal(["app.js", "index.html"], rig.S3.Deleted);
         Assert.True(rig.S3.Buckets.ContainsKey("site-bucket"));      // emptied, not removed
     }
 

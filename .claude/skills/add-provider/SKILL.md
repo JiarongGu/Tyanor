@@ -158,6 +158,10 @@ public Task My_driver_satisfies_the_contract() =>
 [Fact]
 public Task My_classifier_satisfies_the_contract() =>
     new FailureClassifierContract(new MyClassifierFixture()).AssertAllAsync();
+
+[Fact]
+public Task My_target_satisfies_the_contract() =>
+    new DeploymentTargetContract(new MyTarget(…), "procedure", ScratchRequest).AssertAllAsync();
 ```
 
 Point the driver fixture at something real and disposable. A stub answers by agreeing with whatever your
@@ -181,6 +185,16 @@ If a kind genuinely cannot be created in isolation because it depends on another
 bucket a stack makes — the fixture's reset supplies that resource and the contract still applies. That is
 what shook out the phase bug above: "the bucket exists" and "this unit deployed something" are different
 questions, and only the contract asked.
+
+**Does your provider create anything for ITSELF?** A bucket to stage uploads through, a namespace, a
+directory of bookkeeping beside the units — anything every unit uses and no unit owns. If so it needs
+`IDeploymentTarget.SweepAsync`, because **no unit can remove it**: a unit deleting it would take away what
+the units either side of it still need, which is what reverse-order teardown exists to prevent. Both shipped
+providers had exactly this and neither removed it, so a destroy left it standing for ever ([D33](../../../docs/DECISIONS.md)).
+`DeploymentTargetContract` holds you to the two promises a sweep satisfies by omission — tolerating nothing
+to sweep, and surviving a second run — and to the one it cannot see, which you must check yourself: **that
+the sweep is scoped to the deployment's prefix**, so tearing down a scratch deployment cannot reach
+production's. Sweeping nothing is a correct answer if you create nothing.
 
 Then the things a generic suite cannot know:
 
@@ -226,9 +240,12 @@ it reported as coverage for a year. Keep the ungated suite in its own file.
 3. Write the driver. Keep every method boring; if one starts branching on run state, that logic belongs in
    the engine and probably already exists there.
 4. Run `UnitDriverContract` against it, pointed at something real and disposable.
-5. Add the phase-mapping test table.
-6. Add the env-gated live test.
-7. Register the provider in the consuming app's composition root — `cfg.AddTarget(new <Name>Target(…))`.
+5. Write `SweepAsync` if your provider creates anything for itself, and run `DeploymentTargetContract`.
+   Skip only after asking the question — the two providers that had something to sweep both shipped without
+   noticing.
+6. Add the phase-mapping test table.
+7. Add the env-gated live test.
+8. Register the provider in the consuming app's composition root — `cfg.AddTarget(new <Name>Target(…))`.
    Several providers coexist and are selected by `Id`. Tyanor has no plugin *discovery*, on purpose: a
    deployment tool that loads code it found on disk is a security question nobody asked for (D6). Writing
    and registering your own is entirely supported (D15) — those are different questions.
