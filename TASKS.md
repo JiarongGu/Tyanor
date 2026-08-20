@@ -29,15 +29,25 @@
 > driver's own control flow is covered offline (**D23**), so what remains is whether AWS accepts what we
 > build and answers the way the phase table believes.
 
-> **0.1.0 SHIPPED**, tagged `v0.1.0` at `cecd8da`. Three packages — `Tyanor`, `Tyanor.Providers.Local`,
-> `Tyanor.Providers.Aws` — versioned in lockstep from the repository-root `Directory.Build.props` (D26).
+> **0.1.1 SHIPPED** (2026-08-20), tagged `v0.1.1`; **0.1.0** before it at `cecd8da`. Three packages —
+> `Tyanor`, `Tyanor.Providers.Local`, `Tyanor.Providers.Aws` — versioned in lockstep from the
+> repository-root `Directory.Build.props` (D26), and cut by the GitHub Action rather than by hand: it writes
+> the version AND stamps `## Unreleased`, so between releases this repository holds the last RELEASED number
+> and never claims to be a version nobody published.
 >
-> **Verified from the published artifact, not from the build that made it.** A fresh console project outside
-> this repository restored `Tyanor 0.1.0` from nuget.org and ran a procedure using every seam the release
-> added: a `StepUnitDriver` step, a `CustomUnits` unit hosted in `MemoryTarget`, a `UnitPausedException`
-> pausing resumably with its own reason, and an `IsRemovable` unit reported as retained by a destroy plan.
-> It printed `resumable=True reason=approval retained=1`. Worth doing once because "it builds here" and "a
-> stranger can use it" are different claims, and only one of them is what a release is.
+> **Verified from the published artifact, not from the build that made it — both times.** A fresh console
+> project outside this repository restores the package from nuget.org and drives the seams that release
+> added. 0.1.0: a `StepUnitDriver` step, a `CustomUnits` unit in `MemoryTarget`, a `UnitPausedException`
+> pausing resumably, and an `IsRemovable` unit reported as retained (`resumable=True reason=approval
+> retained=1`). 0.1.1: a stranger's own `IDeploymentTarget` with a `SweepAsync` — apply sweeps nothing, a
+> full destroy sweeps once scoped to `site/acme`, a narrowed destroy sweeps nothing, a failing sweep leaves
+> the run `Ok` and says so out loud, and `DeploymentTargetContract` passes a correct target and fails a
+> broken one 2/2.
+>
+> **The 0.1.1 check had a specific question behind it, which is why it was worth running.** `SweepAsync` is a
+> DEFAULT INTERFACE MEMBER, and D32 recorded the C# rule that bites there: a class fixes the interface
+> mapping at itself, so a member that looks overridden can compile and silently never be called. Nothing
+> inside this repository can prove that holds across an assembly boundary for somebody else's class. It does.
 >
 > **From here the public surface is a promise rather than a draft.** Someone has these packages. The
 > baselines in `tests/ApiBaselines/` stop being a diff for a reviewer and become the record of what a
