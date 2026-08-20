@@ -234,6 +234,49 @@ after — but it is no longer only a read. Add findings here as they happen, one
 context to act on later. Promote anything that earns it into a numbered item above, and record a decision
 in `docs/DECISIONS.md` if it changes a load-bearing choice rather than adding work.
 
+---
+
+**0.1.1 ADOPTED the day it shipped, and it closed every finding below.** Reported back because "your fix
+worked" is worth more than the finding was, and because what it DELETED is the measurable part:
+
+- **`assetsBucketParameter` removed the workaround entirely.** The spike no longer recomputes
+  `{prefix}-deploy-{account}` from your internal convention, no longer makes its own
+  `sts:GetCallerIdentity` call to fill a parameter value, and **no longer references the AWS SDK at all** —
+  the only reason it had one is gone. Passing the bucket rather than publishing its name is better than what
+  was asked for: the value and the upload cannot disagree, where the ask had settled for merely being able
+  to read it.
+- **`SweepAsync`** removes the residue this adopter had planned to delete by hand after every teardown.
+- **`parameterFrom`** is the seam the domain unit needed, so that gap now waits on the unit rather than on a
+  missing mechanism.
+- **"An artifact part has exactly one writer"** settled the question and was ACTIONABLE, which is the test of
+  a documentation answer: this adopter's deploy-time SEO prerender writes per-route HTML into the web dist
+  between the API stack coming up and the files being synced. Under that rule it cannot become a unit that
+  writes into the content unit's source, so it stays host-side — which is where it already was. A documented
+  "no" ended the question at zero cost.
+- Step 1 still returns clean on 0.1.1 with the workaround deleted. **Still step 1**: `SweepAsync` and
+  `parameterFrom` are unexercised here, because nothing from this consumer has reached AWS either.
+
+**ONE new finding, and it is on the upgrade path 0.1.1 just created.** `assetsBucketParameter` wins
+SILENTLY over an explicitly-set parameter of the same name: `Parameters(...)` builds the map from the
+`parameter.*` group, resolves `parameterFrom.*` into it, then does `parameters[named] = bucket`
+unconditionally. So one key can be set three ways, two of which collide loudly while the third overwrites
+without a word — the "resolved by precedence" **D34** refused for the other pair, arriving through the back
+door. The `ValidateAsync` check added beside it catches only `assetsBucketParameter` with no `assets` part,
+not this.
+
+It matters because it is exactly what migrating off 0.1.0 looks like: an adopter who worked around the
+missing seam already has `parameter.AssetsBucketName = "<hand-computed>"`, and adding `assetsBucketParameter`
+beside it without deleting the old line is the natural edit. The hand-computed value is then ignored —
+benignly here, since Tyanor's bucket is the right answer, but silently, and it would read as "my parameter
+is being dropped" to anyone whose value differed.
+
+→ **FIXED** (2026-08-21), exactly as the finding asked: refused offline and again at apply, so all three
+ways are now consistent. One function produces the sentence and both callers use it, because three pairs
+enforced by hand would have been six near-identical sentences — and the pair that was already written twice
+is how this one came to be missed. A collision is also refused BEFORE any reference is resolved, so a name
+set twice is not reported as whichever mistake the option order reached first.
+[D35](docs/DECISIONS.md), which is D34's own rule finished rather than a new one.
+
 **Checked on the consumer's machine, outside this repository:** `Tyanor.Providers.Aws.Tests` is 204/204
 green; the live gate behaves as item 1 documents (`TYANOR_LIVE_AWS=1` with no key set fails both tests in
 33 ms rather than skipping); and **`ValidateAsync` returns clean over the real thing** — Aurelia's actual

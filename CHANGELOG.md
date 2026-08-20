@@ -5,6 +5,22 @@ From 1.0, SemVer 2.0 applies. Pre-1.0 the numbers are looser than SemVer would a
 carry a breaking change, and a patch may add public API — so **what a release actually contains is stated at
 the top of its section** rather than inferred from the number. Each is called out.
 
+## Unreleased
+
+### Fixed
+
+- **`assetsBucketParameter` no longer silently overwrites a parameter you set yourself.** It is refused, the
+  way setting one in both `parameter.*` and `parameterFrom.*` already was — offline by `ValidateAsync` and
+  again at apply time. Of the three ways one CloudFormation parameter could be set, two collided loudly and
+  the third won without a word, which is the precedence **D34** refused for the other pair arriving through
+  the back door. **This is on the upgrade path from 0.1.0**: if you were hand-computing
+  `{prefix}-deploy-{account}` and set it as a parameter, adding `assetsBucketParameter` beside that line now
+  fails with a message naming the parameter instead of quietly ignoring what you wrote — **delete the old
+  line**. Your value was already being ignored; only the silence changed. Found by the first adopter.
+  Reasoning in `docs/DECISIONS.md` **D35**.
+  - **A collision is now refused before any reference is resolved**, so an operator who both collided a name
+    and mistyped a producer is told about the collision rather than whichever the option order reached.
+
 ## 0.1.1
 
 **A patch, and it carries more than a patch usually would — read this before upgrading.** Nothing here breaks

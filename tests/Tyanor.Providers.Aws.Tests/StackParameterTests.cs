@@ -12,6 +12,11 @@ namespace Tyanor.Providers.Aws.Tests;
 /// hard-code <c>{prefix}-deploy-{account}</c> and make their own <c>sts:GetCallerIdentity</c> call to fill
 /// in a parameter value. A workaround is a missing feature that has already been paid for once.</para>
 ///
+/// <para>Three ways to set one parameter, so the other half of this suite is the refusals: any two of them
+/// naming the same parameter is a definition problem with no knowable intent, caught offline and again at
+/// apply. D34 stated that and D35 finished it — the pair involving <c>assetsBucketParameter</c> overwrote in
+/// silence, which is what an upgrade from 0.1.0 walks straight into.</para>
+///
 /// <para>Every check here is about WHICH request this provider builds, which is our logic. Whether
 /// CloudFormation accepts it stays behind <c>TYANOR_LIVE_AWS</c> (D23).</para>
 /// </summary>
@@ -210,6 +215,80 @@ public class StackParameterTests : IDisposable
         await _unit.CreateAsync(Context(Request(new Dictionary<string, string> { ["web.assets"] = "lambda" })));
 
         Assert.Empty(Sent());
+    }
+
+    [Fact]
+    public async Task The_staging_bucket_will_not_silently_overwrite_a_parameter_set_by_hand()
+    {
+        // The upgrade path this seam created, found by the first adopter. Someone who hard-coded
+        // {prefix}-deploy-{account} before the provider would tell them already has the parameter set; the
+        // natural edit is to add `assetsBucketParameter` beside it and not delete the old line. Overwriting
+        // is benign HERE — Tyanor's bucket is the right answer — but it is the "resolved by precedence" D34
+        // refuses for the other pair, and to anyone whose value differed it reads as a dropped parameter.
+        var options = new Dictionary<string, string>
+        {
+            ["web.assets"] = "lambda",
+            ["web.parameter.AssetsBucketName"] = "mysite-deploy-hand-computed",
+            ["web.assetsBucketParameter"] = "AssetsBucketName",
+        };
+
+        var problems = await _unit.ValidateAsync(Context(Request(options)));
+        Assert.Contains(problems, p => p.Contains("both") && p.Contains("AssetsBucketName"));
+
+        // …and again at apply time, because the two must not be able to disagree.
+        var error = await Assert.ThrowsAsync<AwsConfigurationException>(
+            () => _unit.CreateAsync(Context(Request(options))));
+
+        Assert.Contains("both", error.Message);
+        Assert.Empty(_cfn.Created);
+    }
+
+    [Fact]
+    public async Task The_staging_bucket_will_not_silently_overwrite_a_parameter_an_earlier_unit_produced()
+    {
+        // The third pair of the same rule. The producer IS deployed and the output IS there, deliberately:
+        // without that, removing the collision check leaves an unresolvable reference throwing the same
+        // exception type for a different reason, and this would pass while checking nothing.
+        _cfn.Outputs["AssetsBucketName"] = "some-other-bucket";
+        await Producer();
+
+        var options = new Dictionary<string, string>
+        {
+            ["web.assets"] = "lambda",
+            ["web.parameterFrom.AssetsBucketName"] = "domain:AssetsBucketName",
+            ["web.assetsBucketParameter"] = "AssetsBucketName",
+        };
+
+        var problems = await _unit.ValidateAsync(Context(Request(options)));
+        Assert.Contains(problems, p => p.Contains("both") && p.Contains("AssetsBucketName"));
+
+        var error = await Assert.ThrowsAsync<AwsConfigurationException>(
+            () => _unit.CreateAsync(Context(Request(options))));
+
+        Assert.Contains("both", error.Message);
+        Assert.DoesNotContain(_cfn.Created, r => r.StackName == "mysite-web");
+    }
+
+    [Fact]
+    public async Task A_collision_is_refused_before_a_reference_is_resolved()
+    {
+        // Two problems at once — a name set twice, and a producer that does not exist — and the collision is
+        // the one reported. Otherwise which of the two an operator is told depends on option order, and they
+        // have to fix the collision either way.
+        // The unresolvable reference is written FIRST deliberately: a check made per key as the references
+        // are resolved reports whichever the option order reaches, so this ordering is what tells the two
+        // implementations apart. Reverse it and the weaker one passes too.
+        var options = new Dictionary<string, string>
+        {
+            ["web.parameterFrom.Endpoint"] = "nowhere:Endpoint",
+            ["web.parameter.CertificateArn"] = "arn:written-by-hand",
+            ["web.parameterFrom.CertificateArn"] = "domain:CertificateArn",
+        };
+
+        var error = await Assert.ThrowsAsync<AwsConfigurationException>(
+            () => _unit.CreateAsync(Context(Request(options))));
+
+        Assert.Contains("both", error.Message);
     }
 
     [Fact]

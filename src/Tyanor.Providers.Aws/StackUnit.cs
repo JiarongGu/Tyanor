@@ -193,17 +193,16 @@ internal sealed class StackUnit(
 
         // The same parse the apply runs, not a second copy of it — a reference that reads as valid here and
         // is refused at apply time is worse than not checking at all.
-        var direct = context.Options(AwsOptions.ParameterPrefix);
         foreach (var (key, reference) in context.Options(AwsOptions.ParameterFromPrefix))
         {
             var setting = $"{AwsOptions.ParameterFromPrefix}.{key}";
             problems.Check(() => OutputReferences.Parse(setting, context.Name, reference));
-
-            if (direct.ContainsKey(key))
-                problems.Add(
-                    $"Sets parameter '{key}' both directly and with '{setting}'. Remove one — which was " +
-                    "meant is not something this can guess.");
         }
+
+        // Every way one parameter can be set twice, from the same function the apply refuses with. This
+        // caller does not name the unit because the engine attributes a problem to the unit it came from.
+        foreach (var collision in Collisions(context, "Sets"))
+            problems.Add(collision);
 
         // Naming a parameter for the staging bucket without any assets to stage is almost certainly a
         // template that will not find its own Lambda code. Cheap to say now, expensive to discover from a
@@ -404,10 +403,13 @@ internal sealed class StackUnit(
     /// and — if asked for by name — the staging bucket.
     /// </summary>
     /// <remarks>
-    /// <para><b>Three sources, one name space, and a collision is refused rather than resolved.</b> A
-    /// parameter written in both <c>parameter.*</c> and <c>parameterFrom.*</c> has no knowable intent, and
-    /// picking one by precedence would deploy a value nobody wrote down. <see cref="ValidateAsync"/> catches
-    /// it offline; this catches it again, because the two must not be able to disagree.</para>
+    /// <para><b>Three sources, one name space, and a collision is refused rather than resolved</b> — see
+    /// <see cref="Collisions"/>. <see cref="ValidateAsync"/> catches it offline; this catches it again,
+    /// because the two must not be able to disagree.</para>
+    /// <para><b>Every collision is refused BEFORE anything is resolved.</b> A reference costs a call and can
+    /// fail on its own, so resolving first means an operator who both collided a name and mistyped a
+    /// producer is told whichever the option order happened to reach — and the collision is the one they
+    /// have to fix either way.</para>
     /// <para><b>An unresolved reference is a hard failure here and a null during a plan</b>, which is the
     /// same asymmetry <c>bucketFrom</c> has: reading nothing while planning an undeployed procedure is a
     /// legitimate answer, and reaching an apply with nothing is a definition problem the operator has to
@@ -416,17 +418,15 @@ internal sealed class StackUnit(
     /// </remarks>
     private async Task<List<Parameter>> ParametersAsync(UnitContext context, string bucket)
     {
+        if (Collisions(context, $"Unit '{context.Name}' sets").FirstOrDefault() is { } collision)
+            throw new AwsConfigurationException(collision);
+
         var parameters = context.Options(AwsOptions.ParameterPrefix)
             .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
 
         foreach (var (key, reference) in context.Options(AwsOptions.ParameterFromPrefix))
         {
             var setting = $"{AwsOptions.ParameterFromPrefix}.{key}";
-            if (parameters.ContainsKey(key))
-                throw new AwsConfigurationException(
-                    $"Unit '{context.Name}' sets parameter '{key}' both directly and with '{setting}'. " +
-                    "Remove one — which was meant is not something this can guess.");
-
             parameters[key] = await OutputReferences.ResolveAsync(this, context, setting, reference)
                 ?? throw new AwsConfigurationException(
                     $"'{setting}' on unit '{context.Name}' is '{reference}', but that unit is not deployed " +
@@ -439,6 +439,54 @@ internal sealed class StackUnit(
             parameters[named] = bucket;
 
         return [.. parameters.Select(kv => new Parameter { ParameterKey = kv.Key, ParameterValue = kv.Value })];
+    }
+
+    /// <summary>
+    /// Every parameter this unit sets twice, one sentence each — the single wording both the offline check
+    /// and the apply refuse in.
+    /// </summary>
+    /// <param name="context">The unit whose options are read.</param>
+    /// <param name="opens">
+    /// How each sentence starts. Only one of the two callers has to name the unit: a
+    /// <see cref="ValidateAsync"/> problem is attributed to its unit by the engine, and an exception thrown
+    /// mid-apply is attributed by nothing.
+    /// </param>
+    /// <remarks>
+    /// <para><b>Three ways to set one parameter, and which was meant is not knowable from the request</b>
+    /// (<c>docs/DECISIONS.md</c> D34): <c>parameter.{Name}</c> is static text, <c>parameterFrom.{Name}</c>
+    /// resolves an earlier unit's output, and <c>assetsBucketParameter</c> names one to fill with the staging
+    /// bucket. Picking a winner by precedence deploys a value nobody wrote down.</para>
+    /// <para><b>Two of the three pairs were refused from the day they shipped and the third overwrote in
+    /// silence</b>, which is the shape of defect this repository keeps finding: the rule was written down,
+    /// applied where it was being thought about, and not applied one line further on. It matters because it
+    /// is exactly what upgrading looks like — an adopter who hand-computed the bucket before this provider
+    /// would tell them has <c>parameter.AssetsBucketName</c> already, and adding <c>assetsBucketParameter</c>
+    /// beside it without deleting the old line is the natural edit. Reported by the first adopter, against
+    /// the seam that created the upgrade path.</para>
+    /// <para>Collected rather than thrown, because <see cref="ValidateAsync"/> reports every problem it can
+    /// find and the apply stops at the first.</para>
+    /// </remarks>
+    private static IEnumerable<string> Collisions(UnitContext context, string opens)
+    {
+        var direct = context.Options(AwsOptions.ParameterPrefix);
+        var resolved = context.Options(AwsOptions.ParameterFromPrefix);
+
+        string SetTwice(string parameter, string one, string other) =>
+            $"{opens} parameter '{parameter}' both {one} and {other}. Remove one — which was meant is not " +
+            "something this can guess.";
+
+        string From(string key) => $"with '{AwsOptions.ParameterFromPrefix}.{key}'";
+        const string Directly = "directly";
+
+        foreach (var key in resolved.Keys)
+            if (direct.ContainsKey(key))
+                yield return SetTwice(key, Directly, From(key));
+
+        if (context.Option(AwsOptions.AssetsBucketParameter) is not { } named) yield break;
+
+        var bucket = $"with '{AwsOptions.AssetsBucketParameter}'";
+        if (direct.ContainsKey(named)) yield return SetTwice(named, Directly, bucket);
+        if (resolved.ContainsKey(named)) yield return SetTwice(named, From(named), bucket);
     }
 
     private static List<string> Capabilities(UnitContext context) =>

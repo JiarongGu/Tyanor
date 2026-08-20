@@ -293,9 +293,15 @@ The other things a template usually wants are already CloudFormation's own — `
 
 For a value that does not exist until the run is under way — an issued certificate's ARN, a generated
 endpoint. Resolved when the run reaches this unit, which is how ordering carries the dependency without an
-edge. Setting the same parameter in both groups is refused rather than resolved by precedence, offline and
-again at apply time. A reference to a unit that is not deployed, or to an output it does not export, fails
-the apply naming the unit — it is not passed through empty for CloudFormation to complain about.
+edge. A reference to a unit that is not deployed, or to an output it does not export, fails the apply naming
+the unit — it is not passed through empty for CloudFormation to complain about.
+
+**One parameter, set two of those three ways, is REFUSED rather than resolved by precedence** — offline and
+again at apply time, because the two checks must not be able to disagree. Which one you meant is not
+knowable from the request, and picking a winner deploys a value nobody wrote down. That includes
+`assetsBucketParameter` naming a parameter you also set by hand, which is what the upgrade from 0.1.0 looks
+like: if you were deriving `{prefix}-deploy-{account}` yourself, **delete that line** when you add
+`assetsBucketParameter` rather than leaving both.
 
 | | |
 |---|---|

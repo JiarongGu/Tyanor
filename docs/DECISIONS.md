@@ -70,6 +70,7 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D32](#d32--a-teardown-has-three-answers-because-some-things-do-not-come-back-2026-08-20--amends-d16) | a teardown has THREE answers — some things do not come back | amends D16 |
 | [D33](#d33--a-provider-owns-infrastructure-too-and-until-now-nothing-removed-it-2026-08-20) | a provider owns infrastructure too, and a full destroy sweeps it | found by the first adopter |
 | [D34](#d34--some-values-only-exist-once-the-run-is-under-way-and-a-unit-has-to-be-able-to-ask-for-them-2026-08-20) | apply-time values reach a later unit; **a part has one writer** | found by the first adopter |
+| [D35](#d35--the-providers-own-value-does-not-get-to-win-quietly-2026-08-21--amends-d34) | a rule enforced by hand is enforced where you were looking | amends D34 |
 
 ---
 
@@ -1651,6 +1652,9 @@ fix one level down. Twice is the signal; this was already twice before it was mo
 knowable from the request, and picking one silently deploys a value nobody wrote down. Refused offline by
 `ValidateAsync` and again at apply time, because two copies of a rule must not be able to disagree.
 
+> ⚠ **Written here as a rule and applied to two of its three pairs.** `assetsBucketParameter` naming a
+> parameter already set overwrote it in silence until **D35**, which is this paragraph finished.
+
 **An unresolved reference is a hard failure at apply and a null during a plan.** The asymmetry is
 `bucketFrom`'s and it is deliberate: planning a deployment that does not exist yet resolves nothing, which is
 a legitimate answer. Reaching an APPLY with nothing is a definition problem, and passing the parameter
@@ -1698,3 +1702,40 @@ directory without a pass over the whole procedure comparing resolved paths — a
 identically: one unit writes a part and a LATER one reads it, which is exactly how the answer above works.
 So this is a review rule, like the namespace boundary since D26. If it is got wrong the symptom is specific
 and worth recognising: a plan that says "no change" for a unit that then redeploys every run.
+
+## D35 — The provider's own value does not get to win quietly (2026-08-21) — amends D34
+
+D34 said a parameter set two ways is refused rather than resolved by precedence, and then resolved one pair
+by precedence. `assetsBucketParameter` names a CloudFormation parameter for the provider to fill with the
+staging bucket; `ParametersAsync` built the map, resolved the references into it, and finished with
+`parameters[named] = bucket` — unconditionally. So of the three ways one key can be set, two collided loudly
+and the third overwrote without a word.
+
+**Reported by the first adopter, against the seam that had just closed their workaround.** That is what
+makes it worth an entry rather than a line in the changelog: the defect is ON the upgrade path. Anyone who
+hand-computed `{prefix}-deploy-{account}` before 0.1.1 already has `parameter.AssetsBucketName` set, and the
+natural edit is to add `assetsBucketParameter` beside it rather than instead of it.
+
+**Decided against: letting the bucket win, and saying so in the documentation.** It is the tempting answer
+because here the provider's value is *right* — it is the bucket the upload actually went to, and the
+hand-computed one is at best the same string. But "the provider knows better, so it overwrites what you
+wrote" is precedence with a good excuse, and precedence is what D34 refused when it could not tell which
+value was meant. The operator who wrote the other line believes it is being used. Two lines, one of them
+dead, is a question worth asking them; it costs one error message and they delete a line they no longer need.
+
+**Decided against: warning and continuing.** A warning is what a rule becomes when nobody wants to enforce
+it. This one is a definition problem, offline-detectable, with a one-line fix.
+
+**A collision is now refused BEFORE any reference is resolved.** Resolving first meant an operator who both
+collided a name and mistyped a producer was told whichever the option order happened to reach — and the
+collision has to be fixed either way. The test for it writes the unresolvable reference first deliberately,
+because with the options in the other order the weaker implementation passes too.
+
+**One function produces the sentences and both callers use it**, which is D34's own "two copies of a rule
+must not be able to disagree" applied to the wording as well as the rule. There were already two
+near-identical sentences for the one pair; three pairs would have made six.
+
+**The shape, which this repository keeps finding.** The rule was written down, applied where it was being
+thought about, and not applied one line further on — like D33 (both providers owned infrastructure and
+neither removed it) and D27's two findings. What is generalisable is not "check parameter maps": it is that
+a rule stated in prose and enforced by hand at each site is enforced at the sites you were looking at.
