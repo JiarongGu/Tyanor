@@ -5,7 +5,7 @@ From 1.0, SemVer 2.0 applies. Pre-1.0 the numbers are looser than SemVer would a
 carry a breaking change, and a patch may add public API — so **what a release actually contains is stated at
 the top of its section** rather than inferred from the number. Each is called out.
 
-## Unreleased
+## 0.1.1
 
 **A patch, and it carries more than a patch usually would — read this before upgrading.** Nothing here breaks
 a consumer's build, which is what keeps it a patch, but two things are worth knowing.
