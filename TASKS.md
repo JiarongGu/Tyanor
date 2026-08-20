@@ -29,9 +29,20 @@
 > driver's own control flow is covered offline (**D23**), so what remains is whether AWS accepts what we
 > build and answers the way the phase table believes.
 
-> **0.1.0 is the first release.** Cut with `npm run doctor` and `node devtools/dev.mjs release`; three
-> packages — `Tyanor`, `Tyanor.Providers.Local`, `Tyanor.Providers.Aws` — versioned in lockstep from the
-> repository-root `Directory.Build.props` (D26).
+> **0.1.0 SHIPPED**, tagged `v0.1.0` at `cecd8da`. Three packages — `Tyanor`, `Tyanor.Providers.Local`,
+> `Tyanor.Providers.Aws` — versioned in lockstep from the repository-root `Directory.Build.props` (D26).
+>
+> **Verified from the published artifact, not from the build that made it.** A fresh console project outside
+> this repository restored `Tyanor 0.1.0` from nuget.org and ran a procedure using every seam the release
+> added: a `StepUnitDriver` step, a `CustomUnits` unit hosted in `MemoryTarget`, a `UnitPausedException`
+> pausing resumably with its own reason, and an `IsRemovable` unit reported as retained by a destroy plan.
+> It printed `resumable=True reason=approval retained=1`. Worth doing once because "it builds here" and "a
+> stranger can use it" are different claims, and only one of them is what a release is.
+>
+> **From here the public surface is a promise rather than a draft.** Someone has these packages. The
+> baselines in `tests/ApiBaselines/` stop being a diff for a reviewer and become the record of what a
+> consumer's build depends on — pre-1.0 still allows a breaking change, but each one now costs somebody
+> something and must be called out in the CHANGELOG.
 >
 > **What a consumer gets, and what they do not.** The engine, both providers, the contract suites and a test
 > target are all real and covered. The AWS provider's SDK calls have still never reached AWS — that is the
