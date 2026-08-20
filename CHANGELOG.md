@@ -1,9 +1,25 @@
 # Changelog
 
 All packages version in lockstep from the repository-root `Directory.Build.props` (`VersionPrefix`).
-From 1.0, SemVer 2.0 applies. Pre-1.0, a minor bump may carry a breaking change — each is called out here.
+From 1.0, SemVer 2.0 applies. Pre-1.0 the numbers are looser than SemVer would allow — a minor bump may
+carry a breaking change, and a patch may add public API — so **what a release actually contains is stated at
+the top of its section** rather than inferred from the number. Each is called out.
 
-## Unreleased
+## 0.1.1
+
+**A patch number, and it carries more than a patch usually would — read this before upgrading.** Nothing here
+breaks a consumer's build, which is why it is not 0.2.0, but two things are worth knowing.
+
+**New public API.** `IDeploymentTarget.SweepAsync`, `SweepContext`, `DeploymentTargetContract`, and three AWS
+options. Every new member on a shipped interface arrives with a default meaning *I do not do that* — the
+pattern D18 established — so an existing provider, including one written outside this repository, compiles
+and behaves exactly as before.
+
+**One BEHAVIOUR change, and it is the headline.** A full destroy now removes what the provider created for
+its own use, where before it left it standing. If you were cleaning up an AWS staging bucket by hand after a
+teardown, stop. If your deployment credentials cannot delete an S3 bucket, the destroy still succeeds and
+reports one error line naming what was left. A NARROWED destroy sweeps nothing, deliberately — the units you
+kept still need it.
 
 ### Added
 
