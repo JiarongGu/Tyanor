@@ -81,8 +81,18 @@ jobs:
       # second file declaring one. An explicit `version` input wins; otherwise `bump` steps the current
       # semver; `none` releases what is already there, which is what a first release wants.
       #
-      # The bump is WRITTEN here so pack uses it, and COMMITTED only after the publish succeeds.
-      - name: Determine version
+      # BOTH ends of the version are written here: the number in Directory.Build.props, and the CHANGELOG
+      # headline that names it. Between releases the repository holds the LAST RELEASED number and heads at
+      # `## Unreleased`, so nobody hand-stamps anything and there is no window where main claims to be a
+      # version that was never published.
+      #
+      # Stamping the changelog was missing, and the gate caught it exactly as designed: `release` refuses a
+      # tree still heading at "Unreleased", so every run failed at the precondition step with the version
+      # already written to disk. The check was right and the workflow was doing half the job.
+      #
+      # Both writes are COMMITTED only after the publish succeeds, so a failed release burns no version and
+      # leaves no phantom bump commit.
+      - name: Determine version and stamp the changelog
         id: version
         shell: bash
         run: |
@@ -108,7 +118,21 @@ jobs:
 
           if [ "$final" != "$current" ]; then
             sed -i "s|<VersionPrefix>$current</VersionPrefix>|<VersionPrefix>$final</VersionPrefix>|" "$props"
-            echo "wrote $final to $props (commit deferred until the gate and publish pass)"
+            echo "wrote $final to $props"
+          fi
+
+          # `## Unreleased` is what the repository accumulates under; this is the one moment it becomes a
+          # number. Idempotent on purpose: a re-run after a failed publish finds the section already named
+          # and leaves it alone rather than stamping a second heading.
+          if grep -qx '## Unreleased' CHANGELOG.md; then
+            sed -i "0,/^## Unreleased$/s//## $final/" CHANGELOG.md
+            echo "stamped CHANGELOG: ## Unreleased -> ## $final"
+          elif grep -qx "## $final" CHANGELOG.md; then
+            echo "CHANGELOG already names $final — re-run, leaving it alone"
+          else
+            echo "::error::CHANGELOG.md heads at neither '## Unreleased' nor '## $final'. Nothing to release:" \
+                 "write the section first, or dispatch the version the changelog already names."
+            exit 1
           fi
 
           changed=$([ -n "$(git status --porcelain -- "$props" CHANGELOG.md README.md)" ] && echo true || echo false)

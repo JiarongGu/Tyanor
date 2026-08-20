@@ -5,10 +5,10 @@ From 1.0, SemVer 2.0 applies. Pre-1.0 the numbers are looser than SemVer would a
 carry a breaking change, and a patch may add public API — so **what a release actually contains is stated at
 the top of its section** rather than inferred from the number. Each is called out.
 
-## 0.1.1
+## Unreleased
 
-**A patch number, and it carries more than a patch usually would — read this before upgrading.** Nothing here
-breaks a consumer's build, which is why it is not 0.2.0, but two things are worth knowing.
+**A patch, and it carries more than a patch usually would — read this before upgrading.** Nothing here breaks
+a consumer's build, which is what keeps it a patch, but two things are worth knowing.
 
 **New public API.** `IDeploymentTarget.SweepAsync`, `SweepContext`, `DeploymentTargetContract`, and three AWS
 options. Every new member on a shipped interface arrives with a default meaning *I do not do that* — the
