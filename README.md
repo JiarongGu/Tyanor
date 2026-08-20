@@ -110,6 +110,11 @@ outside ([D31](docs/DECISIONS.md)).
 unit says `IsRemovable` is false, and a destroy plan lists it as RETAINED **before** you confirm — rather
 than reporting success over something still out there ([D32](docs/DECISIONS.md)).
 
+**A destroy also cleans up after the PROVIDER.** Most providers make something for their own use during a
+deployment — a bucket to stage uploads through, a folder of pid files — which belongs to no unit and which
+therefore no unit can remove. A full teardown sweeps it once the last unit is gone; a narrowed one
+deliberately does not, because the units you kept still need it ([D33](docs/DECISIONS.md)).
+
 **Ordered units, not a dependency graph.** Data before compute before edge covers the overwhelming majority
 of real deployments, and reverse-order teardown then falls out for free. The graph is where tools like this
 become large; see [`docs/DECISIONS.md`](docs/DECISIONS.md) D3.

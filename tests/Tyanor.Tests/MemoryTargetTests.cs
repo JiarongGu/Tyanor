@@ -18,6 +18,12 @@ public class MemoryTargetContractTests
 
     public static TheoryData<string> ClassifierChecks() => Suites.Names(new FailureClassifierContract(null!));
 
+    public static TheoryData<string> TargetChecks() =>
+        Suites.Names(new DeploymentTargetContract(null!, "", Scratch));
+
+    private static DeploymentRequest Scratch { get; } =
+        new("memory", new DeploymentArtifact(new Dictionary<string, string>()));
+
     [Theory]
     [MemberData(nameof(DriverChecks))]
     public Task It_satisfies_the_driver_contract(string check) =>
@@ -27,6 +33,14 @@ public class MemoryTargetContractTests
     [MemberData(nameof(ClassifierChecks))]
     public Task Its_classifier_satisfies_the_contract(string check) =>
         new FailureClassifierContract(new ClassifierFixture()).AssertAsync(check);
+
+    [Theory]
+    [MemberData(nameof(TargetChecks))]
+    public Task It_satisfies_the_target_contract(string check) =>
+        // It creates nothing for itself, so its sweep is the inherited no-op — and that is a real answer
+        // rather than an omission. Run anyway: "all the suites" has to mean all of them, or the claim
+        // drifts one suite at a time and nobody notices which one was left out.
+        new DeploymentTargetContract(new MemoryTarget(), "memory", Scratch).AssertAsync(check);
 
     private sealed class MemoryFixture : IUnitDriverFixture
     {

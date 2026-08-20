@@ -109,9 +109,13 @@ public class AwsStagingTests
     [Fact]
     public async Task A_sweep_pages_through_a_bucket_bigger_than_one_listing()
     {
-        // DeleteObjects takes a thousand keys and a list returns a page at a time. A deployment with
-        // per-build Lambda assets outgrows one page, and stopping after the first would leave a bucket that
-        // could never be emptied and therefore never deleted.
+        // A listing returns a page at a time, and a deployment with per-build Lambda assets outgrows one.
+        // Stopping after the first page would leave a bucket that could never be emptied and therefore
+        // never deleted — and S3 refuses to delete a bucket with anything left in it.
+        //
+        // The count is what proves the paging: 25 objects behind a 10-key page can only all be deleted by a
+        // caller that asked for the second and third. How they are BATCHED is `S3Objects`' business and is
+        // pinned once, by the content unit's thousand-key test, now that both share it.
         var bucket = AwsStaging.BucketFor("mysite", Account);
         var s3 = Staged(bucket, 25);
         s3.PageSize = 10;
@@ -120,8 +124,8 @@ public class AwsStagingTests
         await target.SweepAsync(Context());
 
         Assert.Equal(25, s3.Deleted.Count);
-        Assert.Equal(3, s3.DeleteBatches);
         Assert.Equal([bucket], s3.DeletedBuckets);
+        Assert.DoesNotContain(bucket, s3.Buckets.Keys);
     }
 
     [Fact]

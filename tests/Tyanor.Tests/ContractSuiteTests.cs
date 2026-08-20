@@ -161,6 +161,29 @@ public class ContractSuiteTests
         => Assert.Contains("Samples were supplied for the classes that matter",
             await FailuresOf(new FailureClassifierContract(new NoSamples())));
 
+    // ── the target suite ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task A_sweep_that_cannot_cope_with_NOTHING_to_sweep_is_caught()
+        // The commonest way to get a sweep wrong, and it looks fine until it matters: written against a
+        // deployment that exists, so destroying one that was never applied — or re-running a teardown —
+        // throws over infrastructure that is already gone.
+        => Assert.Contains("Sweeping a deployment that never existed does not throw",
+            await FailuresOf(Target(new SweepsOnce())));
+
+    [Fact]
+    public async Task A_sweep_that_only_works_ONCE_is_caught()
+        // A teardown is re-runnable by design — that is how an interrupted one is finished — so the second
+        // sweep meets what the first already took away.
+        => Assert.Contains("Sweeping twice does not throw",
+            await FailuresOf(Target(new SweepsOnce(tolerateEmpty: true))));
+
+    [Fact]
+    public async Task A_target_that_sweeps_NOTHING_passes_and_is_meant_to()
+        // The default. A provider that creates nothing of its own is correct to leave SweepAsync alone, and
+        // a suite that failed it would be demanding a method with nothing to do.
+        => Assert.Empty(await FailuresOf(Target(new MemoryTarget())));
+
     // ── the storage suites ───────────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -222,6 +245,42 @@ public class ContractSuiteTests
 
     private static UnitDriverContract Driver(IUnitDriver driver, IReadOnlyCollection<string>? outputs = null) =>
         new(new Fixture(driver, outputs ?? []));
+
+    private static DeploymentTargetContract Target(IDeploymentTarget target) =>
+        new(target, "broken", new DeploymentRequest("broken", new DeploymentArtifact(new Dictionary<string, string>())));
+
+    /// <summary>
+    /// A target whose sweep was written against a deployment that exists — the two ways a real one goes
+    /// wrong, in one double.
+    /// </summary>
+    /// <param name="tolerateEmpty">
+    /// Whether it survives having nothing to sweep. False is the first mistake; true isolates the second,
+    /// which is a sweep that works exactly once.
+    /// </param>
+    private sealed class SweepsOnce(bool tolerateEmpty = false) : IDeploymentTarget
+    {
+        private readonly MemoryTarget _inner = new();
+
+        private bool _swept;
+
+        public string Id => "sweeps-once";
+
+        public IUnitDriver Driver => _inner;
+
+        public IFailureClassifier Classifier => _inner;
+
+        public Task<TargetIdentity> ValidateAsync(TargetCredentials? credentials, CancellationToken ct) =>
+            _inner.ValidateAsync(credentials, ct);
+
+        public Task SweepAsync(SweepContext context)
+        {
+            if (!tolerateEmpty) throw new InvalidOperationException("there was nothing to remove");
+            if (_swept) throw new InvalidOperationException("it is already gone");
+
+            _swept = true;
+            return Task.CompletedTask;
+        }
+    }
 
     private sealed class Fixture(IUnitDriver driver, IReadOnlyCollection<string> outputs) : IUnitDriverFixture
     {

@@ -29,7 +29,9 @@ to know ([`../DECISIONS.md`](../DECISIONS.md) D12). `RefreshAsync` re-reads real
 match, which is why a stale mirror costs a wrong *count* and never a wrong *action*.
 
 Every driver method takes a `UnitContext` — the unit, the request, progress and cancellation — so the
-contract can grow without breaking every implementation again (D16).
+contract can grow without breaking every implementation again (D16). The one thing a target does that is not
+about a unit, sweeping what it created for itself, takes a `SweepContext`: the procedure and prefix, which
+together are the deployment (D33).
 
 ## The reconcile table
 
@@ -133,10 +135,11 @@ The package takes exactly one dependency — `Microsoft.Extensions.DependencyInj
 `AddTyanor` — and `doctor` holds it to that list in both directions. **No test framework**, which is what
 lets the contract suites run under whichever one the implementer already has.
 
-The namespace boundary is not enforced by the compiler any more, so it is enforced by review: if a type in
-the `Tyanor` namespace needs a package or names a vendor, it is in the wrong namespace. See
-[`../DECISIONS.md`](../DECISIONS.md) D4 for the concrete leak that motivated vendor-neutrality, D10 for why
-every seam is optional, and D26 for why one package rather than four.
+The namespace boundary is not enforced by the compiler any more, so `doctor` enforces it instead: a type in
+the `Tyanor` namespace that needs a package fails the dependency budget, and one that names a vendor — in
+code or in a string literal — fails `boundary`. Comments are exempt, because the core is documented by
+naming what it refuses. See [`../DECISIONS.md`](../DECISIONS.md) D4 for the concrete leak that motivated
+vendor-neutrality, D10 for why every seam is optional, and D26 for why one package rather than four.
 
 ## More than one provider at a time
 

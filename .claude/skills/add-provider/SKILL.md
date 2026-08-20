@@ -34,6 +34,8 @@ public sealed class <Name>Target : IDeploymentTarget
     public IUnitDriver Driver { get; }
     public IFailureClassifier Classifier { get; }
     public Task<TargetIdentity> ValidateAsync(TargetCredentials? c, CancellationToken ct);
+
+    public Task SweepAsync(SweepContext context);       // only if you make something for YOURSELF
 }
 ```
 

@@ -219,6 +219,28 @@ public class OutsideProviderTests
                 return Task.FromResult(new TargetIdentity(false, root, Environment.UserName, e.Message));
             }
         }
+
+        /// <summary>
+        /// The deployment's own folder, which no unit owns — every unit writes INTO it, so a unit removing
+        /// it would take away what its neighbours still need.
+        /// </summary>
+        /// <remarks>
+        /// Here to prove the seam is reachable from outside: a provider this repository has never heard of
+        /// hits the same problem both shipped ones did, and answers it the same way (D33). Only when empty,
+        /// for the reason the local provider gives — anything left means something is still deployed.
+        /// </remarks>
+        public Task SweepAsync(SweepContext context)
+        {
+            var deployment = Path.Combine(root, context.Prefix);
+
+            if (Directory.Exists(deployment) && !Directory.EnumerateFileSystemEntries(deployment).Any())
+            {
+                context.Progress($"Removing the empty deployment folder {deployment}…");
+                Directory.Delete(deployment);
+            }
+
+            return Task.CompletedTask;
+        }
     }
 
     // ── the same suites every shipped provider runs ──────────────────────────────────────────────
@@ -342,6 +364,20 @@ public class OutsideProviderTests
     public Task The_classifier_satisfies_its_contract(string check) =>
         new FailureClassifierContract(new RegistryFailures()).AssertAsync(check);
 
+    public static TheoryData<string> TargetChecks() =>
+        Suites.Names(new DeploymentTargetContract(null!, "", Requests.Bare()));
+
+    [Theory]
+    [MemberData(nameof(TargetChecks))]
+    public async Task The_target_satisfies_its_contract(string check)
+    {
+        // The third suite, and the one that says a provider written elsewhere can clean up after ITSELF —
+        // not just after its units. Real directories, like everything else here.
+        using var scratch = new Scratch();
+        await new DeploymentTargetContract(new RegistryTarget(scratch.Root), "registry", Requests.Bare())
+            .AssertAsync(check);
+    }
+
     // ── and it composes, which is the other half of "first-class" ────────────────────────────────
 
     [Fact]
@@ -398,7 +434,12 @@ public class OutsideProviderTests
         Assert.Contains("api.entry", outputs.Keys);
 
         Assert.True((await runner.DestroyAsync(procedure, request)).Ok);
-        Assert.Empty(Directory.EnumerateFiles(Path.Combine(scratch.Root, "outside")));
+
+        // The deployment folder is GONE, not merely emptied: this provider's own SweepAsync takes it once
+        // the last unit is removed (D33). It used to assert the folder was empty, which was correct until
+        // an out-of-repo provider could clean up after itself as well as after its units.
+        Assert.False(Directory.Exists(Path.Combine(scratch.Root, "outside")));
+        Assert.True(Directory.Exists(scratch.Root));         // …and the root is the operator's, untouched
 
         // …and a teardown of what is already gone has nothing to do, which is the one plan that is a no-op.
         Assert.True((await runner.PlanAsync(procedure, request, RunKind.Destroy)).IsNoOp);

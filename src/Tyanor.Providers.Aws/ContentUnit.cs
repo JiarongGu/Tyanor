@@ -43,7 +43,7 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
         var bucket = await BucketAsync(context);
         if (bucket is null) return UnitPhase.Missing;         // the stack that makes it is not deployed yet
 
-        var deployed = await ObjectsAsync(bucket, context.Cancellation);
+        var deployed = await S3Objects.ListAsync(s3, bucket, context.Cancellation);
         return deployed is null || deployed.Count == 0 ? UnitPhase.Missing : UnitPhase.Ready;
     }
 
@@ -69,7 +69,7 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     public async Task<bool> UpdateAsync(UnitContext context)
     {
         var bucket = await BucketAsync(context);
-        var deployed = bucket is null ? null : await ObjectsAsync(bucket, context.Cancellation);
+        var deployed = bucket is null ? null : await S3Objects.ListAsync(s3, bucket, context.Cancellation);
         var local = LocalFiles(context);
 
         // Set equality: same count, and every local file present at the same size. Keys are unique on both
@@ -101,29 +101,10 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
         var bucket = await BucketAsync(context);
         if (bucket is null) return;
 
-        var deployed = await ObjectsAsync(bucket, context.Cancellation);
+        var deployed = await S3Objects.ListAsync(s3, bucket, context.Cancellation);
         if (deployed is null || deployed.Count == 0) return;
 
-        await DeleteAsync(bucket, deployed.Keys, context);
-    }
-
-    /// <summary>Delete objects in the batches S3 accepts.</summary>
-    /// <remarks>
-    /// <c>DeleteObjects</c> takes at most 1000 keys, and a website with more than that is ordinary. Shared
-    /// with the prune below rather than written twice — the batching is the part that is easy to omit and
-    /// impossible to notice omitting until a site is large enough to matter.
-    /// </remarks>
-    private async Task DeleteAsync(string bucket, IEnumerable<string> keys, UnitContext context)
-    {
-        foreach (var batch in keys.Chunk(1000))
-        {
-            context.ThrowIfCancelled();
-            await s3.DeleteObjectsAsync(new DeleteObjectsRequest
-            {
-                BucketName = bucket,
-                Objects = batch.Select(k => new KeyVersion { Key = k }).ToList(),
-            }, context.Cancellation);
-        }
+        await S3Objects.DeleteAsync(s3, bucket, deployed.Keys, context.Cancellation);
     }
 
     /// <summary>Nothing to wait for — see the note on this class about why there is no converging state.</summary>
@@ -146,7 +127,7 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
         var bucket = await BucketAsync(context);
         if (bucket is null) return [];
 
-        var deployed = await ObjectsAsync(bucket, context.Cancellation);
+        var deployed = await S3Objects.ListAsync(s3, bucket, context.Cancellation);
         if (deployed is null || deployed.Count == 0) return [];
 
         return [new ResourceState($"s3://{bucket}", "AWS::S3::Bucket",
@@ -294,32 +275,13 @@ internal sealed class ContentUnit(IAmazonS3 s3, IAmazonCloudFront cloudFront, St
     private async Task PruneAsync(
         UnitContext context, string bucket, HashSet<string> wanted, Dictionary<string, long>? deployed)
     {
-        deployed ??= await ObjectsAsync(bucket, context.Cancellation);
+        deployed ??= await S3Objects.ListAsync(s3, bucket, context.Cancellation);
 
         var stale = deployed?.Keys.Where(k => !wanted.Contains(k)).ToList();
         if (stale is null || stale.Count == 0) return;
 
         context.Progress($"{context.Label}: removing {stale.Count} files the build no longer produces…");
-        await DeleteAsync(bucket, stale, context);
-    }
-
-    /// <summary>Object key → size, or null when the bucket itself is not there.</summary>
-    private async Task<Dictionary<string, long>?> ObjectsAsync(string bucket, CancellationToken ct)
-    {
-        var found = new Dictionary<string, long>(StringComparer.Ordinal);
-        string? token = null;
-        try
-        {
-            do
-            {
-                var page = await s3.ListObjectsV2Async(
-                    new ListObjectsV2Request { BucketName = bucket, ContinuationToken = token }, ct);
-                foreach (var o in page.S3Objects ?? []) found[o.Key] = o.Size ?? 0;
-                token = page.IsTruncated == true ? page.NextContinuationToken : null;
-            } while (token is not null);
-            return found;
-        }
-        catch (AmazonS3Exception e) when (e.ErrorCode is "NoSuchBucket") { return null; }
+        await S3Objects.DeleteAsync(s3, bucket, stale, context.Cancellation);
     }
 
     private static Dictionary<string, long> LocalFiles(UnitContext context)
