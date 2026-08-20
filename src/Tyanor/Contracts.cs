@@ -196,11 +196,21 @@ public sealed record DeploymentRequest(
 }
 
 /// <summary>
-/// A provider's implementation of the five things the engine needs to converge ONE unit.
+/// A provider's implementation of the six things the engine needs to converge ONE unit, plus three it can
+/// manage without.
 ///
 /// <para>Everything provider-shaped lives behind this: status vocabulary, API calls, waiting, and error
 /// classification (via <see cref="IFailureClassifier"/>). The engine calls these in an order decided
 /// entirely by <see cref="Reconcile.Decide"/> and knows nothing else about the target.</para>
+///
+/// <para><b>Required:</b> <see cref="PhaseAsync"/>, <see cref="CreateAsync"/>, <see cref="UpdateAsync"/>,
+/// <see cref="RemoveAsync"/>, <see cref="AwaitSettledAsync"/>, <see cref="RefreshAsync"/>. <b>Defaulted:</b>
+/// <see cref="ValidateAsync"/>, <see cref="OutputsAsync"/> and <see cref="IsRemovable"/> — each arrived
+/// later meaning <i>I do not do that</i>, which is how this contract grows without breaking every
+/// implementation, including the ones written outside this repository (<c>docs/DECISIONS.md</c> D18).</para>
+///
+/// <para><b>A unit that is one STEP rather than infrastructure</b> — a check, a gate, a migration — should
+/// start from <see cref="StepUnitDriver"/> and write two methods instead of six.</para>
 /// </summary>
 public interface IUnitDriver
 {

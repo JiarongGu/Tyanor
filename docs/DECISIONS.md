@@ -950,6 +950,12 @@ each phase is what makes it a finding rather than a preference.
 
 ### The one category that does NOT fit, and it is worth naming
 
+> ✅ **Built, in D32, and it landed where this paragraph guessed.** The gap below is closed:
+> `IUnitDriver.IsRemovable` returns false, `DecideDestroy` answers `Retain`, and a destroy plan lists it
+> under `Plan.Retained` before anything runs. Left as written because the guess being right is the
+> interesting part — the diagnosis was recorded so whoever hit it first would not have to rediscover it, and
+> that is exactly what it saved.
+
 **Publish is irreversible.** You cannot unpublish a package version. Today `IUnitDriver.RemoveAsync` must
 "remove and wait until it is gone", and `Reconcile.DecideDestroy` gives `Remove` to every phase that is not
 `Missing` — so a destroy over a publish unit would call something that must either lie or throw.

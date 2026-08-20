@@ -233,9 +233,24 @@ public sealed class OneFileTwoStoresTests : IDisposable
                 .With("db", [new ResourceState($"db{i}", "T", "v1")]))));
 
         var reader = new FileStateStore(path);
-        while (!writers.IsCompleted) await reader.GetAsync("site", "p0");   // must never throw
+        var reads = 0;
+        while (!writers.IsCompleted)
+        {
+            await reader.GetAsync("site", "p0");        // must never throw
+            reads++;
+        }
 
         await writers;
+
+        // The loop IS the test, so it has to have run. Nothing made it: a machine that finished forty
+        // writes before the first check would race nothing, read nothing, and report green — the exact
+        // shape of a test that cannot fail, in the file that exists to catch them elsewhere.
+        Assert.True(reads > 0, "the reader never raced a writer, so no torn read was possible");
+
+        // And the document is whole at the end, not merely un-throwing throughout.
+        var after = await Task.WhenAll(Enumerable.Range(0, 40)
+            .Select(i => reader.GetAsync("site", $"p{i}")));
+        Assert.All(after, s => Assert.Single(s.For("db")));
     }
 
     public void Dispose() => _scratch.Dispose();
