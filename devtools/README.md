@@ -173,12 +173,32 @@ If one of these is failing because the claim CHANGED deliberately, change the cl
 
 ## Cutting a release
 
+**The release is the GitHub Action** (`.github/workflows/release.yml`), dispatched by hand from the Actions
+tab — never a tag push, because publishing to a permanent immutable feed should not be a side effect. Give it
+a `version` (or a `bump`), and it does everything below in an order chosen so that the irreversible step
+comes last:
+
+1. writes the version into `Directory.Build.props` **and stamps `## Unreleased` in the changelog with it**
+2. `doctor`, then `release`, then `notes` — against the exact commit being shipped
+3. packs, uploads the artifacts, publishes to NuGet via Trusted Publishing (OIDC, no stored key)
+4. only now: commits the bookkeeping, tags, and drafts the GitHub release
+
+**Nobody stamps a version by hand.** Between releases the repository holds the LAST RELEASED number and the
+changelog heads at `## Unreleased`, so `main` never claims to be a version that was never published. The
+action owned the number from the start but not the changelog headline, which meant every dispatch failed at
+step 2 with the version already on disk — the gate was right and the workflow was doing half the job.
+
+The commands still run locally, and that is what a rehearsal is:
+
 ```
 npm run doctor                     # is the repo healthy?
 node devtools/dev.mjs release      # is it shippable right now?
 node devtools/dev.mjs pack         # → artifacts/
-dotnet nuget push "artifacts/*.nupkg" --source nuget.org --api-key …
 ```
+
+Locally they read the version rather than writing it, so `release` will refuse a tree heading at
+"Unreleased" — which is the correct answer to "could I ship this commit as it stands?" and not a fault. To
+rehearse the real thing, dispatch the action with **publish off**.
 
 `release` is the second question, and it is a different one. It checks what `doctor` does not:
 

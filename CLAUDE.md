@@ -158,9 +158,17 @@ was deleted.)
 breaks the build rather than rotting quietly in a document a newcomer is trusting. Edit one and you must edit
 the other; that is the point. Adding another such document is one line in `compiledSamples`.
 
-Cutting a release is `doctor`, then `node devtools/dev.mjs release` — the second answers "is this
+**Cutting a release is the GitHub Action**, dispatched by hand with a version — `.github/workflows/release.yml`.
+It writes the version into `Directory.Build.props` AND stamps `## Unreleased` in the changelog, runs `doctor`
+and `release` against that, packs, publishes, and only then commits the bookkeeping and tags. So **nobody
+stamps a version by hand**: between releases the repo holds the last released number and heads at
+`## Unreleased`, and `main` never claims to be a version that was never published.
+
+Locally, `doctor` then `node devtools/dev.mjs release` is the rehearsal. The second answers "is this
 shippable right now?", which is mostly about things `doctor` has no reason to care about: a clean tree (the
-commit is stamped into every package), and packages that actually contain their README and XML docs.
+commit is stamped into every package), and packages that actually contain their README and XML docs. It
+reads the version rather than writing it, so it will refuse a tree heading at "Unreleased" — that is the
+right answer to "could I ship this commit as it stands?", not a fault.
 
 `devtools/README.md` says what goes wrong without each check. Everything is driven by
 `devtools/project.config.mjs`; no tool names Tyanor.
