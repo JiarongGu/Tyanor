@@ -409,6 +409,7 @@ interface Tyanor.Testing.IUnitDriverFixture
     abstract IUnitDriver Driver { get; }
     abstract ProcedureUnit Unit { get; }
     abstract Task ResetAsync(CancellationToken ct)
+    virtual DeploymentRequest Elsewhere { get; }
     virtual IReadOnlyCollection<string> ExpectedOutputs { get; }
 
 sealed record Tyanor.Testing.MemoryFault : IEquatable<MemoryFault>

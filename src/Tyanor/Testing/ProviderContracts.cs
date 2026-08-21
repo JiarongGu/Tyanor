@@ -37,6 +37,29 @@ public interface IUnitDriverFixture
     /// growing a contract: a new capability arrives meaning <i>I do not do that</i>.</para>
     /// </remarks>
     IReadOnlyCollection<string> ExpectedOutputs => [];
+
+    /// <summary>
+    /// A SECOND, independent deployment of the same unit — what a different <c>prefix</c> is for.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The default swaps the prefix, which is right for a unit that addresses itself.</b> A stack
+    /// deploys as <c>{prefix}-{unit}</c> and a directory lands in <c>{root}/{prefix}/{unit}</c>, so changing
+    /// the prefix is the whole of what makes a second deployment second.</para>
+    /// <para><b>Override it when your unit's address is CONFIGURED rather than derived.</b> An S3 content
+    /// unit is pointed at a bucket by an option, so a request that differs only in prefix is the same
+    /// deployment wearing a different name — and this suite would fail a correct driver for it. Return a
+    /// request whose options really do send the unit somewhere else.</para>
+    /// <para><b>Return null when the unit is GLOBAL</b> — a published package version, a shared registry
+    /// entry, anything whose address is the world's rather than this deployment's. Two deployments really do
+    /// see one of those, so the checks are skipped rather than failed. This is a CLAIM about your unit in
+    /// the same way <see cref="IUnitDriver.IsRemovable"/> is, not a way to be excused: both shipped
+    /// providers supply one, and a unit that could be scoped and is not is the defect these checks exist
+    /// for.</para>
+    /// <para>A default member, so adding it broke no implementation — the pattern D18 established. Unlike
+    /// <see cref="ExpectedOutputs"/> the default is a working ANSWER rather than <i>I do not do that</i>,
+    /// because being deployment-scoped is the ordinary case and opting out should take a deliberate line.</para>
+    /// </remarks>
+    DeploymentRequest? Elsewhere => Request with { Prefix = $"{Request.Prefix}-2" };
 }
 
 /// <summary>
@@ -65,6 +88,10 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
     /// </summary>
     private UnitContext Context(CancellationToken ct) =>
         new(fixture.Unit, fixture.Request, _ => { }, ct);
+
+    /// <summary>The same unit, in a SECOND deployment — see <see cref="IUnitDriverFixture.Elsewhere"/>.</summary>
+    private UnitContext Elsewhere(DeploymentRequest second, CancellationToken ct) =>
+        new(fixture.Unit, second, _ => { }, ct);
 
     /// <summary>Create it and wait, the way the engine does.</summary>
     private async Task DeployAsync(CancellationToken ct)
@@ -96,6 +123,57 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
             await fixture.ResetAsync(ct);
             var phase = await Driver.PhaseAsync(Context(ct));
             return phase == UnitPhase.Missing ? null : $"got {phase}; the engine will not create it";
+        }),
+
+        ("A second deployment does not see the first's unit", async ct =>
+        {
+            // The prefix is documented as what lets one target host several independent deployments of one
+            // procedure — a tenant each, or staging beside production. Nothing held a driver to it, and the
+            // shipped TEST target failed it for months: it keyed what was deployed by unit name alone, so a
+            // plan for the second deployment reported Update where every real provider reports Create. That
+            // is the direction that HIDES work, and a consumer testing a multi-deployment shape against it
+            // was told the wrong answer (docs/DECISIONS.md D37).
+            if (fixture.Elsewhere is not { } second) return null;      // declared global; see the fixture
+            await fixture.ResetAsync(ct);
+            await DeployAsync(ct);
+
+            var phase = await Driver.PhaseAsync(Elsewhere(second, ct));
+            return phase == UnitPhase.Missing
+                ? null
+                : $"a deployment under a different prefix reads as {phase} when only the first was deployed — " +
+                  "either the unit is not scoped to its deployment, or IUnitDriverFixture.Elsewhere needs to " +
+                  "return a request that genuinely sends it somewhere else";
+        }),
+
+        ("Removing one deployment leaves the other standing", async ct =>
+        {
+            // The half that fails silently. Getting the read wrong shows up as a plan saying the wrong
+            // thing; getting the WRITE wrong tears down somebody else's deployment, and the run reports
+            // success either way.
+            if (!Removable(ct)) return null;                           // nothing is removed, so nothing can be
+            if (fixture.Elsewhere is not { } second) return null;      // declared global; see the fixture
+
+            await fixture.ResetAsync(ct);
+            await DeployAsync(ct);
+            await Driver.CreateAsync(Elsewhere(second, ct));
+            await Driver.AwaitSettledAsync(Elsewhere(second, ct));
+
+            try
+            {
+                await Driver.RemoveAsync(Context(ct));
+
+                var phase = await Driver.PhaseAsync(Elsewhere(second, ct));
+                return phase != UnitPhase.Missing
+                    ? null
+                    : "removing one deployment took the other with it";
+            }
+            finally
+            {
+                // This suite's own mess: ResetAsync is only asked about the fixture's own request, so the
+                // second deployment is ours to clear up. Leaving it behind would cost real money against a
+                // real provider and would poison whichever check ran next.
+                await Driver.RemoveAsync(Elsewhere(second, ct));
+            }
         }),
 
         ("Nothing deployed owns no resources", async ct =>

@@ -33,6 +33,8 @@ public class ContentDriverContractTests
     {
         private const string Bucket = "contract-bucket";
 
+        private const string Elsewhere2 = "contract-bucket-2";
+
         private readonly FakeS3 _s3 = new();
         private readonly string _dir;
 
@@ -71,7 +73,21 @@ public class ContentDriverContractTests
         public Task ResetAsync(CancellationToken ct)
         {
             _s3.Buckets[Bucket] = [];              // the stack made it; this unit never does
+            _s3.Buckets[Elsewhere2] = [];          // …and the same for the second deployment's
             return Task.CompletedTask;
         }
+
+        /// <summary>
+        /// A second deployment, pointed at a DIFFERENT BUCKET — which is the whole reason the contract asks
+        /// the fixture for this rather than deriving it. A content unit's address is configured, not derived
+        /// from the prefix, so a request differing only in prefix is the same deployment wearing another
+        /// name: the isolation checks would fail a perfectly correct driver. For a stack unit the default
+        /// prefix swap IS the second deployment, and that fixture overrides nothing.
+        /// </summary>
+        public DeploymentRequest? Elsewhere => Request with
+        {
+            Prefix = "contract-2",
+            Options = new Dictionary<string, string>(Request.Options!) { ["web.bucket"] = Elsewhere2 },
+        };
     }
 }

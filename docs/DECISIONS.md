@@ -73,6 +73,7 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D35](#d35--the-providers-own-value-does-not-get-to-win-quietly-2026-08-21--amends-d34) | a rule enforced by hand is enforced where you were looking | amends D34 |
 | [D36](#d36--a-units-address-is-read-one-way-and-the-wrong-spelling-is-refused-2026-08-21--amends-d35) | an address is read per unit, and the wrong spelling is refused | amends D35 |
 | [D37](#d37--the-test-target-disagreed-with-every-real-one-about-what-a-deployment-is-2026-08-21) | the test target shared one store between two deployments | found by disbelieving a sentence |
+| [D38](#d38--the-isolation-promise-is-now-a-contract-check-and-the-fixture-declares-the-exception-2026-08-21--amends-d37) | deployment isolation is a contract check now | amends D37 |
 
 ---
 
@@ -1831,6 +1832,9 @@ quietly: without it, a destroyed unit goes on reading `Ready` from the half of t
 at — the exact lie a teardown must not tell (D32). It is mutation-checked, because it is behaviour defined
 by a line whose absence changes nothing visible until the specific test that names it.
 
+> ⚠ **Done by D38**, which added the check, verified it goes red against the code below, and made the
+> fixture declare the exception rather than the suite guess it.
+
 **Not done, and recorded rather than assumed: making `UnitDriverContract` check this.** That is the version
 with teeth — a suite that goes red — and it needs `IUnitDriverFixture` to supply a second request under a
 different prefix, which is a breaking change to an interface every out-of-repo implementer implements. It is
@@ -1846,3 +1850,37 @@ and turned `MemoryTarget.cs` BINARY to git: every diff of it from then on would 
 file nobody knew had opted out — in a repository where `tests/ApiBaselines/` says *a diff here IS the API
 review*. `doctor` now checks that every source file is text, and the check was verified by reintroducing the
 byte and watching it go red.
+
+## D38 — The isolation promise is now a contract check, and the fixture declares the exception (2026-08-21) — amends D37
+
+`UnitDriverContract` deploys under one prefix and asserts the unit reads `Missing` under another, then that
+removing one deployment leaves the other standing. `IUnitDriverFixture.Elsewhere` supplies the second
+deployment. D37 fixed the instance and deferred this deliberately; this is the version with teeth.
+
+**It was verified against the bug it was written for.** Reverting `MemoryTarget` to its pre-D37 keying turns
+both new checks red. A suite that could not have caught the defect that motivated it is decoration, and that
+is a cheap thing to check once and never wonder about again.
+
+**The default is a working answer, not an opt-out.** `Elsewhere` defaults to the request with the prefix
+swapped, which is exactly right for a unit that ADDRESSES itself: a stack is `{prefix}-{unit}`, a directory
+is `{root}/{prefix}/{unit}`. So the check arrived non-vacuous for every existing fixture without one of them
+being edited — the opposite of `ExpectedOutputs`, whose default means *I do not do that* (D18). Opting out
+of this one takes a deliberate line, because being deployment-scoped is the ordinary case.
+
+**The fixture supplies it rather than the suite deriving it, and both shipped providers proved why on the
+first run.** A `content` unit's address is CONFIGURED — an option names its bucket — so a request differing
+only in prefix is the same deployment wearing another name, and the check failed a correct driver until the
+fixture returned one pointing at a different bucket. Only the implementer knows what a second deployment of
+their unit looks like; a suite that guessed would fail correct drivers and pass incorrect ones.
+
+**Null means the unit is GLOBAL, and that is a claim rather than an excuse.** The publish fixture returns
+null: a published version is the registry's address, not this deployment's, so two deployments really do see
+one — which is not a scoping bug, it is what a registry is. This is `IsRemovable`'s shape reappearing (D32),
+and for the same reason: the one unit shape that most needs a contract is the one that cannot satisfy the
+ordinary phrasing, so it declares itself and is held to everything else.
+
+**What this does NOT check, stated rather than implied.** That a sweep is scoped to its deployment — that is
+`DeploymentTargetContract`'s, and D33 already records that a generic suite cannot see it. And it cannot tell
+a unit that is global from one whose author could not be bothered: `Elsewhere => null` is trusted the way
+`IsRemovable => false` is trusted. Both shipped providers supply a second deployment, which is the standard
+a third should be read against.

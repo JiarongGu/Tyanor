@@ -179,6 +179,18 @@ driver believes, which is the failure the suite exists to catch.
 is deployed, or always return `true` from `UpdateAsync` — and check the suite goes red. A green run against a
 suite you have never seen fail tells you nothing, which is why the suites themselves are tested that way.
 
+**Check `Elsewhere` says what a SECOND deployment of your unit looks like.** The suite deploys under one
+prefix and requires the unit to read `Missing` under another, then that removing one leaves the other
+standing — the promise behind *one target hosts several independent deployments of the same procedure*.
+The default swaps the prefix, which is already right if your unit derives its address (`{prefix}-{unit}`,
+`{root}/{prefix}/{unit}`), so most fixtures need nothing.
+
+Override it when the address is **configured** rather than derived — an S3 content unit is pointed at a
+bucket by an option, so a request differing only in prefix is the same deployment wearing another name, and
+the check would fail a correct driver. Return null only when the unit is genuinely **global**: a published
+package version belongs to the registry, not to this deployment, and two deployments really do see one. Null
+is a claim about your unit, the way `IsRemovable` is — not a way to be excused. See D38.
+
 **Declare `ExpectedOutputs` if your unit produces any.** Without it the outputs checks degenerate into
 verifying that emptiness is empty — they cannot see whether the keys appear after a deploy or, the quiet
 one, whether they go on answering after a remove because you read them from a stored copy instead of from

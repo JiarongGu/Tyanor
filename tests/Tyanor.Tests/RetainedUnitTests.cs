@@ -239,5 +239,13 @@ public class RetainedUnitTests
             _publish = new PublishUnit();          // a fresh registry, not an un-publish
             return Task.CompletedTask;
         }
+
+        /// <summary>
+        /// None: a published version is GLOBAL. Two deployments of this procedure publish the same artifact
+        /// under the same name, and the second genuinely does see the first's — which is not a scoping bug,
+        /// it is what a registry is. Declared rather than worked around, the way `IsRemovable` is: the
+        /// contract skips the two deployment-isolation checks for it and holds every other one.
+        /// </summary>
+        public DeploymentRequest? Elsewhere => null;
     }
 }

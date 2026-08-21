@@ -32,6 +32,18 @@ single-unit procedure using the unscoped spelling was working by accident and st
 
 ### Fixed
 
+- **`UnitDriverContract` now checks that a driver keeps two DEPLOYMENTS apart** — deploy under one prefix,
+  the unit must read `Missing` under another; and removing one deployment must leave the other standing.
+  That promise is what a prefix is FOR, and until now nothing held any driver to it, which is how the bug
+  below survived for months. Reasoning in `docs/DECISIONS.md` **D38**.
+  - **`IUnitDriverFixture.Elsewhere`** supplies the second deployment. It is a **default member**, so no
+    fixture breaks: the default swaps the prefix, which is already correct for a unit that derives its
+    address. Override it if your unit's address is *configured* (an S3 content unit is pointed at a bucket
+    by an option, so a prefix swap is not a second deployment) and return **null** only if the unit is
+    genuinely global — a published version belongs to the registry, not to a deployment.
+  - Verified against the bug it was written for: reverting `MemoryTarget` to its pre-fix keying turns both
+    new checks red.
+
 - **`MemoryTarget` now keeps two deployments apart.** It keyed what was deployed by unit NAME alone, so
   after `acme` applied, a plan for `globex` — a second, independent deployment of the same procedure — read
   `acme`'s units as its own and reported `Update` where every real provider reports `Create`. If you test a

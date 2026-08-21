@@ -81,21 +81,16 @@ Open work, worked one item at a time, top first. Implement fully (rules → code
 it touches, **remove the item**, then commit. Discovered work is added here, never dropped.
 
 **A number is a position, not a name — cite an item by its title when the reference has to outlive the
-backlog.** The 2026-08-20 adoption pass promoted two findings above the existing items and then closed both
-the same day, so the numbers moved twice and came back, and the paragraph here predicted they would not
-survive the next insertion. **They did not** (2026-08-21): D37 added an item at position 3, so every "item
-3" now names *the storage backend* at position 4 and every "item 4" names *the pipeline* at position 5.
+backlog.** It has now happened three times. The 2026-08-20 adoption pass promoted two findings above the
+existing items and closed both the same day; on 2026-08-21 D37 inserted an item at position 3, pushing the
+storage backend to 4 and the pipeline to 5, and D38 closed it again the same day and put them back. So the
+"item 3" and "item 4" in `CHANGELOG.md`, `docs/DECISIONS.md` and `src/Tyanor/StepUnit.cs` are — for the
+second time — accidentally correct.
 
-Read the surviving references by their SUBJECT, not their number:
-
-| Written as | Means | Now at |
-|---|---|---|
-| item 3 — in `CHANGELOG.md` and `docs/DECISIONS.md` D20, D28 | a storage backend somebody needs | 4 |
-| item 4 — in `CHANGELOG.md`, `docs/DECISIONS.md` D8/D21/D32 and `src/Tyanor/StepUnit.cs` | a real pipeline out of unit kinds | 5 |
-
-They are not edited to match, deliberately: those documents are append-only records of what was true when
-they were written, and rewriting them to track a backlog that reorders by priority would make them lie about
-their own dates. This table is the fix — one place that ages instead of nine.
+Do not read that as stability. Those documents are append-only records of what was true when they were
+written; this one is ordered by priority and is rewritten whenever priority changes. Neither is wrong, and
+they cannot both be stable, so **an item cited anywhere outside this file is cited by TITLE.** The numbers
+here are a reading order and nothing more.
 
 ---
 
@@ -381,30 +376,7 @@ did not; the claim is bounded to what ran.
   permission list, or pick a resource type an infrastructure deployer already has rights to. → **Now said,
   beside the permission list in item 1.**
 
-## 3. Let `UnitDriverContract` check that a driver keeps two DEPLOYMENTS apart
-
-**Promoted from [D37](docs/DECISIONS.md), which fixed the instance and deliberately left the check.**
-`MemoryTarget` shared one store between two prefixes — a second deployment read the first's units as its own
-— and that survived every suite this repository has, because nothing in `UnitDriverContract` deploys twice
-under different prefixes. The prefix is documented as *what lets one account host several independent
-deployments of the same procedure*, so this is a promise every driver makes and none is held to.
-
-**Why it was not just added.** The suite gets ONE `Request` from `IUnitDriverFixture`. Checking isolation
-needs a second under a different prefix, which means growing that interface — a breaking change for every
-implementer, including out-of-repo ones (D15 says those are first-class, so this costs them a property).
-
-**The fixture has to supply it rather than the suite deriving it, and that is the interesting part.** A
-stack unit isolates itself: the name is `{prefix}-{unit}`. A CONTENT unit does not — its bucket comes from
-configuration, so two prefixes are only independent because the operator pointed them at different buckets.
-A suite that invented a second request by swapping the prefix would therefore fail a correct content driver
-and pass an incorrect one. Only the implementer knows what a second deployment of their unit looks like.
-
-- Acceptance: `IUnitDriverFixture` supplies a second deployment, the suite deploys under one prefix and
-  asserts the other still reads `Missing`, both shipped providers pass it ungated, and `MemoryTarget` would
-  have failed it before D37. The last clause is the point — a suite that could not have caught the bug it
-  was written for is decoration.
-
-## 4. A storage backend somebody actually needs — SQLite, Postgres or S3
+## 3. A storage backend somebody actually needs — SQLite, Postgres or S3
 
 **The seam is done (D20); the backends are not, and that is deliberate.** Storage is named by a descriptor —
 `"sqlite:/var/lib/app.db"`, `"postgres:Host=db;…"`, `"s3://bucket/key"` — resolved through registered
@@ -444,7 +416,7 @@ Until one exists, the honest word stays *checking* rather than *syncing*.
   process mid-run and a new process finds the live record via `LiveAsync` and resumes. For a shared backend,
   from a DIFFERENT machine.
 
-## 5. Build a real pipeline out of unit kinds — and find out what breaks
+## 4. Build a real pipeline out of unit kinds — and find out what breaks
 
 **Answered on paper, not yet in practice (D21).** This item used to ask what a procedure should be *authored*
 as, on the premise that restore → build → test → package → publish → deploy → validate is broader than
@@ -482,7 +454,7 @@ removable one: that it survives, and is not lying about itself.
 
 ---
 
-## 6. Decide what a destroy should do about a live APPLY run
+## 5. Decide what a destroy should do about a live APPLY run
 
 Found by the pre-release review; recorded rather than guessed at, because either answer is defensible and
 only a real consumer can say which is right.
