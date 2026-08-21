@@ -5,6 +5,19 @@ From 1.0, SemVer 2.0 applies. Pre-1.0 the numbers are looser than SemVer would a
 carry a breaking change, and a patch may add public API — so **what a release actually contains is stated at
 the top of its section** rather than inferred from the number. Each is called out.
 
+## Unreleased
+
+### Added
+
+- **`UnitDriverContract` reports a fixture whose own answers are being ignored.** C# fixes an interface
+  mapping at the class that NAMES the interface, so a fixture base implementing `IUnitDriverFixture` with a
+  derived class declaring `Elsewhere` compiles, reads as an override, and never runs — the default answers
+  instead, and both deployment-isolation checks then test a second deployment nobody wrote. It passes while
+  checking the wrong thing, which is the failure worth a check rather than a paragraph. Found by the
+  post-release check of 0.2.0 from nuget.org, which is the only place it CAN be found: every fixture in this
+  repository implements the interface directly. **Declare `Elsewhere` on the class that implements
+  `IUnitDriverFixture`, not on one derived from it.** Reasoning in `docs/DECISIONS.md` **D39**.
+
 ## 0.2.0
 
 **One BREAKING change, and it is worth the sentence it costs.** A setting that is a unit's ADDRESS —

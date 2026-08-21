@@ -61,13 +61,22 @@ public class ContractSuiteTests
         // against a driver that cannot do anything at all.
         var results = await Driver(new ExplodesOnPhase(new MemoryTarget()), ["web.url"]).RunAllAsync();
 
-        // One check is about the OPPOSITE kind of driver and answers before touching this one: a removable
-        // unit is held to disappearing after a remove, an irreversible one to surviving, and exactly one of
-        // that pair applies to any given driver. Named here rather than loosened away, because "all checks
-        // failed" is the assertion with the teeth and an unexplained exemption is how it loses them.
-        var applicable = results.Where(r => !r.Name.StartsWith("An IRREVERSIBLE", StringComparison.Ordinal)).ToList();
+        // Two checks answer without asking the driver anything, and both are named rather than loosened
+        // away — "all checks failed" is the assertion with the teeth, and an unexplained exemption is how it
+        // loses them.
+        //
+        //   · the IRREVERSIBLE pair is about the OPPOSITE kind of driver: a removable unit is held to
+        //     disappearing after a remove, an irreversible one to surviving, and exactly one applies to any
+        //     given driver.
+        //   · the shadowed-member check is about the FIXTURE rather than the driver — whether the answers
+        //     this suite is given are the ones its author wrote. A driver that throws on every call still
+        //     has a correctly-wired fixture, so that check passing here is right (D39).
+        string[] notAboutThisDriver = ["An IRREVERSIBLE", "The fixture's own answers"];
+        var applicable = results
+            .Where(r => !notAboutThisDriver.Any(n => r.Name.StartsWith(n, StringComparison.Ordinal)))
+            .ToList();
 
-        Assert.Equal(results.Count - 1, applicable.Count);
+        Assert.Equal(results.Count - notAboutThisDriver.Length, applicable.Count);
         Assert.All(applicable, r => Assert.False(r.Passed));
         Assert.All(applicable, r => Assert.Contains("threw", r.Detail!));
     }

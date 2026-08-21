@@ -58,6 +58,12 @@ public interface IUnitDriverFixture
     /// <para>A default member, so adding it broke no implementation — the pattern D18 established. Unlike
     /// <see cref="ExpectedOutputs"/> the default is a working ANSWER rather than <i>I do not do that</i>,
     /// because being deployment-scoped is the ordinary case and opting out should take a deliberate line.</para>
+    /// <para><b>⚠ Declare it on the class that implements this interface, not on one derived from it.</b>
+    /// C# fixes the interface mapping at the class naming the interface, so a same-named property on a
+    /// DERIVED class is not the implementation: it compiles, it looks overridden, and this default is what
+    /// gets called. A provider with several unit kinds sharing a fixture base is exactly how somebody
+    /// arrives there. The check below catches it rather than leaving it silent — see
+    /// <c>docs/DECISIONS.md</c> D39, and D32 for the same rule biting <c>SweepAsync</c>.</para>
     /// </remarks>
     DeploymentRequest? Elsewhere => Request with { Prefix = $"{Request.Prefix}-2" };
 }
@@ -115,6 +121,40 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
     /// </remarks>
     private bool Removable(CancellationToken ct) => Driver.IsRemovable(Context(ct));
 
+    /// <summary>
+    /// A default member of <see cref="IUnitDriverFixture"/> that the fixture LOOKS like it overrides and
+    /// does not — or null when there is no such trap.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>C# fixes an interface mapping at the class that names the interface.</b> So a fixture base
+    /// implementing <see cref="IUnitDriverFixture"/>, with a derived class declaring
+    /// <see cref="IUnitDriverFixture.Elsewhere"/>, compiles cleanly and never calls the derived one — the
+    /// default answers instead. Nothing about that is visible at the call site, and both this suite's
+    /// deployment-isolation checks would then run against the wrong second deployment: passing while
+    /// testing something the author did not write, which is the worst of the three outcomes.</para>
+    /// <para>Found from outside, which is the only place it CAN be found: every fixture in this repository
+    /// implements the interface directly, so nothing here could reproduce it. A stranger's project on the
+    /// published package did, immediately (<c>docs/DECISIONS.md</c> D39).</para>
+    /// <para>The comparison is the interface MAP rather than the member list, because "declares a property
+    /// called Elsewhere" is not the question — "is that property the one the interface calls" is.</para>
+    /// </remarks>
+    private static string? Shadowed(IUnitDriverFixture fixture)
+    {
+        var type = fixture.GetType();
+        var map = type.GetInterfaceMap(typeof(IUnitDriverFixture));
+
+        foreach (var name in (string[])["Elsewhere", "ExpectedOutputs"])
+        {
+            var declared = type.GetProperty(name)?.GetGetMethod();
+            if (declared is null) continue;                     // did not try to supply one at all
+
+            var index = Array.FindIndex(map.InterfaceMethods, m => m.Name == $"get_{name}");
+            if (index >= 0 && !Equals(map.TargetMethods[index], declared)) return name;
+        }
+
+        return null;
+    }
+
     /// <inheritdoc/>
     protected override IReadOnlyList<(string Name, Func<CancellationToken, Task<string?>> Run)> Cases =>
     [
@@ -123,6 +163,18 @@ public sealed class UnitDriverContract(IUnitDriverFixture fixture) : ContractSui
             await fixture.ResetAsync(ct);
             var phase = await Driver.PhaseAsync(Context(ct));
             return phase == UnitPhase.Missing ? null : $"got {phase}; the engine will not create it";
+        }),
+
+        ("The fixture's own answers are the ones being used", ct =>
+        {
+            // Before anything is deployed, because everything below trusts the fixture: a member it looks
+            // like it overrides and does not means this suite is quietly testing something else.
+            var shadowed = Shadowed(fixture);
+            return Task.FromResult(shadowed is null
+                ? null
+                : $"{fixture.GetType().Name} declares '{shadowed}', but the interface calls the DEFAULT — " +
+                  "C# fixes the mapping at the class naming the interface, so declaring it on a derived " +
+                  $"class does nothing. Move '{shadowed}' onto the class that implements IUnitDriverFixture.");
         }),
 
         ("A second deployment does not see the first's unit", async ct =>

@@ -81,6 +81,7 @@ the way a log like this rots is that the entry which supersedes says so and the 
 | [D36](#d36--a-units-address-is-read-one-way-and-the-wrong-spelling-is-refused-2026-08-21--amends-d35) | an address is read per unit, and the wrong spelling is refused | amends D35 |
 | [D37](#d37--the-test-target-disagreed-with-every-real-one-about-what-a-deployment-is-2026-08-21) | the test target shared one store between two deployments | found by disbelieving a sentence |
 | [D38](#d38--the-isolation-promise-is-now-a-contract-check-and-the-fixture-declares-the-exception-2026-08-21--amends-d37) | deployment isolation is a contract check now | amends D37 |
+| [D39](#d39--a-fixture-can-look-like-it-overrides-a-default-member-and-not-so-the-suite-says-so-2026-08-21--amends-d38) | a fixture that silently ignores its author is caught | amends D38 |
 
 ---
 
@@ -1886,8 +1887,53 @@ one — which is not a scoping bug, it is what a registry is. This is `IsRemovab
 and for the same reason: the one unit shape that most needs a contract is the one that cannot satisfy the
 ordinary phrasing, so it declares itself and is held to everything else.
 
+> ⚠ **Extended by D39**, after the published-package check found a fixture whose own `Elsewhere` was
+> silently ignored — the suite would have run these checks against the wrong second deployment.
+
 **What this does NOT check, stated rather than implied.** That a sweep is scoped to its deployment — that is
 `DeploymentTargetContract`'s, and D33 already records that a generic suite cannot see it. And it cannot tell
 a unit that is global from one whose author could not be bothered: `Elsewhere => null` is trusted the way
 `IsRemovable => false` is trusted. Both shipped providers supply a second deployment, which is the standard
 a third should be read against.
+
+## D39 — A fixture can look like it overrides a default member and not, so the suite says so (2026-08-21) — amends D38
+
+`UnitDriverContract` now checks, before anything is deployed, that the fixture's own answers are the ones
+being used. C# fixes an interface mapping at the class that NAMES the interface, so a fixture base
+implementing `IUnitDriverFixture` with a derived class declaring `Elsewhere` compiles cleanly, reads as an
+override, and never runs: the default answers instead.
+
+**Found by the post-release check, from outside, which is the only place it could be found.** Every fixture
+in this repository implements the interface directly, so its own member IS the implementation and the trap
+cannot fire here. A stranger's project on the published 0.2.0 hit it on the first attempt — a fixture base
+plus two derived kinds is the natural shape for a provider with more than one unit kind, and it is exactly
+what both shipped providers would have if their fixtures shared anything.
+
+**This is why the release is verified from the package rather than from the build that made it.** The habit
+has now paid three times: 0.1.0 checked the new seams, 0.1.1 proved `SweepAsync` is really called across an
+assembly boundary, and 0.2.0 found this.
+
+**The consequence is the bad kind of failure, which is what earns a check rather than a paragraph.** A
+shadowed `Elsewhere` does not throw and does not fail — both deployment-isolation checks simply run against
+the DEFAULT second deployment instead of the one the author wrote. The suite passes while testing something
+nobody asked for, and nothing prompts anyone to look. D38 added those checks precisely so a promise was not
+taken on trust; a fixture that silently ignores its author would have put the trust back one level up.
+
+**Decided against: making `Elsewhere` non-default.** That would refuse the trap by refusing the pattern —
+every existing fixture would have to declare it, which is the break D38 avoided on purpose and the reason
+the member is defaulted at all.
+
+**Decided against: leaving it as documentation.** It IS documented now, on the member. But D32 recorded the
+same C# rule for `SweepAsync` a release earlier, in prose, and it did not stop the identical mistake being
+made the first time somebody wrote a fixture hierarchy. A rule stated in prose is enforced where the person
+was looking — which is D35's lesson, arriving for the fourth time.
+
+**The check compares the interface MAP, not the member list.** "Declares a property called `Elsewhere`" is
+not the question; "is that property the one the interface calls" is. `Type.GetInterfaceMap` answers exactly
+that, so a fixture legitimately holding an unrelated member of the same name is not accused.
+
+**What it does not cover, stated rather than implied.** Only `IUnitDriverFixture`'s two default members, and
+only for the fixture the suite is handed. The same trap exists for every default member this library ships
+— `IUnitDriver.IsRemovable`, `ValidateAsync`, `OutputsAsync`, `IDeploymentTarget.SweepAsync` — and nothing
+checks those. A driver is not a fixture: it is handed to the engine rather than to a suite, so there is no
+natural moment to inspect it. Worth revisiting if it bites there; the mechanism above generalises.
