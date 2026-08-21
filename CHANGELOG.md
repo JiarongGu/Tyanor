@@ -13,6 +13,31 @@ is now refused instead of silently shared or silently dropped. If you write `["b
 `["web.bucket"] = "…"`, `validate` reports it and an apply refuses, naming the spelling that works. A
 single-unit procedure using the unscoped spelling was working by accident and stops.
 
+**New public API, all additive:** `DeploymentRequest.Address`, `UnitContext.Address`, `OptionException` and
+`IUnitDriverFixture.Elsewhere`. Nothing existing changed shape, and the one interface member arrives with a
+working default, so no provider or fixture written outside this repository needs an edit to compile.
+
+### Added
+
+- **`DeploymentRequest.Address(unit, key)` and `UnitContext.Address(key)`** — read a setting that IS a
+  unit's identity: per unit only, and a procedure-wide one refused rather than shared or dropped. It throws
+  `OptionException` (a `DefinitionException`), so **one call gives a driver both halves** — `ValidateAsync`
+  collects it offline and the same call refuses at apply. `RequirePart`'s shape, for `RequirePart`'s reason.
+  In Core rather than hand-written per provider, because a provider written elsewhere would otherwise copy
+  the read, the detection and the sentence — which is exactly how `aws.bucket` came to be missed when
+  `local.path` was fixed. See the breaking change below, and `docs/DECISIONS.md` **D36**.
+
+- **`OptionException`** — a setting written where it cannot mean what it says. Separate from
+  `ArtifactException` because it is a different conversation with the operator, and both are
+  `DefinitionException`, so a consumer telling configuration from "the cloud said no" still catches one type.
+
+- **`IUnitDriverFixture.Elsewhere`** — the second deployment `UnitDriverContract`'s new isolation checks use.
+  A **default member**, so no fixture breaks: the default swaps the prefix, which is already correct for a
+  unit that derives its address. Override it if your unit's address is *configured* (an S3 content unit is
+  pointed at a bucket by an option, so a prefix swap is not a second deployment), and return **null** only
+  if the unit is genuinely global — a published version belongs to the registry, not to a deployment.
+  `docs/DECISIONS.md` **D38**.
+
 ### Changed
 
 - **An address written procedure-wide is REFUSED.** It was broken in opposite directions in the two
@@ -20,13 +45,8 @@ single-unit procedure using the unscoped spelling was working by accident and st
   synced to the same place, and since a sync prunes whatever the build no longer produces, the second unit
   **deleted the first's website** — measured, not theorised. Local **dropped** it: `path` stopped falling
   back in 0.1.0, which fixed the collision and left an unscoped `path` read by nothing at all, so an
-  operator's line did nothing and nothing said so. Reasoning in `docs/DECISIONS.md` **D36**.
-  - **New public API: `DeploymentRequest.Address(unit, key)`, `UnitContext.Address(key)` and
-    `OptionException`.** In Core rather than hand-written per provider, because a provider written outside
-    this repository would otherwise copy the read, the detection and the sentence — which is exactly how
-    `aws.bucket` came to be missed when `local.path` was fixed.
-  - It throws a `DefinitionException`, so **one call gives a driver both halves**: `ValidateAsync` collects
-    it offline and the same call refuses at apply. `RequirePart`'s shape, for `RequirePart`'s reason.
+  operator's line did nothing and nothing said so. Reasoning in `docs/DECISIONS.md` **D36**; the reader that
+  makes it one call is `Address`, above.
   - A unit's own value still wins over a stray unscoped one rather than also being refused — the refusal
     fires where a value would otherwise be used or dropped in silence, and nothing else.
 
@@ -35,12 +55,8 @@ single-unit procedure using the unscoped spelling was working by accident and st
 - **`UnitDriverContract` now checks that a driver keeps two DEPLOYMENTS apart** — deploy under one prefix,
   the unit must read `Missing` under another; and removing one deployment must leave the other standing.
   That promise is what a prefix is FOR, and until now nothing held any driver to it, which is how the bug
-  below survived for months. Reasoning in `docs/DECISIONS.md` **D38**.
-  - **`IUnitDriverFixture.Elsewhere`** supplies the second deployment. It is a **default member**, so no
-    fixture breaks: the default swaps the prefix, which is already correct for a unit that derives its
-    address. Override it if your unit's address is *configured* (an S3 content unit is pointed at a bucket
-    by an option, so a prefix swap is not a second deployment) and return **null** only if the unit is
-    genuinely global — a published version belongs to the registry, not to a deployment.
+  below survived for months. Reasoning in `docs/DECISIONS.md` **D38**. The second deployment comes from
+  `IUnitDriverFixture.Elsewhere`, above — a default member, so no fixture breaks.
   - Verified against the bug it was written for: reverting `MemoryTarget` to its pre-fix keying turns both
     new checks red.
 
