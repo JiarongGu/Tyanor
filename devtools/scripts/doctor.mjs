@@ -89,6 +89,20 @@ step('dependency budget', () =>
     ];
   }));
 
+// A source file is TEXT, and this repository depends on that more than most: "a diff here IS the API
+// review", "the diff is the review", and a `## Unreleased` section a human reads. One control character
+// makes git call a file binary, and from then on every diff of it says `Bin 23103 -> 26734 bytes` —
+// review silently stops happening on a file nobody knows has opted out.
+//
+// Not hypothetical: a `" any"` sentinel in MemoryTarget went in as a NUL rather than a space (D37), which
+// compiled, passed every test, and turned the file binary. The comment beside it said "space", so reading
+// would not have caught it either.
+step('sources are text', () =>
+  walk(root)
+    .filter((f) => /\.(cs|md|mjs|json|props|targets|csproj|ya?ml)$/i.test(f))
+    .filter((f) => readFileSync(f).includes(0))
+    .map((f) => `${rel(f)} contains a NUL byte, so git treats it as binary and will not diff it`));
+
 step('version is single-sourced', () => {
   const props = readFileSync(join(root, cfg.versionProps), 'utf8');
   const version = props.match(/<VersionPrefix>([^<]+)<\/VersionPrefix>/)?.[1];

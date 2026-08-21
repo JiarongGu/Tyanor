@@ -137,7 +137,7 @@ One command — build, test, and every check the repo can make cheaply. It exist
 something anyone has to remember, because the step people forget is the step that breaks.
 
 ```
-npm run doctor                    build + test + the knowledge layer + the two claims
+npm run doctor                    build + test + the knowledge layer + the claims
 node devtools/dev.mjs decisions   supersession points both ways; every cited D<n> exists
 node devtools/dev.mjs rules       every rule indexed, every link resolves
 node devtools/dev.mjs docs        every .md link and anchor resolves; the guide's samples compile
@@ -146,12 +146,15 @@ node devtools/dev.mjs boundary    the neutral core names no vendor, in code or i
 node devtools/dev.mjs sensitive   credential scan
 ```
 
-Three of doctor's checks verify **claims this repository makes out loud** — that the library depends on
-exactly the packages its budget names and no others, that the version ships from one place, and that nothing
-vendor-shaped has crossed into the neutral core. If one fails because the claim changed deliberately, change
-the claim. Do not silence the check. (D26 is what that looks like done properly: the dependency-free claim
-genuinely stopped being true, so the check became a narrower one that still fails, rather than a check that
-was deleted.)
+Four of doctor's checks verify **claims this repository makes out loud** — that the library depends on
+exactly the packages its budget names and no others, that the version ships from one place, that nothing
+vendor-shaped has crossed into the neutral core, and that every source file is TEXT. The last one is there
+because so much here rests on a readable diff — `tests/ApiBaselines/` calls a diff the API review — and one
+control character makes git call a file binary and stop diffing it, silently. That happened (D37).
+
+If one fails because the claim changed deliberately, change the claim. Do not silence the check. (D26 is
+what that looks like done properly: the dependency-free claim genuinely stopped being true, so the check
+became a narrower one that still fails, rather than a check that was deleted.)
 
 **The samples in the three consumer-facing documents are compiled.** Every C# fence in `docs/guide.md`,
 `docs/adoption.md` and `docs/providers.md` must appear verbatim in `tests/Tyanor.Docs.Tests`, which builds — so a renamed method

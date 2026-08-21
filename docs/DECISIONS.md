@@ -1838,3 +1838,11 @@ also the only sane way to handle the awkward case: an AWS content unit's isolati
 pointing it at a different bucket, not from the driver, so only the implementer can supply a correctly
 configured second deployment. Worth doing; worth deciding deliberately rather than as a side effect of this.
 See `TASKS.md`.
+
+**A postscript that is its own small lesson.** The sentinel this fix introduced — a prefix no request can
+carry — went in as a NUL byte rather than the space its own comment claimed. It compiled, passed 876 tests,
+and turned `MemoryTarget.cs` BINARY to git: every diff of it from then on would have read
+`Bin 23103 -> 26734 bytes`. Nothing would have failed, and review would simply have stopped happening on a
+file nobody knew had opted out — in a repository where `tests/ApiBaselines/` says *a diff here IS the API
+review*. `doctor` now checks that every source file is text, and the check was verified by reintroducing the
+byte and watching it go red.

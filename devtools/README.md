@@ -104,6 +104,18 @@ The defect it exists for is the one that made the original code unportable. A "g
 carried `CdkOutDir` and `WebDir`, so the neutral interface named an AWS tool and assumed a single-page app.
 No second provider could have implemented it, and nobody noticed, because there was only ever one.
 
+### `sources are text` (inside `doctor`, no separate command)
+
+**Because the diff is the review here.** `tests/ApiBaselines/` says "a diff here IS the API review", the
+commit convention rests on a readable diff, and a `## Unreleased` changelog section is written for a person.
+A single control character makes git treat a file as binary, and from then on every diff of it reads
+`Bin 23103 -> 26734 bytes`. Nothing breaks, nothing fails, and review silently stops happening on a file
+nobody knows has opted out.
+
+Found the way most things here are: it happened. A `" any"` sentinel in `MemoryTarget` went in as a NUL
+rather than a space — it compiled, passed 876 tests, and turned the file binary, while the comment beside it
+said "space" so reading would not have caught it either. See `docs/DECISIONS.md` D37.
+
 **Comments are exempt, and that is the design rather than a concession.** The core is documented by naming
 what it refuses — *only the AWS provider knows this is a CloudFormation assembly*, *the way `terraform
 destroy` is* — so banning the words would ban the paragraphs that make the boundary teachable, and the check
