@@ -265,16 +265,10 @@ internal static class ApiSurface
     }
 
     /// <summary>
-    /// The repository root, stamped in by <c>tests/Directory.Build.props</c> at build time.
-    ///
-    /// <para>Not discovered by walking up from the output directory, which is the usual trick and breaks the
-    /// moment anything runs the assembly from elsewhere.</para>
+    /// The repository root — see <see cref="Repo.Root"/>, which is where this moved when a second caller
+    /// needed it.
     /// </summary>
-    private static string RepoRoot() =>
-        typeof(ApiSurface).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
-            .FirstOrDefault(a => a.Key == "RepoRoot")?.Value
-        ?? throw new InvalidOperationException(
-            "No RepoRoot in assembly metadata — tests/Directory.Build.props is meant to stamp it.");
+    private static string RepoRoot() => Repo.Root;
 
     private static string Rel(string path) =>
         Path.GetRelativePath(RepoRoot(), path).Replace('\\', '/');

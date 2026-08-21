@@ -161,6 +161,11 @@ became a narrower one that still fails, rather than a check that was deleted.)
 breaks the build rather than rotting quietly in a document a newcomer is trusting. Edit one and you must edit
 the other; that is the point. Adding another such document is one line in `compiledSamples`.
 
+**`docs/architecture/overview.md` has no samples, so its two reconcile tables are checked instead.**
+`ArchitectureTables` reads the markdown and holds it to `Reconcile.Decide` and `DecideDestroy` over EVERY
+`UnitPhase` — a missing row, an invented one, or a wrong action fails. Those tables are the resume model
+written out for a reader, and a sixth phase would otherwise leave them complete-looking and one row short.
+
 **Cutting a release is the GitHub Action**, dispatched by hand with a version — `.github/workflows/release.yml`.
 It writes the version into `Directory.Build.props` AND stamps `## Unreleased` in the changelog, runs `doctor`
 and `release` against that, packs, publishes, and only then commits the bookkeeping and tags. So **nobody
@@ -235,5 +240,14 @@ Four independent libraries; none depends on another.
 | What is left to build | `TASKS.md` |
 | What changed, and what broke | `CHANGELOG.md` |
 
-Each answers a different question, and a change usually touches two. `guide.md` is the one that goes stale
-invisibly — nothing checks that a code sample still compiles, so when a signature changes, look there.
+Each answers a different question, and a change usually touches two.
+
+**This paragraph used to say `guide.md` goes stale invisibly because "nothing checks that a code sample
+still compiles".** That stopped being true when the three consumer-facing documents' samples became
+compiled — §4 says so, and the two claims sat contradicting each other for several releases. Renaming a
+method now fails `doctor docs` by name, so the SAMPLES cannot rot.
+
+**What still can is the PROSE around them**, and that is where to look when a signature changes: a sentence
+naming a method, a paragraph describing behaviour that moved, a setting still documented as it was read last
+year. Nothing checks a sentence. `docs/architecture/overview.md` carries no samples at all, so only its two
+reconcile tables are held to the code (`ArchitectureTables`) — every other paragraph in it is on trust.
