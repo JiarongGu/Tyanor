@@ -231,6 +231,32 @@ invisible in hindsight:
 
 ### From adoption
 
+**BLOCKING, found 2026-08-21 when adoption started again: the consumer docs on `main` teach API that the
+PUBLISHED package does not have.** `docs/adoption.md`'s worked `StepUnitDriver` sample calls
+`context.Address("url")`, and `guide.md` and `providers.md` both teach the address rule. `Address` landed
+after v0.1.1 ([D36](docs/DECISIONS.md)), and v0.1.1 is what nuget.org serves — so an adopter following the
+document restores the package, copies the sample, and it does not compile.
+
+**The compiled-samples check cannot catch this, and that is the part worth remembering.** It compiles every
+fence against the SOURCE TREE, so a sample using unreleased API is green here and broken for the only person
+it was written for. The check is not wrong; it answers "does this sample match the code" and the question an
+adopter has is "does it match the package I can install".
+
+It has never bitten before because 0.1.0 and 0.1.1 were each documented and published the same day. It bites
+now because a breaking change plus four fixes have accumulated on `main` — including the one this adopter
+themselves reported, `assetsBucketParameter` overwriting silently, which is fixed only here.
+
+- **The fix is to release**, and the tree is ready: `release` reports 0.2.0, three packages plus symbols,
+  from `dddfaee`. A minor bump, because the address change is breaking and the changelog says pre-1.0 a
+  minor may carry one.
+- Until then, anyone adopting is on 0.1.1 and should read `## Unreleased` in the CHANGELOG as "not yet
+  yours".
+- Worth deciding once rather than rediscovering: whether the docs on `main` should mark API newer than the
+  last tag, or whether the answer is simply to release before telling anyone to adopt. Same-day releases
+  made the question invisible; a slower cycle makes it real.
+
+
+
 *Still nothing SHIPPED, but the first consumer has started.* Aurelia — the consumer named above — read
 0.1.0's public surface, both providers' docs and the AWS provider's source against its own existing
 deployer, and then wrote the spike and took it through **step 1 of `adoption.md`** (2026-08-20). Nothing has been
