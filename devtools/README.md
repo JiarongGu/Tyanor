@@ -16,6 +16,7 @@ node devtools/dev.mjs doctor      build + test + every check below, one verdict
                       docs        validate every .md — links, anchors, required documents
                       providers   every shipped provider is held to the contract suites
                       boundary    the neutral core names no vendor, in code or in a string
+                      consumer    pack, then use the packages as a stranger does
                       sensitive   scan for credentials
 ```
 
@@ -99,6 +100,33 @@ file that also builds the driver contract; named anywhere else it does not count
 The pattern is `\w+Kind`, not `\w*Kind`: the latter also matched the option name `Kind` itself, which then
 passed because `Kind` is a substring of `DirectoryKind`. It reported six kinds where there are four, which is
 how you notice a check is not reading what it thinks it is.
+
+### `consumer`
+
+**Because some defects only exist across an assembly boundary.** `doctor` and `release` both compile against
+the SOURCE TREE, so both can be green while the thing a consumer installs is wrong. This packs, creates a
+throwaway project OUTSIDE the repository, restores the packed `.nupkg` into it, and runs
+`devtools/consumer/Program.cs` against nothing but the public surface.
+
+The defect that earned it: a default interface member that compiles, reads as overridden, and never runs,
+because C# fixes an interface mapping at the class naming the interface. Every implementation in this
+repository is on the inside of that boundary, so nothing here could reproduce it — a stranger's project on
+the published 0.2.0 hit it on the first attempt (D39).
+
+It was a RITUAL before it was a script — 0.1.0, 0.1.1 and 0.2.0 were each checked by hand this way, *after*
+publishing. That is what made a fixable thing a shipped thing. The packages exist at pack time, so `release`
+runs it now and hands over the folder it already packed rather than packing twice.
+
+Two isolations are load-bearing, and without either it passes while testing the wrong bits:
+
+- **Source mapping, not `<clear />`.** The library's own dependency lives upstream, so the local folder
+  cannot be the only source. But adding upstream back would let a restore prefer a version of the library
+  that is ALREADY published — testing the previous release while reporting on this one. Mapping says it
+  exactly: these ids come from the packed folder and nowhere else.
+- **A private packages folder**, not the global cache, which may already hold the version being cut.
+
+Build and run are separate steps, because "the surface a consumer compiles against changed" and "it compiles
+and then misbehaves" send you to different places.
 
 ### `boundary`
 

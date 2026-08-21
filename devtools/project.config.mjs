@@ -20,6 +20,21 @@ export default {
   ],
 
   /**
+   * The stranger's project: packed packages, restored into a throwaway app OUTSIDE this repository, run
+   * against nothing but the public surface. `source` holds the program; `packages` are what it references.
+   *
+   * This exists because a defect can live entirely across an assembly boundary — a default interface member
+   * that compiles, looks overridden and never runs — and every implementation in this repository is on the
+   * inside of that boundary. See docs/DECISIONS.md D39.
+   */
+  consumer: {
+    source: 'devtools/consumer',
+    packages: ['src/Tyanor/Tyanor.csproj'],
+    targetFramework: 'net10.0',
+    upstream: 'https://api.nuget.org/v3/index.json',
+  },
+
+  /**
    * The dependency BUDGET for the library: every PackageReference it is allowed to take, and no other.
    * A real architectural claim the README makes, and a claim nobody checks is one that quietly stops being
    * true — so it is a test, not a hope. An empty list means genuinely nothing.

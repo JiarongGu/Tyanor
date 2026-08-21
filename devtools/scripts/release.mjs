@@ -167,6 +167,19 @@ try {
     }
 
     notes.push(`${produced.length} packages + ${symbols.length} symbol packages build`);
+
+    // …and then USE them, from outside, as a consumer would. Compiling against the source tree cannot see
+    // a defect that only exists across an assembly boundary, and 0.2.0 shipped one: a default interface
+    // member that compiled, read as overridden, and never ran (docs/DECISIONS.md D39). That was found by
+    // hand AFTER publishing. The packages exist right here, so it runs before.
+    const consumer = spawnSync('node', [join(here, 'consumer.mjs'), out],
+      { cwd: root, encoding: 'utf8', shell: process.platform === 'win32' });
+    if (consumer.status !== 0) {
+      const detail = `${consumer.stdout ?? ''}${consumer.stderr ?? ''}`.trim().split(/\r?\n/).pop();
+      problems.push(`the packed packages do not behave for a consumer — ${detail || 'see `dev.mjs consumer`'}`);
+    } else {
+      notes.push('a consumer project outside this repository builds and behaves against them');
+    }
   }
 } finally {
   rmSync(out, { recursive: true, force: true });

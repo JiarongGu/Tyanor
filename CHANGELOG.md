@@ -9,6 +9,11 @@ the top of its section** rather than inferred from the number. Each is called ou
 
 ### Added
 
+- **The release rehearsal now USES the packages it packs.** `node devtools/dev.mjs consumer` restores them
+  into a throwaway project outside the repository and runs a consumer program against the public surface
+  alone. Nothing about a released package changes; this is how the next one avoids shipping a defect that
+  only exists across an assembly boundary — which is where the item below was found, one release too late.
+
 - **`UnitDriverContract` reports a fixture whose own answers are being ignored.** C# fixes an interface
   mapping at the class that NAMES the interface, so a fixture base implementing `IUnitDriverFixture` with a
   derived class declaring `Elsewhere` compiles, reads as an override, and never runs — the default answers

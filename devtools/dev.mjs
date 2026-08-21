@@ -7,6 +7,7 @@
 //   test               run the test suite
 //   build              build the solution
 //   release            are we shippable? clean tree, version, packages that contain what they should
+//   consumer           pack, then use the packages as a stranger would — outside the repo, public surface only
 //   notes              this release's notes, from the CHANGELOG section that names it
 //   pack [outDir]      produce the NuGet packages locally
 //   decisions          validate docs/DECISIONS.md — references resolve, supersessions point forward
@@ -33,6 +34,7 @@ const TOOLS = {
   providers: 'providers.mjs',
   boundary: 'boundary.mjs',
   release: 'release.mjs',
+  consumer: 'consumer.mjs',
   notes: 'release-notes.mjs',
   sensitive: 'check-sensitive.mjs',
 };

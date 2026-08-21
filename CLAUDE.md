@@ -172,6 +172,13 @@ and `release` against that, packs, publishes, and only then commits the bookkeep
 stamps a version by hand**: between releases the repo holds the last released number and heads at
 `## Unreleased`, and `main` never claims to be a version that was never published.
 
+**`release` now also USES the packages it packs.** `node devtools/dev.mjs consumer` restores them into a
+throwaway project outside this repository and runs `devtools/consumer/Program.cs` against the public surface
+alone — because a defect can live entirely across an assembly boundary, where compiling against the source
+tree cannot see it. 0.2.0 shipped one (D39). That check had been a post-publish ritual for three releases;
+the packages exist at pack time, so it runs before now. Add a case to that program when a release adds a
+seam.
+
 Locally, `doctor` then `node devtools/dev.mjs release` is the rehearsal. The second answers "is this
 shippable right now?", which is mostly about things `doctor` has no reason to care about: a clean tree (the
 commit is stamped into every package), and packages that actually contain their README and XML docs. It
