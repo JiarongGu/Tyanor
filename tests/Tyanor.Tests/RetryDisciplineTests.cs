@@ -122,6 +122,31 @@ public class ProviderCallTests
     }
 
     [Fact]
+    public async Task A_RE_RUN_teardown_does_not_ask_about_units_it_already_removed()
+    {
+        // The other half of the check above, and the half that happens MORE often: a teardown is re-runnable
+        // by design — running it again is how an interrupted one is finished — so a repeat meets every unit
+        // already Missing and takes the `Nothing` branch rather than the removing one.
+        //
+        // Only the removing branch was pinned. Mutating the `Nothing` branch to refresh instead broke no
+        // test, which is exactly the hole `MemoryTarget.Refreshes` was added to make visible: "it saves a
+        // provider call per unit and is otherwise invisible, which is how it would quietly stop being true".
+        // It had quietly stopped being checked for the commonest path.
+        var target = new MemoryTarget().AlreadyDeployed("db", "api");
+        var state = new InMemoryStateStore();
+        var runner = new ProcedureRunner(target, new InMemoryRunHistory(), state);
+
+        Assert.True((await runner.DestroyAsync(Site, Request())).Ok);
+        target.Refreshes.Clear();
+
+        // …and again, over a deployment that is already gone.
+        Assert.True((await runner.DestroyAsync(Site, Request())).Ok);
+
+        Assert.Empty(target.Refreshes);
+        Assert.Empty((await state.GetAsync("site", "acme")).RecordedUnits);
+    }
+
+    [Fact]
     public async Task An_APPLY_does_ask_each_unit_what_it_owns_so_state_records_reality()
     {
         // The other direction: state records what IS, straight from the provider, never what was intended.

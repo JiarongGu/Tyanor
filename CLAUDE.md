@@ -192,6 +192,20 @@ right answer to "could I ship this commit as it stands?", not a fault.
 - **Test the decisions, not the plumbing.** The reconcile table and the classifiers are where a silent bug
   hides — a wrong decision looks like a differently-ordered deployment, and `Attach` fails by *succeeding*
   at something it should never have started.
+- **A test that has never failed is decoration, so break the code and watch it go red.** That is how the
+  forty AWS control-flow tests were accepted (D23) and how every check added since has been. **A mutation
+  run lies in two ways, and both were hit in one afternoon** — so if a result surprises you, suspect the
+  harness before the code:
+  - **A mutation that does not COMPILE reads as a mutation nothing caught.** `TreatWarningsAsErrors` is on,
+    so `if (false) return;` is an unreachable-code error, and a run that never built reports no test
+    failures. Check the build succeeded. Inconclusive, never a pass. This produced a false "unguarded"
+    finding for `A_NARROWED_destroy_does_not_sweep`, which two tests in fact pin.
+  - **Restoring the file must give it a NEW mtime, or the next run tests the MUTANT.** A restore that
+    preserves the original timestamp — `shutil.move` of a backup, `cp -p`, anything rename-based — leaves
+    the source older than the compiled assembly, MSBuild skips the rebuild, and the mutated binary is what
+    runs. That is worse than the first trap because it fails AFTER the experiment, in unrelated work: it
+    presented as a passing test suddenly failing, and was nearly recorded as a regression in the change
+    being made at the time. Restore by rewriting the file, or `dotnet build --no-incremental`.
 - **Live provider calls stay behind an env-gated integration test**, skipped as a vacuous pass, so an
   ordinary run never touches a cloud or spends money.
 
