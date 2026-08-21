@@ -38,6 +38,13 @@ check requires supersession to point **both ways**, and it caught five missing f
 time it ran. It also verifies every decision has a date and that every `D<n>` cited anywhere in the repo
 actually exists — which caught a source comment citing D20 before D20 had been written.
 
+**That last check used to cover a fifth of the citations.** It only counted a `D<n>` when the word
+"decision" appeared within 120 characters, to avoid mistaking unrelated prose for a reference — so 44 of
+~250 were validated and 206 were not, and a `D99` in an ordinary code comment passed cleanly. The caution
+turned out to be unfounded: the word boundary and trailing-punctuation lookahead already exclude `D3D11`,
+hex and identifiers, and broadening it produced zero false positives. It now checks every one, in `.mjs` and
+`.yml` as well, and reports the count so the scale is visible.
+
 Once the log grew past twenty entries it got an index of hand-written anchors, so the check also verifies
 every in-page link resolves to a heading that exists. A reworded title otherwise leaves the index pointing
 nowhere, which is worse than having no index because it still looks like navigation.

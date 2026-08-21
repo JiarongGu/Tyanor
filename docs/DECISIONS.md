@@ -7,6 +7,13 @@ something it did not say.
 Each entry names what was decided, what it was decided **against**, and what evidence exists. "It seemed
 cleaner" is not evidence.
 
+**Every entry has a number, and `D12` anywhere in this repository means entry 12 of this file.** They are
+cited from code comments, rules, the guide, the changelog and the backlog, because the reasoning belongs
+where the reader is rather than only here. The numbers are permanent and never reused — a decision that is
+overturned keeps its number and gains a banner pointing at whatever overtook it. `npm run doctor` refuses a
+citation of an entry that does not exist, anywhere in any `.cs`, `.md`, `.mjs` or `.yml`, so a reference is
+never left dangling by a rename or a number typed from memory.
+
 ## Index
 
 An overtaken entry carries a banner pointing forward; `doctor` checks that both directions exist, because

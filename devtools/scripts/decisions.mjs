@@ -73,22 +73,38 @@ const walk = (dir) => readdirSync(dir).flatMap((e) => {
   return statSync(p).isDirectory() ? walk(p) : [p];
 });
 
+// EVERY D<n> anywhere is a citation, with no proximity test.
+//
+// This used to count one only when "decision" or "DECISIONS" appeared within 120 characters, to avoid
+// mistaking an unrelated "D1" for a reference. The cost was that it validated 44 of this repository's ~250
+// citations and silently ignored the other 206: a `D99` written in an ordinary code comment passed cleanly,
+// which is the one thing this check exists to prevent. The caution was also unfounded — broadening it
+// produced zero false positives across every .cs, .md, .mjs and .yml here, because the word boundary and
+// the trailing-punctuation lookahead already exclude D3D11, hex and identifiers.
+//
+// `.mjs` and `.yml` are scanned now too. The devtools and the release workflow cite decisions like anything
+// else, and were exempt for no reason beyond the extension list.
+//
+// If a genuine non-citation ever matches, reword it. Do not narrow this back.
 const cited = new Map();
-for (const file of walk(root).filter((f) => /\.(md|cs)$/.test(f))) {
+let citations = 0;
+for (const file of walk(root).filter((f) => /\.(md|cs|mjs|ya?ml)$/.test(f))) {
   const body = readFileSync(file, 'utf8');
-  // "D12" in prose. Requires the word boundary so it does not match D3D11 or a hex string.
+  // "D12" in prose. The word boundary is what keeps D3D11 and hex out.
   for (const m of body.matchAll(/\bD(\d{1,2})\b(?=[\s.,;:)\]]|$)/gm)) {
-    // Only count it as a citation when DECISIONS is plausibly the subject — a bare "D1" in unrelated
-    // prose would otherwise produce noise. Nearby mentions of decision/DECISIONS.md qualify it.
-    const around = body.slice(Math.max(0, m.index - 120), m.index + 40);
-    if (!/decision|DECISIONS/i.test(around)) continue;
     const id = `D${m[1]}`;
-    if (!cited.has(id)) cited.set(id, file.slice(root.length + 1).replace(/\\/g, '/'));
+    citations++;
+    if (cited.has(id)) continue;
+    const line = body.slice(0, m.index).split('\n').length;
+    cited.set(id, `${file.slice(root.length + 1).replace(/\\/g, '/')}:${line}`);
   }
 }
 
 for (const [id, where] of cited)
-  if (!seen.has(id)) problems.push(`${where}: cites ${id}, which is not in ${cfg.decisions}`);
+  if (!seen.has(id))
+    problems.push(
+      `${where}: cites ${id}, which is not in ${cfg.decisions} — ` +
+      'either the number is wrong or the entry was never written');
 
 // ── every in-page link resolves to a heading that exists ─────────────────────────────────────────
 // The index at the top is hand-written anchors, which rot the moment a title is reworded — and a broken
@@ -110,7 +126,9 @@ for (const m of text.matchAll(/\]\(#([^)]+)\)/g))
 
 // ── report ───────────────────────────────────────────────────────────────────────────────────────
 if (problems.length === 0) {
-  console.log(`decisions: ${headings.length} decisions, all dated, referenced and cross-linked.`);
+  console.log(
+    `decisions: ${headings.length} decisions, all dated and cross-linked; ` +
+    `${citations} citations across the repo, all resolving.`);
   process.exit(0);
 }
 console.error(`decisions: ${problems.length} problem(s)\n` + problems.map((p) => `  - ${p}`).join('\n'));
