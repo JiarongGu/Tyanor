@@ -267,6 +267,35 @@ in `docs/DECISIONS.md` if it changes a load-bearing choice rather than adding wo
 
 ---
 
+**0.2.1 ADOPTED (2026-08-21). `ValidateAsync` still returns clean over the real artifact, and neither of
+0.2.0's two upgrade hazards touched us** — which is worth reporting precisely, because both were near
+misses rather than misses:
+
+- **The breaking change (D36, procedure-wide address refused) does not fire here**, because every address
+  this consumer writes is already per-unit (`content.bucketFrom`). The shared `["kind"]` is not an address.
+- **The `assetsBucketParameter` refusal (D35) does not fire either — but only because 0.1.1 was adopted
+  first.** The CHANGELOG's upgrade note is exactly right: a consumer still carrying the hand-computed
+  `{prefix}-deploy-{account}` parameter line now FAILS. This spike deleted that line when it took
+  `assetsBucketParameter`, so it skipped the hazard by having upgraded in order. **A consumer jumping
+  0.1.0 → 0.2.1 in one step meets both changes at once**, and the note lives in 0.2.0's section — worth a
+  line in 0.1.0's too, or in `adoption.md`, since that is the jump a late adopter makes.
+
+**Verified rather than inferred, because "our options happen to be correct" is a weak reason to believe a
+refusal works.** Writing a procedure-wide `bucket` deliberately DOES get refused across the package
+boundary, with a message that names the fix: *"'bucket' is set for the whole procedure, but unit 'content'
+reads it as its own address — a shared one is not a default, it is every unit using the same value and
+overwriting each other. Write \"content.bucket\"."* That sentence is the feature.
+
+**ONE new finding, small: that problem is reported TWICE.** Byte-identical text, same unit, in one
+`ValidateAsync` result — so the operator is shown what reads as two faults and will look for a second
+cause. It is presumably one `Address` read reached from two code paths (the address check and the
+`bucket`/`bucketFrom` mutual-exclusion check), each collecting the same throw through `UnitProblems`, which
+is the cost of the "one call gives a driver both halves" design working as intended. **Ask:** dedupe
+`Validation.Problems` on (unit, message) — the collector is the one place that can, and no driver should
+have to remember not to ask twice. Nothing is wrong with the answer, only with how many times it is given.
+
+---
+
 **0.1.1 ADOPTED the day it shipped, and it closed every finding below.** Reported back because "your fix
 worked" is worth more than the finding was, and because what it DELETED is the measurable part:
 
